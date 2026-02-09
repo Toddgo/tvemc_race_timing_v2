@@ -1,0 +1,65 @@
+<?php
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+
+$config = include __DIR__ . '/config.race.php';
+
+$conn = new mysqli($config , $config['username'], $config , $config );
+if ($conn->connect_error) {
+    http_response_code(500);
+    echo json_encode( );
+    exit;
+}
+
+$event_code = $_GET ?? '';
+
+if ($event_code) {
+    $stmt = $conn->prepare("SELECT id FROM events WHERE code = ?");
+    $stmt->bind_param("s", $event_code);
+    $stmt->execute();
+    $stmt->bind_result($event_id);
+    $stmt->fetch();
+    $stmt->close();
+} else {
+    $event_id = 1;
+}
+
+$dist = [  ];
+
+$res = $conn->query("SELECT id, distance, start_ts FROM distances WHERE event_id = " . (int)$event_id);
+if ($res) {
+    while ($r = $res->fetch_assoc()) {
+        $starts_iso = $r ? date('c', strtotime($r['start_ts'])) : null;
+        $starts = $r ;
+        $starts_iso = $r['start_ts'] ? date('c', strtotime($r )) : null;
+    }
+}
+
+$runnerStarts = [];
+
+$res = $conn->query("SELECT bib, start_ts_actual FROM runner_starts WHERE event_id = " . (int)$event_id);
+if ($res) {
+    while ($r = $res->fetch_assoc()) {
+        $bib = (string)$r ;
+        $ts = $r ;
+        $runnerStarts = $ts;
+    }
+}
+
+$runnerStarts_iso = [];
+foreach ($runnerStarts as $bib => $ts) {
+    $runnerStarts_iso = $ts ? date('c', strtotime($ts)) : null;
+}
+
+$conn->close();
+
+echo json_encode([
+    "success" => true,
+    "event_id" => $event_id,
+    "distances" => $dist,
+    "start_times" => $starts,
+    "start_times_iso" => $starts_iso,
+    "runner_starts" => $runnerStarts,
+    "runner_starts_iso" => $runnerStarts_iso
+]);
+EOF

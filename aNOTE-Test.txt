@@ -1,0 +1,12 @@
+Changes made:
+
+Jan27 2026, 10:00 - 12:15
+Only race_timing.js
+- DNF latch fixed
+- Safety alerts restored
+- race_timing.js only
+
+Summary:
+- DNF latch fixed (DNF persists until HQ clear, IN does not cancel)
+- Safety alerts restored (separate from confirmation pop-ups)
+- No DB / PHP / HTML changes

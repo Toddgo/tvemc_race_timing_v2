@@ -1,0 +1,220 @@
+<?php
+// finish_lookup.php (DEV VERSION)
+// Returns JSON for the HQ Runner Lookup page:
+//
+//   ?log=1        -> full bib log (all movements)
+//   ?finishers=1  -> only rows where action contains "FINISH"
+//
+// Data source: bib_data table only.
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+header('Content-Type: application/json');
+
+$config = require 'config.race.php';
+
+$pdo = new PDO(
+    "mysql:host={$config['host']};dbname={$config['dbname']};charset=utf8mb4",
+    $config['username'],
+    $config['password'],
+    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+);
+
+/**
+ * STATUS FORMAT (what you actually have now)
+ *
+ * Example:
+ *   IN | 21:57 | Today | HELL HILL AID #1 |  | N/A | kj6dgg, Todd | Ray Miller 50 50 2025 | 1 | 12/2/2025
+ *    0     1        2            3               4     5              6                   7              8     9
+ *
+ * We parse:
+ *   0 => action
+ *   1 => time
+ *   2 => day
+ *   3 => station
+ *   4 => comment
+ *   5 => eta
+ *   6 => operator
+ *
+ * From the tail:
+ *   len-3 => event (Ray Miller 50 50 2025)
+ *   len-1 => date  (12/2/2025)
+ */
+function parse_status(string $status): array
+{
+    $parts = array_map('trim', explode('|', $status));
+    $len   = count($parts);
+
+    $action   = $parts[0] ?? '';
+    $time     = $parts[1] ?? '';
+    $day      = $parts[2] ?? '';
+    $station  = $parts[3] ?? '';
+    $comment  = $parts[4] ?? '';
+    $eta      = $parts[5] ?? '';
+    $operator = $parts[6] ?? '';
+
+    // From the tail of the string, if present
+    $event   = ($len >= 3) ? ($parts[$len - 3] ?? '') : '';
+    $dateStr = $len >= 1 ? ($parts[$len - 1] ?? '') : '';
+
+    return [
+        'action'   => $action,
+        'time'     => $time,
+        'day'      => $day,
+        'station'  => $station,
+        'comment'  => $comment,
+        'eta'      => $eta,
+        'operator' => $operator,
+        'event'    => $event,
+        'date'     => $dateStr,
+    ];
+}
+
+/**
+ * Fetch all rows from bib_data (newest first) and map them into
+ * the shape required by finish_lookup.html.
+ *
+ * DEV ONLY: no runner_registry join; we use bib_data.* directly.
+ */
+function fetch_all_rows(PDO $pdo): array
+{
+    $sql = "
+        SELECT
+            id,
+            bib,
+            status,
+            first_name,
+            last_name,
+            age,
+            gender,
+            timestamp,
+            distance,
+            previous_distance
+        FROM bib_data
+        ORDER BY timestamp DESC, id DESC
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $out = [];
+    foreach ($rows as $row) {
+        $status = $row['status'] ?? '';
+
+        // 🚫 Skip stub / junk rows where status is completely empty
+        if (trim($status) === '') {
+            continue;
+        }
+
+        $parsed = parse_status($status);
+
+        // 🔧 Distance-change fix:
+        // For rows where the comment starts with "Distance changed to",
+        // sometimes the date/operator/eta get shifted. If we detect that:
+        // - treat 'date' as operator if operator is empty
+        // - set ETA to 'N/A'
+        // - set date to today's date
+        if (
+            isset($parsed['comment']) &&
+            strpos($parsed['comment'], 'Distance changed to') === 0
+        ) {
+            // If operator looks empty but 'date' looks like an operator (e.g., "kj6dgg, Todd")
+            if (
+                (empty($parsed['operator']) || $parsed['eta'] === $parsed['operator']) &&
+                !empty($parsed['date']) &&
+                strpos($parsed['date'], ',') !== false  // crude "has a comma" check
+            ) {
+                // Move that "date" string to operator
+                $parsed['operator'] = $parsed['date'];
+                // ETA should be just N/A for this case
+                $parsed['eta'] = 'N/A';
+                // Set date to today (matching your Today/date behavior elsewhere)
+                $parsed['date'] = date('n/j/Y');
+            }
+        }
+
+        // Use DB timestamp when available; otherwise use parsed time/date from status
+        $ts = null;
+        if (!empty($row['timestamp'])) {
+            try {
+                $ts = new DateTime($row['timestamp']);
+            } catch (Exception $e) {
+                $ts = null;
+            }
+        }
+
+        // Time
+        $timeStr = $ts ? $ts->format('H:i') : ($parsed['time'] ?? '');
+
+        // Date: timestamp first; if missing, use date from status (which we may have corrected above)
+        if ($ts) {
+            $dateStr = $ts->format('Y-m-d');
+        } else {
+            $dateStr = $parsed['date'] ?? '';
+        }
+
+        $out[] = [
+            // Top-table / common fields
+            'event'             => $parsed['event'] ?? '',
+            'bib'               => $row['bib'] ?? '',
+            'action'            => $parsed['action'] ?? '',
+            'time'              => $timeStr,
+            'day'               => $parsed['day'] ?? '',
+            'station'           => $parsed['station'] ?? '',
+            'comment'           => $parsed['comment'] ?? '',
+            'eta'               => $parsed['eta'] ?? '',
+            'operator'          => $parsed['operator'] ?? '',
+            'date'              => $dateStr,
+
+            // Runner info directly from bib_data (DEV)
+            'first_name'        => $row['first_name'] ?? '',
+            'last_name'         => $row['last_name'] ?? '',
+            'age'               => $row['age'] ?? '',
+            'gender'            => $row['gender'] ?? '',
+
+            'distance'          => $row['distance'] ?? '',
+            'previous_distance' => $row['previous_distance'] ?? '',
+
+            // Extras if we ever need them
+            'raw_status'        => $row['status'] ?? '',
+            'raw_timestamp'     => $row['timestamp'] ?? '',
+        ];
+    }
+
+    return $out;
+}
+
+// ------------------------
+// ?log=1  => full bib log (all movements)
+// ------------------------
+if (isset($_GET['log'])) {
+    try {
+        $rows = fetch_all_rows($pdo);
+        echo json_encode($rows);
+    } catch (Exception $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ----------------------------
+// ?finishers=1  => finishers only
+// ----------------------------
+if (isset($_GET['finishers'])) {
+    try {
+        $rows = fetch_all_rows($pdo);
+        $finishers = array_filter($rows, function ($r) {
+            return stripos($r['action'], 'FINISH') !== false;
+        });
+        echo json_encode(array_values($finishers));
+    } catch (Exception $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Fallback: empty array if no recognized parameter
+echo json_encode([]);

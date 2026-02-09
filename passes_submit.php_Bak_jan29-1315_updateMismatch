@@ -1,0 +1,197 @@
+<?php
+// passes_submit.php Jna28 23:40
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+$config = include __DIR__ . '/config.race.php';
+
+$conn = new mysqli($config['host'], $config['username'], $config['password'], $config['dbname']);
+if ($conn->connect_error) {
+  http_response_code(500);
+  echo json_encode(['success'=>false,'error'=>'DB connect failed','details'=>$conn->connect_error]);
+  exit;
+}
+$conn->set_charset('utf8mb4');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+  http_response_code(405);
+  echo json_encode(['success'=>false,'error'=>'Method not allowed']);
+  exit;
+}
+
+$data = json_decode(file_get_contents('php://input'), true) ?: [];
+
+// required
+$event_code    = trim($data['event_code'] ?? 'KH_SOB_2026_01');    // KH_SOB_2026_01
+$bib           = (int)($data['bib'] ?? 0);
+$distance_code = trim($data['distance_code'] ?? '');
+$pass_type     = strtoupper(trim($data['pass_type'] ?? 'IN'));
+$station_code  = trim($data['station_code'] ?? '');   // e.g. AS1 / FINISH / START
+$operator      = trim($data['operator'] ?? '');
+$note          = trim($data['note'] ?? '');
+
+// timestamp: store UTC (good)
+$pass_ts = gmdate('Y-m-d H:i:s');
+
+if ($bib <= 0 || $distance_code === '' || $station_code === '') {
+  http_response_code(400);
+  echo json_encode(['success'=>false,'error'=>'Missing bib, distance_code, or station_code']);
+  exit;
+}
+
+// ---------- resolve event_id ----------
+$st = $conn->prepare("SELECT event_id FROM events WHERE event_code=?");
+$st->bind_param("s", $event_code);
+$st->execute();
+$row = $st->get_result()->fetch_assoc();
+$st->close();
+
+if (!$row) {
+  http_response_code(400);
+  echo json_encode(['success'=>false,'error'=>'Unknown event_code','event_code'=>$event_code]);
+  exit;
+}
+
+$event_id = (int)$row['event_id'];
+
+// resolve event_id
+// ---------- resolve station_id ----------
+$STATION_CODE_TO_NAME = [
+  'AS1'  => 'CORRAL CANYON #1',
+  'AS2'  => 'KANAN ROAD #1',
+  'AS4'  => 'ZUMA EDISON RIDGE MTWY #1',
+  'AS5'  => 'BONSALL',
+  'AS6'  => 'ZUMA EDISON RIDGE MTWY #2',
+  'AS7'  => 'KANAN ROAD #2',
+  'AS8'  => 'CORRAL CANYON #2',
+  'AS9'  => '100K TURNAROUND - BULLDOG',
+  'AS10' => 'CORRAL CANYON #3',
+  'AS11' => 'PIUMA CREEK',
+  'T30K' => 'TURNAROUND SPOT (30K NO AID)',
+];
+
+$scode = strtoupper(trim($station_code));
+
+if ($scode === 'START') {
+  http_response_code(400);
+  echo json_encode(['success'=>false,'error'=>'START not supported in passes_submit']);
+  exit;
+}
+
+if ($scode === 'FINISH') {
+  $q = $conn->prepare("
+    SELECT station_id
+    FROM aid_stations
+    WHERE event_id = ?
+      AND distance_code = ?
+      AND is_finish = 1
+    LIMIT 1
+  ");
+  $q->bind_param("is", $event_id, $distance_code);
+  $q->execute();
+  $r = $q->get_result()->fetch_assoc();
+  $q->close();
+
+  if (!$r) {
+    http_response_code(400);
+    echo json_encode(['success'=>false,'error'=>'Finish station not found']);
+    exit;
+  }
+
+  $station_id = (int)$r['station_id'];
+}
+elseif (isset($STATION_CODE_TO_NAME[$scode])) {
+  $station_name = $STATION_CODE_TO_NAME[$scode];
+
+  $q = $conn->prepare("
+    SELECT station_id
+    FROM aid_stations
+    WHERE event_id = ?
+      AND distance_code = ?
+      AND station_name = ?
+    LIMIT 1
+  ");
+  $q->bind_param("iss", $event_id, $distance_code, $station_name);
+  $q->execute();
+  $r = $q->get_result()->fetch_assoc();
+  $q->close();
+
+  if (!$r) {
+    http_response_code(400);
+    echo json_encode([
+      'success'=>false,
+      'error'=>'Station not found for distance',
+      'distance_code'=>$distance_code,
+      'station_code'=>$station_code,
+      'station_name'=>$station_name
+    ]);
+    exit;
+  }
+
+  $station_id = (int)$r['station_id'];
+}
+else {
+  http_response_code(400);
+  echo json_encode(['success'=>false,'error'=>'Unknown station_code','station_code'=>$station_code]);
+  exit;
+}
+
+ // $pass_id = (int)$stmt->insert_id;
+ // $stmt->close();
+ // ---------- insert pass ----------
+$stmt = $conn->prepare("
+  INSERT INTO passes
+    (event_id, bib, distance_code, station_id, pass_type, pass_ts, operator, note)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+");
+
+if (!$stmt) {
+  http_response_code(500);
+  echo json_encode(['success'=>false,'error'=>'Prepare failed','details'=>$conn->error]);
+  exit;
+}
+
+$stmt->bind_param(
+  "iisissss",
+  $event_id,
+  $bib,
+  $distance_code,
+  $station_id,
+  $pass_type,
+  $pass_ts,
+  $operator,
+  $note
+);
+
+if (!$stmt->execute()) {
+  http_response_code(500);
+  echo json_encode(['success'=>false,'error'=>'Insert failed','details'=>$stmt->error]);
+  $stmt->close();
+  exit;
+}
+
+$pass_id = (int)$stmt->insert_id;
+$stmt->close();
+
+
+  // ---- Return ISO string with America/Los_Angeles offset for the UI ----
+  function toIsoLA_fromUtcLike($ts) {
+    if (!$ts) return null;
+    $dt = new DateTime($ts, new DateTimeZone('UTC'));
+    $dt->setTimezone(new DateTimeZone('America/Los_Angeles'));
+    return $dt->format('c');
+  }
+
+  echo json_encode([
+    'success' => true,
+    'pass_id' => $pass_id,
+    'pass_ts' => toIsoLA_fromUtcLike($pass_ts),
+    'pass_ts_utc' => $pass_ts
+  ]);
+
+  $conn->close();
+  exit;

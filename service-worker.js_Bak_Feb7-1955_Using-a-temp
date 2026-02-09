@@ -1,0 +1,94 @@
+// service-worker.js — minimal offline cache (race_timingT scoped)
+
+const CACHE_NAME = 'race-timing-v2-v1';
+
+// IMPORTANT: set base to your directory
+const BASE = '/tvemc_race_timing_v2/';  // was this /race-timingT/ whitch is the first app build
+
+// --- Guard (NO top-level return) ---
+    const DISABLE_SW = false; // set true only if you want to disable behavior
+    
+    if (!DISABLE_SW) {
+      // normal SW code continues below
+    }
+// Ignore legacy/invalid probe (prevents 400 spam) Added Feb 7 at 16:35
+   if (url.pathname === BASE + "passes_load.php" && url.searchParams.get("limit") === "1" && !url.searchParams.has("event_code")) {
+       if (!url.pathname.startsWith(BASE)) 
+    // return;
+
+  // Let it go to network without logging/errors (or just return a 204)
+  e.respondWith(new Response(JSON.stringify({ success:false, error:"Missing event_code" }), {
+    status: 400,
+    headers: { "Content-Type": "application/json" }
+  }));
+  return;
+}
+
+// Cache only static assets you need to load the UI offline.
+// Do NOT cache PHP endpoints (dynamic).
+const FILES_TO_CACHE = [
+  BASE,
+  BASE + 'index.html',
+  BASE + 'race_timing.js',
+  BASE + 'results_strip.js',
+  BASE + 'radio-system.js',
+  BASE + 'message-batches.js',
+  BASE + 'results_strip_modes.js',
+  BASE + 'station_autopass.js',
+  BASE + 'autopass_undo.js',
+  BASE + 'race_timing.css',
+  BASE + 'results_strip.css',
+  // If you rely on module files offline, include them too:
+  BASE + 'results_engine.js',
+  BASE + 'results_math.js'
+];
+
+// Install: cache the app shell
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(FILES_TO_CACHE))
+  );
+  self.skipWaiting();
+});
+
+// Activate: clean old caches
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
+    )
+  );
+  self.clients.claim();
+});
+
+// Fetch strategy:
+// - For navigation (HTML): network-first, fallback to cached index.html
+// - For static assets: cache-first
+// - For API/PHP: network-only (fallback to error) so you don't serve HTML to JSON fetches
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  const url = new URL(req.url);
+
+  // Only handle requests in our directory scope
+  if (!url.pathname.startsWith(BASE)) return;
+
+  // Never cache dynamic endpoints
+  if (url.pathname.endsWith('.php')) {
+    // Network-only for PHP
+    e.respondWith(fetch(req));
+    return;
+  }
+
+  // Navigation requests (page loads)
+  if (req.mode === 'navigate') {
+    e.respondWith(
+      fetch(req).catch(() => caches.match(BASE + 'index.html'))
+    );
+    return;
+  }
+
+  // Static assets
+  e.respondWith(
+    caches.match(req).then((cached) => cached || fetch(req))
+  );
+});

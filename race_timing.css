@@ -1,0 +1,402 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 25px;
+    background-color: #808080;
+    color: #333333;
+    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+body.high-contrast {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #000000;
+}
+h1, h2 { 
+    color: #FFEA00;      /*#005566 */
+    font-weight: bold;
+}
+.section {
+    margin-bottom: 30px;
+    padding: 15px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+label {
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 15px;
+}
+input, select, textarea {
+    margin: 10px 0;
+    padding: 12px;
+    font-size: 18px;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    width: calc(100% - 26px);
+    max-width: 320px;
+    background-color: #ffffff;
+}
+input[type="checkbox"] {
+    width: auto;
+    vertical-align: middle;
+}
+
+/* Start Times panel layout */
+.start-times-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 10px 16px;
+  align-items: center;
+}
+
+/* Make the title span full width */
+.start-times-panel h2 {
+  grid-column: 1 / -1;
+  margin: 0 0 6px 0;
+}
+
+/* Each row becomes a small two-column layout: label + input */
+.start-time-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.start-time-row label {
+  font-weight: bold;
+}
+
+/* Make the Save button span full width */
+.start-times-panel button { 
+  grid-column: 1 / -1;
+  justify-self: center;
+  padding: 10px 18px;
+  border-radius: 8px;
+}
+
+.hq-occupancy-mode{
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.12);
+}
+
+.hq-occupancy-mode label{
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.hq-occupancy-mode select{
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+
+.hq-panel { padding: 12px; border-radius: 10px; }
+.start-times-block { background: rgba(255,255,255,0.08); }
+.hq-message-block { background: rgba(0,0,0,0.12); }
+
+.hq-divider {
+  height: 8px;
+  background: rgba(255,255,255,0.25);
+  margin: 10px 0;
+}
+
+button {
+    padding: 18px 28px;
+    font-size: 20px;
+    background-color: #28a745; /* Blue, adjust if needed #ffc107 #0000FF*/
+    color: #FFFFFF; /* White text for high contrast */
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 5px;
+    transition: background-color 0.2s;
+}
+.out-button {
+        background-color: #0000FF; /* Blue, adjust if needed */
+        color: #FFFFFF; /* White text for high contrast */
+        font-size: 16px; /* Larger font for mobile */
+        font-weight: bold; /* Bold for clarity */
+    }
+button:hover {
+    filter: brightness(1.5);
+}
+button:active {
+    filter: brightness(1.5);
+}
+.in-button { background-color: #28a745; } /* IN */
+.out-button { background-color: #007bff; } /* OUT */
+.dnf-button { background-color: #dc3545; } /* DNF */
+.note-button { background-color: #ffc107; } /* NOTE */
+.change-distance-button { background-color: #17a2b8; } /* Change Distance */
+.increment-button { background-color: #6c757d; } /* Increment */
+.add-general-comment-button { background-color: #17a2b8; } /* Add General Comment */
+.view-hide-bib-log-button { background-color: #FDC745; } /* View/Hide Bib Log #17a2b8 */
+.export-csv-button { background-color: #FDC745; } /* Export CSV */
+.copy-winlink-button { background-color: #007bff; } /* Copy for Winlink */
+.save-data-button { background-color: #28a745; } /* Save Data */
+.load-data-button { background-color: #28a745; } /* Load Data */
+.import-csv-button { background-color: #28a745; } /* Import CSV */
+.import-importRadioWinlinkTxt-button { background-color: #21BCFF; } /* Import RadioWinlinkTxt */
+.import-bib-list-button { background-color: #28a745; } /* Import Bib List #28a745 */
+.reset-newest-button { background-color: #28a745; } /* reset-newest-button */
+.sync-button { background-color: #27AE60; } /* sync-Offline-Entries */
+.view-hide-message-log-button { background-color: #FDC745; } /* View/Hide Message Log */
+.export-csv-button { background-color: #FDC745; } /* export-csv-button */
+.export-pdf-button { background-color: #21BCFF; } /* export-pdf-button */
+.export-winlink-button { background-color: #DCE775; } /* export-winlink-button */
+#clearLogButton { background-color: #dc3545; } /* Clear Bib Log */
+#btnclearGeneralMessages { 
+  background-color: #dc3545;  /* Clear General Messages */
+  border: 2px solid red !important;  /* temporary visibility test */
+}
+
+#updateButton { background-color: #17a2b8; } /* Update Entry */
+#cancelEditButton { background-color: #6c757d; } /* Cancel Edit */
+.edit-button { background-color: #6c757d; font-size: 16px; padding: 5px 10px; }
+#distancePopup button { background-color: #17a2b8; margin: 5px; }
+#resetNewestButton { background-color: #17a2b8; }
+#syncButton { background-color: #17a2b8; }
+table {
+    border-collapse: collapse;
+    width: auto; /* Let it expand based on content */
+    max-width: 100%;
+    margin-top: 10px;
+    background-color: #ffffff;
+    table-layout: auto; /* Change from fixed to auto for content-based sizing */
+}
+#bibTable, #messageLogTable {
+    max-height: 400px;
+}
+th, td {
+    border: 1px solid #cccccc;
+    padding: 12px;
+    text-align: left;
+    font-size: 18px;
+    min-width: 80px; /* Base min-width for alignment */
+    white-space: nowrap; /* Prevent wrapping to keep data readable */
+}
+th {
+    background-color: #f2f2f2;
+    position: sticky;
+    top: 0;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 1;
+}
+th:hover {
+    background-color: #e0e0e0;
+}
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+#bibInfoTable {
+    margin-top: 10px;
+    max-width: 600px;
+}
+#logSearch {
+    width: calc(100% - 26px);
+    max-width: 400px;
+    margin-bottom: 10px;
+}
+
+.pass-col {
+  text-align: center;
+}
+
+#distancePopup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: #ffffff;
+    padding: 20px;
+    border: 1px solid #cccccc;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    display: none;
+    z-index: 1000;
+    max-width: 90%;
+}
+/* Scrollable table style - unified horizontal, vertical on body */
+.bib-log-wrapper { /* Add this div in HTML around the table */
+  overflow: auto; /* Handles both x and y scrolling */
+  max-height: 730px; /* Your desktop vertical limit; adjust as needed */
+}
+#bibLogTable tbody {
+  display: table-row-group; /* Reset to default (remove block) */
+}
+#bibLogTable tr {
+  display: table-row; /* Reset to default (remove display: table) */
+}
+
+th, td {
+    border: 1px solid #cccccc;
+    padding: 12px;
+    text-align: left;
+    font-size: 18px;
+    min-width: 80px; /* Base min-width for alignment */
+    white-space: nowrap; /* Prevent wrapping to keep data readable */
+}
+
+/* Override for comment column (7th column, "C" for comments) - moved outside media query */
+th:nth-child(7),
+td:nth-child(7) {
+    white-space: normal; /* Allow wrapping */
+    word-wrap: break-word; /* Break long words if needed */
+    max-width: 200px; /* Limit width to prevent over-expansion; adjust if too narrow/wide */
+}
+
+@media (max-width: 600px) {
+  .bib-log-wrapper {
+    overflow: auto;
+  }
+  #bibLogTable {
+    width: 100%;
+    table-layout: auto;
+  }
+  #bibLogTable tbody {
+    display: table-row-group;
+  }
+  th, td {
+    min-width: 80px; /* Slightly wider than 60px to reduce squashing */
+    font-size: 14px; /* More readable than 10px, but still compact for mobile */
+  }
+}
+
+/* Bib Log visual cues (Bib # cell only) */
+#bibLogTable tr.row-dns td.bib-cell{
+  background: rgba(255, 0, 0, 0.5);  /* 80, 160, 255, 0.35 */
+  font-weight: 800;
+}
+#bibLogTable tr.row-dnf td.bib-cell{
+  background: rgba(255, 215, 0, 0.45);
+  font-weight: 800;
+}
+
+/* Top scrollbar above the Bib Log table */
+#topScroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 25px;
+  margin-bottom: 2px;
+}
+
+#topScroll .scrollbar-inner {
+  height: 1px;
+}
+
+#bibLogContainer {
+  overflow: auto;
+  max-height: 60vh;
+}
+
+/* optional cosmetic tweaks */
+#topScroll, #bibLogContainer {
+  scrollbar-color: #888 #222;
+  scrollbar-width: thin;
+}
+
+/* Station HQ Inbox – high readability */
+#stationInbox {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #000000 !important;
+}
+
+#stationInboxTitle {
+  color: #000000 !important;
+  font-weight: 800 !important;
+}
+
+#stationInboxBody > div {
+  border-bottom: 1px solid #cccccc !important;
+}
+
+#stationInboxBody label,
+#stationInboxBody span,
+#stationInboxBody div {
+  color: #000000 !important;
+}
+
+#stationInbox input[type="checkbox"] {
+  transform: scale(1.2);
+}
+
+/* Flash when new HQ message arrives (until acknowledged/scroll) */
+#stationInbox.hq-inbox-new {
+  background: #ffcc80 !important;   /* orange-ish */
+  border-color: #ff6f00 !important; /* darker orange */
+}
+
+#stationInbox.hq-inbox-new #stationInboxTitle {
+  color: #000000 !important;
+}
+
+/* Status Cards modal */
+.sc-modal { position: fixed; inset: 0; z-index: 9999; }
+.sc-modal-backdrop{
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.6);
+}
+.sc-modal-panel{
+  position: relative;
+  width: min(720px, calc(100% - 26px));
+  margin: 8vh auto 0;
+  background: rgba(0,0,0,0.92);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 14px;
+  padding: 12px 12px 14px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+}
+.sc-modal-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 4px 6px 10px;
+}
+.sc-modal-title{ font-size: 16px; font-weight: 800; }
+.sc-modal-close{
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  font-weight: 800;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.sc-modal-body{
+  padding: 6px 8px 10px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.sc-modal-body p{ margin: 10px 0; }
+.sc-modal-footer{
+  display:flex; justify-content:flex-end;
+  padding: 6px 6px 0;
+}
+
+.help-link {
+  font-size: 24px;
+  font-weight: bold;
+  color: #0047ab;
+  text-decoration: none;
+}
+
+.help-link:hover {
+  text-decoration: underline;
+}
+
+.mismatch-bib {
+  background: #fff3cd;
+  font-weight: bold;
+  border: 2px solid #ff9900;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+

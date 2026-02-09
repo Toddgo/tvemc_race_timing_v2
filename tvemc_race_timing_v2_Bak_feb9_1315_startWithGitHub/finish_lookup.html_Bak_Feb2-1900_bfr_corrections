@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<!-- finish_lookup.html -->
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Runner Lookup Aid Station</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #f5f5f5;
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+    h1 {
+      text-align: center;
+      margin: 50px 0 5px;
+      color: #004c99;
+    }
+    h2 {
+      margin: 30px 0 5px;
+      color: #333;
+    }
+    .container {
+      max-width: 100%;
+      padding: 10px 20px 30px;
+      box-sizing: border-box;
+    }
+    .search-row {
+      margin: 5px 0 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .search-row input[type="text"] {
+      padding: 10px 25px;
+      font-size: 20px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      min-width: 240px;
+    }
+    .search-row span {
+      font-size: 12px;
+      color: #666;
+    }
+    .table-wrapper{
+      max-height: calc(50vh - 360px);
+      overflow-y: auto;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 25px;
+    }
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      background: #004c99;
+      color: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      cursor: pointer;
+      user-select: none;
+      font-size: 25px;
+    }
+    tr:nth-child(even) td {
+      background: #f9f9f9;
+    }
+    .status-finished {
+      color: green;
+      font-weight: bold;
+    }
+    .status-oncourse {
+      color: #d35400;
+      font-weight: bold;
+    }
+    th.sort-asc::after {
+      content: " ▲";
+      font-size: 20px;
+    }
+    th.sort-desc::after {
+      content: " ▼";
+      font-size: 20px;
+    }
+    .subtle {
+      font-size: 18px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    .sponsor-bar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 35px;
+      padding: 12px 0;
+      background: #f8f8f8;
+      border-top: 1px solid #ddd;
+    }
+    .sponsor-bar img {
+      height: 150px;
+      max-width:500px;
+      object-fit: contain;
+      opacity: 1;
+    }
+
+    /* Header layout */
+    .page-header{
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      column-gap: 18px;      /* controls logo ↔ title spacing */
+      margin: 10px auto 18px;
+      max-width: 1200px;    /* keeps everything visually centered */
+    }
+
+    .header-logo img{
+      height: 94px;      /* adjust if you want bigger */
+      width: auto;
+      max-width: 170px;
+    }
+    
+    .header-title{
+      text-align: center;
+      line-height: 2.15;
+      font-weight: 800;
+      color: #004c99;
+      padding: 0 10px;
+    }
+
+    .header-title .race-name{
+      font-size: 40px;
+    }
+    
+    .header-title .page-name{
+      font-size: 20px;
+      margin-top: 2px;
+    }
+    
+    /* Make the instruction line above search boxes bigger */
+    .subtle{
+      font-size: 18px;   /* was 18; bump if you want 20 */
+      font-weight: 600;
+      color: #444;
+      margin-bottom: 6px;
+    }
+    
+    /* Make the counts bigger (e.g., "276 entries", "12 finishers") */
+    .search-row span{
+      font-size: 18px;   /* was 12 */
+      font-weight: 800;
+      color: #222;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-header">
+      <div class="header-logo left">
+        <img src="assets/SOB_2023.png" alt="Sean O'Brien">
+      </div>
+    
+      <div class="header-title">
+        <div class="race-name">SEAN O’BRIEN 50K ~ MARATHON ~ 30K</div>
+        <div class="page-name">Runner Lookup Aid Station</div>
+      </div>
+    
+      <div class="header-logo right">
+        <img src="assets/tvemcLogo.png" alt="TVEMC">
+      </div>
+    </div>
+
+
+    <!-- TOP TABLE: Bib Log (All movements) -->
+    <h2>Bib Log – All Movements</h2>
+    <div class="subtle">
+      Search by bib, name, or aid station. Click column headers to sort. Auto-refreshes every 30&nbsp;seconds.
+    </div>
+    <div class="search-row">
+      <input
+        type="text"
+        id="logSearch"
+        placeholder="Search bib, name, or station..."
+        oninput="applyLogFiltersAndRender()"
+      >
+      <span id="logStatus"></span>
+    </div>
+    <div id="logTableWrapper" class="table-wrapper">
+      <!-- table is injected here -->
+    </div>
+
+    <!-- BOTTOM TABLE: Finishers -->
+    <h2>Finishers</h2>
+    <div class="subtle">
+      Search by bib or name. Click headers to sort. Also refreshes every 30&nbsp;seconds.
+    </div>
+    <div class="search-row">
+      <input
+        type="text"
+        id="finisherSearch"
+        placeholder="Search finisher bib or name..."
+        oninput="applyFinisherFiltersAndRender()"
+      >
+      <span id="finisherStatus"></span>
+    </div>
+    <div id="finisherTableWrapper" class="table-wrapper">
+      <!-- table is injected here -->
+    </div>
+  </div>
+
+<script>
+    // ============================
+    // Shared helpers
+    // ============================
+    
+    // Duration formatter (not Date-based)
+    function formatDurationHMS(ms) {
+      ms = Number(ms);
+      if (!isFinite(ms) || ms < 0) return "";
+      const totalSeconds = Math.floor(ms / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      return `${hours}:${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}`;
+    }
+    
+    function makeSortConfig(defaultColumn) {
+      return { column: defaultColumn, direction: 'asc' };
+    }
+    
+    function sortRows(rows, sortConfig) {
+      if (!sortConfig.column) return rows;
+    
+      const col = sortConfig.column;
+      const dir = sortConfig.direction === 'desc' ? -1 : 1;
+    
+      return rows.slice().sort((a, b) => {
+        let va = a[col] ?? '';
+        let vb = b[col] ?? '';
+    
+        // numeric sort for bib / age / distance / previous_distance / pass_num / overall_place
+        if (['bib', 'age', 'distance', 'previous_distance', 'pass_num', 'overall_place'].includes(col)) {
+          const na = parseInt(va || '0', 10);
+          const nb = parseInt(vb || '0', 10);
+          if (na < nb) return -1 * dir;
+          if (na > nb) return  1 * dir;
+          return 0;
+        }
+    
+        va = String(va).toLowerCase();
+        vb = String(vb).toLowerCase();
+        if (va < vb) return -1 * dir;
+        if (va > vb) return  1 * dir;
+        return 0;
+      });
+    }
+    
+    function applySortHeaderStyles(tableId, sortConfig) {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+      const headers = table.querySelectorAll('th[data-sort]');
+      headers.forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+        const col = th.getAttribute('data-sort');
+        if (col === sortConfig.column) {
+          th.classList.add(sortConfig.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
+      });
+    }
+    
+    function attachSortHandlers(tableId, sortConfig, onSortChanged) {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+      const headers = table.querySelectorAll('th[data-sort]');
+      headers.forEach(th => {
+        th.addEventListener('click', () => {
+          const col = th.getAttribute('data-sort');
+          if (sortConfig.column === col) {
+            sortConfig.direction = (sortConfig.direction === 'asc') ? 'desc' : 'asc';
+          } else {
+            sortConfig.column = col;
+            sortConfig.direction = 'asc';
+          }
+          onSortChanged();
+        });
+      });
+    }
+    
+    // Parse timestamps as UTC when they arrive as "YYYY-MM-DD HH:MM:SS" with no timezone
+    function parseTsAsUTC(raw) {
+      if (!raw) return null;
+      const str = String(raw).trim();
+    
+      // If it already has timezone info (Z or ±HH:MM), parse normally
+      if (/[zZ]|[+\-]\d{2}:\d{2}$/.test(str)) {
+        const ms = Date.parse(str);
+        return Number.isFinite(ms) ? ms : null;
+      }
+    
+      // "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SS" -> treat components as UTC
+      const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+      if (m) {
+        const y  = Number(m[1]);
+        const mo = Number(m[2]) - 1;
+        const d  = Number(m[3]);
+        const h  = Number(m[4]);
+        const mi = Number(m[5]);
+        const s  = Number(m[6] || "0");
+        const ms = Date.UTC(y, mo, d, h, mi, s);   // ✅ interpret as UTC instant
+        return Number.isFinite(ms) ? ms : null;
+      }
+    
+      const ms = Date.parse(str);
+      return Number.isFinite(ms) ? ms : null;
+    }
+
+    // ------------------------------------------------------------
+    // Timestamp parsing (single source of truth)
+    // ------------------------------------------------------------
+    function parseTs(raw) {
+      if (!raw) return null;
+    
+      const str = String(raw).trim();
+    
+      // If it already has timezone info (Z or ±HH:MM), parse normally
+      if (/[zZ]|[+\-]\d{2}:\d{2}$/.test(str)) {
+        const ms = Date.parse(str);
+        return Number.isFinite(ms) ? ms : null;
+      }
+    
+      // MariaDB DATETIME: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SS"
+      // Treat as LOCAL components (race-local), NOT UTC
+      const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+      if (m) {
+        const y  = Number(m[1]);
+        const mo = Number(m[2]) - 1;
+        const d  = Number(m[3]);
+        const h  = Number(m[4]);
+        const mi = Number(m[5]);
+        const s  = Number(m[6] || "0");
+        const ms = new Date(y, mo, d, h, mi, s).getTime(); // LOCAL
+        return Number.isFinite(ms) ? ms : null;
+      }
+    
+      // Fallback (handles ISO-ish strings that some sources may emit)
+      const ms = Date.parse(str);
+      return Number.isFinite(ms) ? ms : null;
+    }
+    
+    // ------------------------------------------------------------
+    // Finish ordering helpers (M/F place + overall place)
+    // ------------------------------------------------------------
+    
+    // Use parseTs consistently (do NOT Date.parse raw_timestamp directly)
+    function finisherMs(r) {
+      // Prefer raw_timestamp from DB
+    //  const ms1 = parseTs(r.raw_timestamp); Remove this if Line below works
+      const ms1 = parseTsAsUTC(r.raw_timestamp);
+      if (Number.isFinite(ms1)) return ms1;
+    
+      // Fallback: combine date/time if those are present
+      const t = String(r.time || "").trim();   // "HH:MM" or "HH:MM:SS"
+      const d = String(r.date || "").trim();   // "YYYY-MM-DD"
+      if (t && d) {
+        const dm = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const tm = t.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (dm && tm) {
+          const y  = Number(dm[1]);
+          const mo = Number(dm[2]) - 1;
+          const da = Number(dm[3]);
+          const h  = Number(tm[1]);
+          const mi = Number(tm[2]);
+          const s  = Number(tm[3] || "0");
+          const ms2 = new Date(y, mo, da, h, mi, s).getTime(); // LOCAL
+          if (Number.isFinite(ms2)) return ms2;
+        }
+      }
+    
+      return NaN;
+    }
+    
+    function computeGenderPlaceForFinishers(rows) {
+      const byDist = new Map();
+    
+      for (const r of rows) {
+        const dist = String(r.distance || r.distance_code || "").trim();
+        const g = String(r.gender || "").trim().toUpperCase();
+        const ms = finisherMs(r);
+        if (!dist || !g || !Number.isFinite(ms)) continue;
+    
+        if (!byDist.has(dist)) byDist.set(dist, []);
+        byDist.get(dist).push({ r, g, ms });
+      }
+    
+      for (const [dist, list] of byDist.entries()) {
+        list.sort((a, b) => a.ms - b.ms);
+    
+        const countByGender = new Map();
+        for (const item of list) {
+          const n = (countByGender.get(item.g) || 0) + 1;
+          countByGender.set(item.g, n);
+          item.r.gender_place = `${n} ${item.g}`;
+        }
+      }
+    
+      for (const r of rows) {
+        if (!("gender_place" in r)) r.gender_place = "";
+      }
+    
+      return rows;
+    }
+    
+    // ------------------------------------------------------------
+    // Simple HH:MM:SS formatter (for elapsed seconds)
+    // ------------------------------------------------------------
+    function pad2(n){ return String(n).padStart(2,"0"); }
+    
+    function formatHMS(totalSec){
+      totalSec = Math.max(0, Math.floor(totalSec));
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+    }
+    
+    // ------------------------------------------------------------
+    // Bib Log helpers (Time/Date + Previous Dist)
+    // ------------------------------------------------------------
+    function fmtLogTimeFromMs(ms){
+      if (!ms) return "";
+      return new Date(ms).toLocaleTimeString("en-US", {
+        timeZone: "America/Los_Angeles",
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
+    
+    function fmtLogDateFromMs(ms){
+      if (!ms) return "";
+      return new Date(ms).toLocaleDateString("en-US", {
+        timeZone: "America/Los_Angeles"
+      });
+    }
+    
+    function fmtTimeFromMs(ms){
+      if (!ms) return "";
+      return new Date(ms).toLocaleString("en-US", {
+        timeZone: "America/Los_Angeles",
+        hour12: true,
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
+
+    // ============================
+    // TOP TABLE: Bib Log – All Movements
+    // ============================
+    let logData = [];
+    let logSortConfig = makeSortConfig('bib');
+ 
+    // ----------------------------
+    // RESTORE: Bib Log normalization
+    // (Required by loadLogTable)
+    // ----------------------------
+    
+    function buildOriginalDistanceByBib(rows){
+      const sorted = (rows || []).slice().sort((a,b) => {
+        const ta = parseTs(a.raw_timestamp) || 0;
+        const tb = parseTs(b.raw_timestamp) || 0;
+        return ta - tb;
+      });
+    
+      const orig = {};
+      for (const r of sorted){
+        const bib = String(r.bib ?? r.bib_number ?? "").trim();
+        if (!bib) continue;
+    
+        const dist = String(r.distance_code || r.distance || "").trim();
+        if (!dist) continue;
+    
+        if (!orig[bib]) orig[bib] = dist;
+      }
+      return orig;
+    }
+    
+    function normalizeLogRows(rows){
+      const list = Array.isArray(rows) ? rows : [];
+      const origByBib = buildOriginalDistanceByBib(list);
+    
+      for (const r of list){
+        const ms = parseTs(r.raw_timestamp);
+    
+        // time/date strings for the log table
+        r.time = ms ? fmtLogTimeFromMs(ms) : (r.time || "");
+        r.date = ms ? fmtLogDateFromMs(ms) : (r.date || "");
+    
+        // previous distance vs current distance
+        const bib = String(r.bib ?? r.bib_number ?? "").trim();
+        const original = origByBib[bib] || "";
+        const current = String(r.runner_distance_code || r.distance || r.distance_code || "").trim();
+    
+        r.distance = current;
+        r.previous_distance = (original && current && original !== current)
+          ? original
+          : (r.previous_distance || "");
+      }
+      return list;
+    }
+
+    async function loadLogTable() {
+      const statusEl = document.getElementById('logStatus');
+      if (statusEl) statusEl.textContent = 'Loading...';
+
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const eventCode = params.get('event_code') || 'KH_SOB_2026_0003';
+
+        const resp = await fetch(`finish_lookup.php?log=1&event_code=${encodeURIComponent(eventCode)}`, { cache: 'no-store' });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          console.error('loadLogTable HTTP error', resp.status, txt);
+          if (statusEl) statusEl.textContent = 'Error loading log';
+          return;
+        }
+        const data = await resp.json();
+        logData = Array.isArray(data) ? data : [];
+        logData = normalizeLogRows(logData);
+        logData = normalizeLogRows(logData);
+        logData = computePassNumbers(logData);
+        applyLogFiltersAndRender();
+        if (statusEl) statusEl.textContent = logData.length + ' entries';
+      } catch (err) {
+        console.error('loadLogTable error', err);
+        if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    function applyLogFiltersAndRender() {
+        const q = (document.getElementById('logSearch')?.value || '')
+        .trim()
+        .toLowerCase();
+      let filtered = logData.slice();
+
+      if (q) {
+        filtered = filtered.filter(r => {
+          const bibStr = String(r.bib ?? r.bib_number ?? '').trim();
+          const nameStr = (
+            String(r.first_name || '') + ' ' + String(r.last_name || '')
+          ).toLowerCase();
+          const stationStr = String(r.station || '').toLowerCase();
+          return (
+            bibStr.includes(q) ||
+            nameStr.includes(q) ||
+            stationStr.includes(q)
+          );
+        });
+      }
+
+      const sorted = sortRows(filtered, logSortConfig);
+      renderLogTable(sorted);
+    }
+    
+    function computePassNumbers(rows) {
+      // Sort chronological so pass counting is stable
+      const sorted = rows.slice().sort((a,b) => (parseTs(a.raw_timestamp)||0) - (parseTs(b.raw_timestamp)||0));
+    
+      const counts = new Map(); // key = bib|station -> count
+      for (const r of sorted) {
+        const bib = String(r.bib ?? r.bib_number ?? "").trim();
+        const st  = String(r.station || "").trim();
+        if (!bib || !st) { r.pass_num = ""; continue; }
+    
+        const key = `${bib}|${st}`;
+        const n = (counts.get(key) || 0) + 1;
+        counts.set(key, n);
+        r.pass_num = n;
+      }
+      return rows;
+    }
+
+    function renderLogTable(rows) {
+      const wrapper = document.getElementById('logTableWrapper');
+      if (!wrapper) return;
+
+      if (!rows.length) {
+        wrapper.innerHTML =
+          '<div style="padding:8px; font-style:italic;">No log data yet.</div>';
+        return;
+      }
+      
+      function formatLogTime(ts) {
+       const d = new Date(ts);
+       if (isNaN(d)) return "";
+       return d.toLocaleTimeString("en-US", { hour12: false }); // 13:44:55
+     }
+    
+    function formatLogDate(ts) {
+      const d = new Date(ts);
+      if (isNaN(d)) return "";
+      return d.toLocaleDateString("en-US"); // 1/22/2026
+    }
+
+      let h = `
+        <table id="logTable">
+          <thead>
+            <tr>
+              <th data-sort="bib">Bib #</th>
+              <th data-sort="action">Action</th>
+              <th data-sort="time">Time</th>
+              <th data-sort="date">Date</th>
+              <th data-sort="station">Station</th>
+              <th data-sort="pass_num">Pass</th>
+              <th data-sort="first_name">First Name</th>
+              <th data-sort="last_name">Last Name</th>
+              <th data-sort="age">Age</th>
+              <th data-sort="gender">Gender</th>
+              <th data-sort="distance">Distance</th>
+              <th data-sort="previous_distance">Previous Dist</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      rows.forEach(r => {
+        h += `
+          <tr>
+            <td>${r.bib || ''}</td>
+            <td>${r.action || ''}</td>
+            <td>${r.time || ''}</td>
+            <td>${r.date || ''}</td>
+            <td>${r.station || ''}</td>
+            <td>${r.pass_num || ""}</td>
+            <td>${r.first_name || ''}</td>
+            <td>${r.last_name || ''}</td>
+            <td>${r.age || ''}</td>
+            <td>${r.gender || ''}</td>
+            <td>${r.distance || ''}</td>
+            <td>${r.previous_distance || ''}</td>
+          </tr>
+        `;
+      });
+
+      h += '</tbody></table>';
+      wrapper.innerHTML = h;
+
+      applySortHeaderStyles('logTable', logSortConfig);
+      attachSortHandlers('logTable', logSortConfig, applyLogFiltersAndRender);
+    }
+
+  // ============================
+    // BOTTOM TABLE: Finishers
+    // ============================
+    let finisherData = [];
+    let finisherSortConfig = makeSortConfig('finish_time');
+    finisherSortConfig.direction = 'desc';
+    let startMsByDistance = new Map();
+    
+    // Parse timestamps safely as RACE-LOCAL time when no timezone is provided
+    function parseTs(raw) {
+      if (!raw) return null;
+    
+      const str = String(raw).trim();
+    
+      // If it already has timezone info (Z or ±HH:MM), let Date.parse handle it
+      if (/[zZ]|[+\-]\d{2}:\d{2}$/.test(str)) {
+        const ms = Date.parse(str);
+        return Number.isFinite(ms) ? ms : null;
+      }
+    
+      // MariaDB DATETIME: "YYYY-MM-DD HH:MM:SS" (no timezone)
+      // Treat as LOCAL components (race-local), NOT UTC
+      const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+      if (m) {
+        const y  = Number(m[1]);
+        const mo = Number(m[2]) - 1;
+        const d  = Number(m[3]);
+        const h  = Number(m[4]);
+        const mi = Number(m[5]);
+        const s  = Number(m[6] || "0");
+    
+        // ✅ LOCAL constructor (this is the fix)
+        const ms = new Date(y, mo, d, h, mi, s).getTime();
+        return Number.isFinite(ms) ? ms : null;
+      }
+    
+      // Fallback
+      const ms = Date.parse(str);
+      return Number.isFinite(ms) ? ms : null;
+    }
+    
+    async function loadStartTimesByDistance(eventCode){
+      const url = `start_times_load.php?event_code=${encodeURIComponent(eventCode)}`;
+    
+      const resp = await fetch(url, { cache: "no-store" });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.error("start_times_load.php HTTP", resp.status, txt);
+        return new Map();
+      }
+    
+      const arr = await resp.json(); // [{distance_code, start_ts}, ...]
+      const map = new Map();
+    
+      for (const r of (arr || [])) {
+        const dist = String(r.distance_code || "").trim();
+        const ms = parseTs(r.start_ts);
+        if (dist && Number.isFinite(ms)) map.set(dist, ms);
+      }
+      return map;
+    }
+    
+    async function loadFinisherTable() {
+      const statusEl = document.getElementById('finisherStatus');
+      if (statusEl) statusEl.textContent = 'Loading...';
+    
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const eventCode = params.get('event_code') || 'KH_SOB_2026_0003';
+    
+        // Load start times from DB (used for elapsed)
+        startMsByDistance = await loadStartTimesByDistance(eventCode);
+    
+        const resp = await fetch(
+          `finish_lookup.php?finishers=1&event_code=${encodeURIComponent(eventCode)}`,
+          { cache: 'no-store' }
+        );
+        if (!resp.ok) {
+          const txt = await resp.text();
+          console.error('loadFinisherTable HTTP error', resp.status, txt);
+          if (statusEl) statusEl.textContent = 'Error loading finishers';
+          return;
+        }
+    
+        const data = await resp.json();
+        finisherData = Array.isArray(data) ? data : [];
+    
+        // (You had this twice; keep once)
+        finisherData = computeGenderPlaceForFinishers(finisherData);
+        finisherData = computeOverallPlaceForFinishers(finisherData);
+    
+        applyFinisherFiltersAndRender();
+        if (statusEl) statusEl.textContent = finisherData.length + ' finishers';
+      } catch (err) {
+        console.error('loadFinisherTable error', err);
+        if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+      }
+    }
+    
+    function applyFinisherFiltersAndRender() {
+      const q = (document.getElementById('finisherSearch')?.value || '')
+        .trim()
+        .toLowerCase();
+      let filtered = finisherData.slice();
+    
+      if (q) {
+        filtered = filtered.filter(r => {
+          const bibStr = String(r.bib ?? r.bib_number ?? '').trim();
+          const nameStr = (String(r.first_name || '') + ' ' + String(r.last_name || '')).toLowerCase();
+          return bibStr.includes(q) || nameStr.includes(q);
+        });
+      }
+    
+      const sorted = sortRows(filtered, finisherSortConfig);
+      renderFinisherTable(sorted);
+    }
+    
+    function computeOverallPlaceForFinishers(rows) {
+      // overall = across ALL finishers shown on this table
+      const list = rows
+        .map(r => ({ r, ms: finisherMs(r) }))
+        .filter(x => Number.isFinite(x.ms))
+        .sort((a, b) => a.ms - b.ms); // earliest finish = place 1
+    
+      let place = 1;
+      for (const item of list) {
+        item.r.overall_place = place++;
+      }
+    
+      // ensure field exists
+      for (const r of rows) {
+        if (!("overall_place" in r)) r.overall_place = "";
+      }
+    
+      return rows;
+    }
+    
+    function renderFinisherTable(rows) {
+      const wrapper = document.getElementById('finisherTableWrapper');
+      if (!wrapper) return;
+    
+      if (!rows.length) {
+        wrapper.innerHTML = '<div style="padding:8px; font-style:italic;">No finishers yet.</div>';
+        return;
+      }
+    
+      let h = `
+        <table id="finisherTable">
+          <thead>
+            <tr>
+              <th data-sort="bib">Bib #</th>
+              <th data-sort="name">Name</th>
+              <th data-sort="finish_time">Finish Time</th>
+              <th data-sort="elapsed">Elapsed Time</th>
+              <th data-sort="overall_place">Place</th>
+              <th data-sort="ageg">Age/G</th>
+              <th data-sort="gender_place">Gender Place</th>
+              <th data-sort="distance">Distance</th>
+              <th data-sort="station">Station</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+    
+      rows.forEach(r => {
+        const bib = r.bib ?? r.bib_number ?? "";
+        const name = ((r.first_name || "") + " " + (r.last_name || "")).trim();
+    
+        // Age/G should be age + gender
+        const ageg = `${r.age || ""}/${(r.gender || "").toUpperCase()}`;
+    
+        // Distance code
+        const dist = String(r.runner_distance_code || r.distance_code || r.distance || "").trim();
+    
+        // Finish timestamp (race-local safe)
+        const finishMs = parseTsAsUTC(r.raw_timestamp);
+        const finishTime = finishMs ? fmtTimeFromMs(finishMs) : "";
+    
+        // Elapsed (duration)
+        const startMs = startMsByDistance.get(dist) || null;
+        let elapsedSec = 0;
+        let elapsedStr = "";
+        if (Number.isFinite(finishMs) && Number.isFinite(startMs)) {
+          elapsedSec = Math.max(0, Math.round((finishMs - startMs) / 1000));
+          elapsedStr = formatHMS(elapsedSec);
+        }
+    
+        h += `
+          <tr>
+            <td>${bib}</td>
+            <td>${name}</td>
+            <td data-sortval="${finishMs || 0}">${finishTime}</td>
+            <td data-sortval="${elapsedSec}">${elapsedStr}</td>
+            <td>${r.overall_place || ""}</td>
+            <td>${ageg}</td>
+            <td>${r.gender_place || ""}</td>
+            <td>${dist}</td>
+            <td>${r.station || ""}</td>
+          </tr>
+        `;
+      });
+    
+      h += '</tbody></table>';
+      wrapper.innerHTML = h;
+    
+      applySortHeaderStyles('finisherTable', finisherSortConfig);
+      attachSortHandlers('finisherTable', finisherSortConfig, applyFinisherFiltersAndRender);
+    }
+
+    // ============================
+    // Initial load + auto-refresh
+    // ============================
+    loadLogTable();
+    loadFinisherTable();
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadLogTable, 30000);
+    setInterval(loadFinisherTable, 30000);
+  </script>
+  <div class="sponsor-bar">
+  <img src="assets/SOB_2023.png" alt="KH Races">
+  <img src="assets/tvemcLogo.png" alt="TVEMC">
+  <img src="logos/sponsor2.png" alt="Sponsor 2">
+</div>
+
+  <footer>© 2025 TVEMC • tvemc tracker™ • <a href="https://tvemc.org">tvemc.org</a></footer>
+</body>
+</html>

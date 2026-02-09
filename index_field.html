@@ -1,0 +1,452 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="race_timing.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+   
+    <title>Ray Miller Race Tracker with Bib Info</title>
+
+<style>
+  /* Flashing highlight when new HQ messages arrive */
+  .hq-inbox-new {
+    animation: hqFlash 1s ease-in-out infinite alternate;
+    border-color: #ff0 !important;
+  }
+
+  @keyframes hqFlash {
+    from { background-color: #444; }
+    to   { background-color: #886600; }
+  }
+</style>
+
+<!-- <script>
+  // TODO: set this dynamically per install / station
+  window.TVEMC_STATION_ID = "AS1"; // e.g., HELL HILL AID #1
+</script> -->
+
+   
+</head>
+<body>
+
+    <noscript>JavaScript is disabled. Please enable JavaScript to use the Race Tracker.</noscript>
+    <!-- Rest of your body content here -->
+
+    
+    <!-- HQ Message Log (for ?hq=1 only) -->
+<div id="hqLogBox" style="display: none; margin-top: 20px; text-align: left;">
+  <h3>HQ Message Log</h3>
+  <div style="margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+    <label>
+      Station:
+      <select id="hqLogStationFilter">
+        <option value="">All</option>
+        <option value="HELL HILL">HELL HILL AID #1</option>
+	<option value="AS#2">HELL HILL AID #2</option>
+	<option value="AS3">HELL HILL AID #3</option>
+        <option value="AS4">DANIELSON RANCH</option>
+        <option value="AS5">YERBA BUENA</option>
+        <option value="AS6">SYCAMORE CANYON</option>
+        <option value="AS7">AMANDA</option>
+        <option value="START">START</option>
+        <option value="FINISH">FINISH LINE</option>
+      </select>
+    </label>
+
+    <label>
+      ACK Status:
+      <select id="hqLogAckFilter">
+        <option value="">All</option>
+        <option value="pending">Pending</option>
+        <option value="ack">ACKed</option>
+      </select>
+    </label>
+
+    <button id="hqLogRefreshBtn" style="padding: 4px 10px;">
+      Refresh Log
+    </button>
+
+    <span id="hqLogStatus" style="font-size: 12px; color: #555;"></span>
+  </div>
+
+  <div style="max-height: 250px; overflow-y: auto; border: 1px solid #ccc; border-radius: 6px;">
+    <table id="hqLogTable" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <thead style="background: #f0f0f0; position: sticky; top: 0;">
+        <tr>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Time</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Station</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Channel</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Message</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Operator</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">ACK?</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">ACK Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td colspan="7" style="padding: 6px; text-align: center; font-style: italic;">
+            Loading...
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+  <!-- Aid Station: HQ Message History -->
+<div id="stationHistory"
+     style="display: none;
+            background: #2a2a2a;
+            color: #fff;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border: 1px solid #555;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h4 style="margin: 0; color: #ffffaa; font-size: 16px;">
+      HQ Message History (Last 20)
+    </h4>
+    <button type="button"
+            id="stationHistoryReload"
+            style="font-size: 11px; padding: 2px 6px;">
+      Refresh History
+    </button>
+  </div>
+
+  <div id="stationHistoryBody"
+       style="max-height: 140px; overflow-y: auto; font-size: 14px; margin-top:4px;">
+    <div style="font-style: italic; color: #ccc;">
+      No history loaded yet.
+    </div>
+  </div>
+</div>
+
+
+<!-- Aid Station: Live HQ Inbox (Pending messages with "Received" checkbox) -->
+<div id="stationInbox"
+     style="display: none;
+            background: #111;
+            color: #fff;
+            padding: 8px;
+            margin: 0 0 10px 0;
+            border-radius: 6px;
+            border: 1px solid #555;">
+  <div style="display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 4px;">
+    <h4 id="stationInboxTitle"
+        style="margin: 0;
+               color: #ffffaa;
+               font-size: 14px;">
+      Incoming HQ Messages
+    </h4>
+    <span style="font-size: 11px; color: #ccc;">
+      Check "Received" after you relay the message
+    </span>
+  </div>
+
+  <div id="stationInboxBody"
+       style="max-height: 80px;
+              overflow-y: auto;
+              font-size: 12px;">
+    <div style="font-style: italic; color: #ccc;">
+      No messages from HQ yet.
+    </div>
+  </div>
+</div>
+
+
+
+<!-- Black Receive Area for Incoming HQ Messages -->
+<div id="receiveArea" style="background: black; color: lime; padding: 10px; margin: 10px 0; border-radius: 5px; min-height: 40px; display: none;">
+    Incoming HQ Message: <span id="incomingMsg"></span>
+</div>
+       
+</body>
+    <h1>Ray Miller KH Race Tvemc-Tracker with Bib Info</h1>
+    <div class="section">
+        <input type="checkbox" id="highContrast" name="highContrast" tabindex="0">
+        <label for="highContrast">High Contrast Mode (for sunlight)</label>
+          <button onclick="document.getElementById('hqPasswordGate').style.display='flex'" style="background:#000080;color:white;font-size:18px;padding:12px 24px;border-radius:12px;margin-left:20px;vertical-align:middle;">Enter HQ / Race Director Mode</button>
+    <form id="raceForm">
+        <div class="section">
+            <label for="eventName">Event Name:</label>
+            <input type="text" id="eventName" name="eventName" value="Ray Miller 50 50 2025" tabindex="1"><br><br>
+            <label for="messageNum">Message #:</label>
+            <input type="number" id="messageNum" name="messageNum" value="1" tabindex="2">
+            <button type="button" class="increment-button" onclick="incrementMessage()" tabindex="3" role="button" aria-label="Increment Message Number">Increment</button><br><br>
+            <label for="operatorName">Operator Name:</label>
+            <input type="text" id="operatorName" name="operatorName" placeholder="e.g., John" required tabindex="4"><br><br>
+            <label for="sendTo">Send to:</label>
+            <input type="text" id="sendTo" name="sendTo" placeholder="e.g., NCALWLINKNET" tabindex="5"><br><br>
+            <label for="aidStation">Aid Station:</label>
+            <select id="aidStation" name="aidStation" tabindex="6">
+                <option>Start</option>
+                <option>HELL HILL AID #1</option>
+		<option>HELL HILL AID #2</option>
+		<option>HELL HILL AID #3</option>	
+                <option>DANIELSON RANCH</option>
+		<option>YERBA BUENA</option>
+                <option>SYCAMORE CANYON</option>
+                <option>FINISH LINE</option>
+                <option>AMANDA</option>                                
+            </select><br><br>
+            <label for="subject">Subject:</label>
+            <input type="text" id="subject" name="subject" readonly tabindex="7">
+        </div>
+        <div class="section">
+            <h2>Bib Data Entry</h2>
+            <input type="checkbox" id="fastMode" name="fastMode" tabindex="8">
+            <label for="fastMode">Fast Tab Mode (Skip Time/Yesterday)</label><br><br>
+	<div>
+	    <label><input type="checkbox" id="showAlerts" checked> Show confirmation pop-ups</label>
+	   </div> 		
+            <label for="bibNumber">Bib Number:</label>
+            <input type="text" id="bibNumber" name="bibNumber" maxlength="25" oninput="updateBibInfo()" autocomplete="off" tabindex="9" inputmode="numeric" pattern="[0-9]*"><br>
+            <table id="bibInfoTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>Bib #</th>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                        <th>Age</th>
+                        <th>Gender</th>
+                        <th>Distance</th>
+                        <th>Previous Distance</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table><br>
+            <label for="time">Time:</label>
+            <input type="time" id="time" name="time" tabindex="10">
+            <input type="checkbox" id="yesterday" name="yesterday" tabindex="11">
+            <label for="yesterday">Yesterday</label><br><br>
+            <button type="button" class="in-button" onclick="addEntry('IN')" tabindex="12" role="button" aria-label="Add IN Entry">IN</button>
+            <button type="button" class="out-button" onclick="addEntry('OUT')" tabindex="13" role="button" aria-label="Add OUT Entry">OUT</button>
+            <button type="button" class="dnf-button" onclick="addEntry('DNF')" tabindex="14" role="button" aria-label="Add DNF Entry">DNF</button>
+            <button type="button" class="note-button" onclick="addEntry('NOTE')" tabindex="15" role="button" aria-label="Add NOTE Entry">NOTE</button>
+            <button type="button" class="change-distance-button" onclick="showDistancePopup()" tabindex="16" role="button" aria-label="Change Distance">Change Distance</button><br><br>
+            <label for="eta">ETA to next aid station (optional):</label>
+            <input type="text" id="eta" name="eta" placeholder="e.g., 2 hours" tabindex="17"><br><br>
+            <label for="comment">Comment for this runner (optional):</label>
+            <textarea id="comment" name="comment" tabindex="18" spellcheck="true"></textarea><br><br>
+        </div>
+        <div id="distancePopup" style="display: none;">
+            <label for="distanceSelect">Select Distance:</label>
+            <select id="distanceSelect" tabindex="19">
+                <option value="30K">30K</option>
+                <option value="50K">50K</option>
+                <option value="50 mile">50 mile</option>
+                <option value="100K">100K</option>
+                <option value="100 mile">100 mile</option>
+                <option value="200 mile">200 mile</option>
+		<option value="DNS">DNS</option>
+            </select><br>
+            <button type="button" class="update-button" onclick="updateDistance(event)" tabindex="20" role="button" aria-label="Update Distance">Update Distance</button>
+            <button type="button" class="cancel-edit-button" onclick="closeDistancePopup()" tabindex="21" role="button" aria-label="Cancel">Cancel</button>
+        </div>
+        <div class="section">
+            <h2>Bib Log Viewer</h2>
+            <button type="button" class="view-hide-bib-log-button" onclick="toggleBibLog()" tabindex="23" role="button" aria-label="Toggle Bib Log View">📋 View/Hide Bib Log</button>
+            <button type="button" class="export-csv-button" onclick="exportBibCSV_v2()" tabindex="24" role="button" aria-label="Export Log CSV">💾 Export Log CSV</button>
+            <button type="button" class="copy-winlink-button" onclick="exportBibWinlinkTxt_v2()" tabindex="25" role="button" aria-label="Copy for Winlink">📋 Copy for Winlink</button>
+            <button type="button" class="save-data-button" onclick="saveData(true)" tabindex="26" role="button" aria-label="Save Data">💾 Save Data</button>
+            <button type="button" class="load-data-button" onclick="loadData()" tabindex="27" role="button" aria-label="Load Data">📂 Load Data</button>
+            <button type="button" class="import-csv-button" onclick="importCSV()" tabindex="28" role="button" aria-label="Import CSV">📥 Import CSV</button>
+            <button type="button" class="import-bib-list-button" onclick="importBibList()" tabindex="29" role="button" aria-label="Import Bib List">📥 Import Bib List</button>
+            <button type="button" class="reset-newest-button" onclick="resetToNewest()" tabindex="30" role="button" aria-label="Reset to Newest">Reset to Newest</button>
+            <button type="button" class="sync-button" onclick="syncOfflineEntries()" tabindex="31" role="button" aria-label="Sync Offline Entries">🔄 Sync Offline Entries</button><br><br>  
+            <input type="text" id="logSearch" placeholder="🔍 Search bib, action, time, station, comment..." oninput="filterBibLog()" tabindex="22"><br>    
+        
+         <!-- top scroll bar -->
+         <div id="topScroll" class="scrollbar-top"> <!-- Wrapper for top,horizontal and vertical scroll -->
+           <div class="scrollbar-inner"></div>
+         </div>
+         <!-- main table container -->
+         <div id="bibLogContainer" class="bib-log-wrapper">
+           <table id="bibLogTable">
+            <thead>
+              <tr>
+               <th onclick="sortBibTable(0)">Event</th>
+               <th onclick="sortBibTable(1)">Bib #</th>
+               <th onclick="sortBibTable(2)">Action</th>
+               <th onclick="sortBibTable(3)">Time</th>
+               <th onclick="sortBibTable(4)">Day</th>
+               <th onclick="sortBibTable(5)">Station</th>
+               <th onclick="sortBibTable(6)">Comment</th>
+               <th onclick="sortBibTable(7)">ETA</th>
+               <th onclick="sortBibTable(8)">Operator</th>
+               <th onclick="sortBibTable(9)">Date</th>
+               <th onclick="sortBibTable(10)">First Name</th>
+               <th onclick="sortBibTable(11)">Last Name</th>
+               <th onclick="sortBibTable(12)">Age</th>
+               <th onclick="sortBibTable(13)">Gender</th>
+               <th onclick="sortBibTable(14)">Distance</th>
+               <th onclick="sortBibTable(15)">Previous Distance</th>
+               <th>Edit</th>
+              </tr>
+           </thead>
+   	    <tbody></tbody>
+          </table>
+       </div>
+        <div class="section">
+            <label for="entryCount">Entry Count:</label>
+            <span id="entryCount">0</span><br><br>
+            <label for="generalComment">General Comment:</label>
+            <input type="text" id="generalComment" name="generalComment" placeholder="e.g., Aid station low on water" tabindex="32" spellcheck="true">
+            <button type="button" class="add-general-comment-button" onclick="addGeneralComment()" tabindex="33" role="button" aria-label="Add General Comment">Add General Comment</button><br><br>
+        </div>
+                <div class="section">
+            <h2>General Message Log</h2>
+            <button type="button" class="view-hide-message-log-button" onclick="toggleGeneralMessageLog()" tabindex="34">View/Hide General Message Log</button><br><br>
+            
+            <button type="button" class="export-csv-button" onclick="event.preventDefault(); exportGeneralCSV()" tabindex="35" role="button" aria-label="Export General Messages as CSV">Export CSV</button>
+            <button type="button" class="export-pdf-button" onclick="event.preventDefault(); exportGeneralPDF()" tabindex="36" role="button" aria-label="Export General Messages as PDF">Export PDF</button>
+            <button type="button" class="export-winlink-button" onclick="event.preventDefault(); exportGeneralWinlink()" tabindex="37" role="button" aria-label="Export General Messages as Winlink">Export Winlink</button>
+             <br><br>
+
+	      <div class="bib-log-wrapper">
+                <table id="generalMessageLogTable" style="display: none;">
+                    <thead>
+                        <tr>
+                         <th onclick="sortGeneralMessages(0)">Aid Station</th> 
+                            <th>Msg #</th>
+                            <th>Comment</th>
+                            <th>Operator</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+<div class="section">
+  <button
+    id="clearLogButton"
+    type="button"
+    class="clear-log-button"
+    onclick="clearLog()"
+    tabindex="35"
+    role="button"
+    aria-label="Clear Bib Log">
+    🧹 Clear Bib Log
+  </button>
+</div>
+
+<div class="section">
+  <button
+    id="btnclearGeneralMessages"
+    type="button"
+    class="clear-general-button"
+    onclick="clearGeneralMessages()"
+    tabindex="36"
+    role="button"
+    aria-label="Clear General Messages">
+    🧹 Clear General Messages
+  </button>
+</div>
+
+<details>
+  <summary>Winlink Operator Instructions</summary>
+  <p>The form has four sections: Header (event, operator, etc.), Bib Data Entry (bib, time, actions),
+     Bib Log Viewer (view/export data), and Message Log (track exports).</p>
+</details>
+</form>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  setInterval(() => {
+    if (typeof loadGeneralComments === "function") {
+      loadGeneralComments();
+      console.log("Auto refresh fired");
+    }
+  }, 120000);
+</script>
+
+
+<!-- Big Yellow Radio Send Button (center, after general comment section) -->
+<div class="section" style="text-align: center; margin: 30px 0;">
+    <button type="button" onclick="sendRunnerUpdatesViaRadio()" style="background: #ffff00; color: black; font-size: 24px; font-weight: bold; padding: 20px 60px; border: none; border-radius: 15px; box-shadow: 0 6px 20px rgba(0,0,0,0.2); cursor: pointer; transition: transform 0.2s;" tabindex="38">📡 SEND RADIO MESSAGE</button>
+    <div id="radioStatus" style="margin-top: 15px; font-size: 16px; font-weight: bold; color: #008000;">Radio: Connected & Ready</div>
+    <div id="messageNumber" style="margin-top: 5px; font-size: 14px; color: #666;">Next Msg#: Loading...</div>
+</div>
+
+
+
+<!-- Load your local JS for dev -->
+<!-- <script src="race_timing.min.js?v=1"></script> -->
+<script src="race_timing.js?v=debug11"></script>
+<script src="message-batches.js?v=dev1"></script>
+<script src="radio-system.js?v=1"></script>
+<script src="rd-internet.js?v=1"></script>
+<script src="hq_inbox_poll.js?v=4"></script>
+<script>
+  const topScroll = document.getElementById('topScroll');
+  const bottomDiv = document.getElementById('bibLogContainer');
+
+
+  // match widths
+  const syncWidth = () => {
+    document.querySelector('#topScroll .scrollbar-inner').style.width = bottomDiv.scrollWidth + 'px';
+  };
+  syncWidth();
+
+  // keep scroll positions linked
+  topScroll.addEventListener('scroll', () => bottomDiv.scrollLeft = topScroll.scrollLeft);
+  bottomDiv.addEventListener('scroll', () => topScroll.scrollLeft = bottomDiv.scrollLeft);
+
+  // adjust when window resizes
+  window.addEventListener('resize', syncWidth);
+</script>
+<footer>© 2025 TVEMC • tvemc tracker™ • <a href="https://tvemc.org">tvemc.org</a></footer>
+</body>
+</html>
