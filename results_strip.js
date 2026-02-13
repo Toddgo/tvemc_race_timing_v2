@@ -4,42 +4,100 @@
 */
 console.log("✅ results_strip.js START");
 
+// ------------------------------
+// Context helpers (race-safe) Added Feb12 at 11:00
+// Ensures station + distance exist in EVERY tab (HQ, AS windows, popup windows)
+// ------------------------------
+(function ensureContextHelpers() {
+  // Event code (you already have cleanEventCode elsewhere; keep it if present)
+  window.getEventCode = window.getEventCode || function () {
+    // Try a couple known inputs / fallbacks
+    const el = document.getElementById("event_code") || document.getElementById("eventCode");
+    const v = (el && el.value) ? String(el.value).trim() : "";
+    return v || "AZM-300-2026-0004";
+  };
+
+  // Station: prefer per-tab sessionStorage, then UI, then localStorage
+  window.getStationCode = window.getStationCode || function () {
+    const ss = (sessionStorage.getItem("tvemc_aidStation") || "").trim();
+    if (ss) return ss;
+
+    const sel = document.getElementById("aidStation") || document.getElementById("stationSelect");
+    const ui = (sel && sel.value) ? String(sel.value).trim() : "";
+    if (ui) return ui;
+
+    const ls = (localStorage.getItem("tvemc_aidStation") || "").trim();
+    return ls || "";
+  };
+
+  // Distance: event-scoped localStorage key (critical for multi-event / multi-tab)
+  window.getDistanceCode = window.getDistanceCode || function () {
+    const ec = String(window.getEventCode ? window.getEventCode() : "").trim() || "DEFAULT";
+    const key = `tvemc_distance_code__${ec}`;
+
+    const ls = (localStorage.getItem(key) || "").trim();
+    if (ls) return ls;
+
+    const sel = document.getElementById("distanceSelect") || document.getElementById("distance");
+    const ui = (sel && sel.value) ? String(sel.value).trim() : "";
+    if (ui) return ui;
+
+    return "";
+  };
+
+  // Optional: If URL contains ?station=AS2&distance=300M, capture it early
+  try {
+    const p = new URLSearchParams(location.search);
+    const st = (p.get("station") || "").trim();
+    const dist = (p.get("distance") || "").trim();
+    if (st) sessionStorage.setItem("tvemc_aidStation", st);
+
+    if (dist) {
+      const ec = String(window.getEventCode ? window.getEventCode() : "").trim() || "DEFAULT";
+      localStorage.setItem(`tvemc_distance_code__${ec}`, dist);
+    }
+  } catch (e) {}
+})();
+
 // --- TVEMC: robust station context (GLOBAL) ---
 window.getCurrentStationContext = function () {
-  const event_code = (typeof getEventCode === "function" ? getEventCode() : "") ||
-    new URLSearchParams(location.search).get("event") || "";
+  const event_code =
+    (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "") ||
+    String(new URLSearchParams(location.search).get("event") || "").trim() ||
+    String(localStorage.getItem("tvemc_event_code") || "").trim() ||
+    "AZM-300-2026-0004";
 
-  // Station is stored here (confirmed)
-  // Station is per-tab (sessionStorage) with localStorage fallback
-    const station_code = String(
-      sessionStorage.getItem("tvemc_aidStation") ||
-      localStorage.getItem("tvemc_aidStation") ||
-      ""
-    ).trim();
+  const station_code = String(
+    sessionStorage.getItem("tvemc_aidStation") ||
+    localStorage.getItem("tvemc_aidStation") ||
+    ""
+  ).trim();
 
-  // Distance: prefer event-scoped saved state (avoids SOB bleed like 30K)
   let distance_code = "";
-  const ek = event_code ? `tvemc_raceTimingData_${event_code}` : "";
-  if (ek) {
-    try {
-      const blob = JSON.parse(localStorage.getItem(ek) || "{}");
-      distance_code = String(blob.distance_code || blob.selectedDistance || blob.distance || "").trim();
-    } catch (_) {}
+
+  // 1) Blob
+  try {
+    const blobKey = `tvemc_raceTimingData_${event_code}`;
+    const blob = JSON.parse(localStorage.getItem(blobKey) || "{}");
+    distance_code = String(blob.distance_code || "").trim();
+  } catch(e) {}
+
+  // 2) Direct per-event key
+  if (!distance_code) {
+    distance_code = String(localStorage.getItem(`tvemc_distance_code__${event_code}`) || "").trim();
   }
 
-  // Fallbacks if not in blob
+  // 3) UI last resort
   if (!distance_code) {
     distance_code = String(
       document.getElementById("distanceSelect")?.value ||
       document.getElementById("distance_code")?.value ||
       document.getElementById("distanceCode")?.value ||
-      localStorage.getItem("distance_code") ||
-      localStorage.getItem("distanceCode") ||
       ""
     ).trim();
   }
 
-  return { station_code, distance_code, event_code };
+  return { event_code, station_code, distance_code };
 };
 
 (function () {
@@ -595,27 +653,6 @@ window.getCurrentStationContext = function () {
     if (hint) hint.textContent = listHint || "";
   }
   
-   // --- TVEMC helper: current station context (GLOBAL) ---
-    window.getCurrentStationContext = function () {
-      const sc =
-        document.getElementById("station_code")?.value ||
-        document.getElementById("stationCode")?.value ||
-        document.getElementById("stationSelect")?.value ||
-        document.querySelector("[data-station-code]")?.getAttribute("data-station-code") ||
-        "";
-    
-      const dc =
-        document.getElementById("distance_code")?.value ||
-        document.getElementById("distanceCode")?.value ||
-        document.getElementById("distanceSelect")?.value ||
-        "";
-    
-      return {
-        station_code: String(sc || "").trim(),
-        distance_code: String(dc || "").trim()
-      };
-    };
-  
     // ---------- List window (auto-refresh) ----------
     function openListWindow(title, rowsOrGetter, opts = {}) {
       const w = window.open("", "_blank", "width=1100,height=800");
@@ -1123,19 +1160,13 @@ window.getCurrentStationContext = function () {
   let lastList = [];
   let lastStationCode = "";
   
-  let STATUS_OVERRIDES = { dnsClearedAtMs: new Map(), dnfClearedAtMs: new Map() };
-  window.STATUS_OVERRIDES = STATUS_OVERRIDES;
+  // -------- STATUS_OVERRIDES (global, idempotent) --------
+    window.STATUS_OVERRIDES = window.STATUS_OVERRIDES || {
+      dnsClearedAtMs: new Map(),
+      dnfClearedAtMs: new Map()
+    };
+    const STATUS_OVERRIDES = window.STATUS_OVERRIDES;
 
-     // Global sticky clear state (never undefined) — do NOT redeclare if it already exists
-    if (typeof STATUS_OVERRIDES === "undefined") {
-      window.STATUS_OVERRIDES = {
-        dnsClearedAtMs: new Map(),
-        dnfClearedAtMs: new Map()
-      };
-    } else {
-      window.STATUS_OVERRIDES = STATUS_OVERRIDES;
-    }
-    
     async function loadStatusOverrides() {
       try {
         const ec = (typeof getEventCode === "function") ? getEventCode() : "";
@@ -1175,10 +1206,10 @@ window.getCurrentStationContext = function () {
           }
         }
     
-        STATUS_OVERRIDES = { dnsClearedAtMs: dns, dnfClearedAtMs: dnf };
-        window.STATUS_OVERRIDES = STATUS_OVERRIDES;
+        STATUS_OVERRIDES.dnsClearedAtMs = dns;
+        STATUS_OVERRIDES.dnfClearedAtMs = dnf;
         return STATUS_OVERRIDES;
-    
+
       } catch (e) {
         console.warn("Overrides load exception:", e?.message || e);
         // never throw; keep last known overrides
@@ -1266,48 +1297,40 @@ window.getCurrentStationContext = function () {
       const cleared_by = (document.getElementById("operatorName")?.value || "").trim() || "HQ";
       const note = "HQ cleared status (confirmed running)";
       await hqClearStatus({ event_code, bib: String(bib).trim(), clear, cleared_by, note });   // was String
-      STATUS_OVERRIDES = await loadStatusOverrides(event_code);
+      await loadStatusOverrides(event_code);
 
       // Optional immediate refresh of sticky warnings + cards
       try { if (typeof window.recomputeStickyStatusSets === 'function') window.recomputeStickyStatusSets(); } catch {}
       try { if (window.ResultsStrip && typeof window.ResultsStrip.update === 'function') window.ResultsStrip.update(window.__rs_lastList || lastList || [], window.__rs_lastStationCode || lastStationCode || ''); } catch {}
     };
 
-
   async function computeAndRender(list, stationCode) {
     mount();
     
-    // Added Feb 7 at 12:28
-   // console.log("computeAndRender start", new Error().stack);
-
-    // Added Feb 7 at 11:55
-    const __EC =
-      (window.getEventCode && typeof window.getEventCode === "function")
-        ? String(window.getEventCode() || "")
-        : String((new URLSearchParams(window.location.search)).get("event") || "");
-    
-    const IS_SOB = /SOB/i.test(__EC);
-
     lastList = Array.isArray(list) ? list : [];
     window.__rs_lastList = lastList;
     window.__rs_debug = { safeStationCode, safePassTs, parseTsToMs };
-
-    lastStationCode = stationCode || "";
-
-    const stationUpper = String(stationCode || "").toUpperCase();
-    const stationLabel = stationLabelFromDropdown(stationCode);
-    const stationCodes = expandStationCodes(stationCode);
     
-    const eventCode = (window.getEventCode ? window.getEventCode()
-      : (document.getElementById("eventCode")?.value
-      || document.getElementById("eventName")?.value
-      || "AZM-300-2026-0004")).trim();
-      
+    const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+    
+    const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
+    const IS_SOB = /SOB/i.test(eventCode);
+    
+    const effectiveStation = String(stationCode || ctx.station_code || "").trim();
+    
+    lastStationCode = effectiveStation;
+    
+    const stationUpper = effectiveStation.toUpperCase();
+    const stationLabel = stationLabelFromDropdown(effectiveStation);
+    const stationCodes = expandStationCodes(effectiveStation);
+
      try {
-      STATUS_OVERRIDES = await loadStatusOverrides(eventCode);
+      await loadStatusOverrides(eventCode);
     } catch (e) {
       console.warn("Overrides load failed:", e.message);
-      STATUS_OVERRIDES = { dnsClearedAtMs: new Map(), dnfClearedAtMs: new Map() };
+      STATUS_OVERRIDES.dnsClearedAtMs = new Map();
+      STATUS_OVERRIDES.dnfClearedAtMs = new Map();
+
     }  
     
     // Entrants (DB) — always event-wide for Card A
@@ -1458,10 +1481,12 @@ window.getCurrentStationContext = function () {
       }
     }
 
+     window.__rs_expectedPrevRows = expectedPrevRows;
+     
     // Card D
     const finishedCount = finishSet.size;
     const notFinishedCount = Math.max(0, entrantsDB - dnsSet.size - finishedCount);
-
+    
     updateUI({
       // Card A
       aLabel: `Card A — Event Status (DB)`,
@@ -1481,7 +1506,7 @@ window.getCurrentStationContext = function () {
         : (stationUpper === "FINISH"
             ? `Expected to arrive at FINISH (Open List)`
             : `Next expected at ${stationLabel} (Open List)`),
-
+      
       // Card D
       dLabel: `Card D — Finish Status`,
       dVal: `${finishedCount}`,
@@ -1519,7 +1544,6 @@ window.getCurrentStationContext = function () {
     // Wire list selector
     const sel = document.getElementById("rsListSelect");
     const btn = document.getElementById("rsOpenListBtn");
-    
     
     if (btn && sel) {
       btn.onclick = () => {
@@ -1635,7 +1659,7 @@ window.getCurrentStationContext = function () {
     }
 
    if (v === "last10_here") {
-      const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { station_code: "" });
+      const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
     
       const sc2 = String(ctx.station_code || "").trim();
       const sc  = sc2 || String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();
@@ -1699,202 +1723,15 @@ window.getCurrentStationContext = function () {
     if (v === "expected_prev") {
       return openListWindow(
         `Expected From Previous — ${stationLabel}`,
-        () => {
-          const list = window.__rs_lastList || lastList || [];
-          const latestNow = latestByBib(list);
-    
-          const stationUpper = String(lastStationCode || stationCode || "").toUpperCase();
-          const stationCodesNow = expandStationCodes(lastStationCode || stationCode);
-    
-          // Personnel stations: no expected list
-          if (isPersonnelStation(stationUpper)) return [];
-          
-          // --- AZM / generic DB-order expected-from-previous --- Feb 8 11:10
-        // If not SOB, use station_order-based predecessor.
-        // Uses tvemc_aidStation so it works on station pages where stationCode globals are unset.
-        if (!IS_SOB) {
-          const curSc = String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim().toUpperCase();
-          if (!curSc) return [];
-        
-          // Build "latest pass per bib" map from list using timestamps
-          const latestMap = new Map();
-          for (const e of (Array.isArray(list) ? list : [])) {
-            const bib = String(e?.bib_number ?? e?.bib ?? "").trim();
-            if (!bib) continue;
-            const ts = safePassTs(e);
-            const prev = latestMap.get(bib);
-            if (!prev || parseTsToMs(ts) > parseTsToMs(safePassTs(prev))) {
-              latestMap.set(bib, e);
-            }
-          }
-        
-          // Find current station_order from any row
-          const curRow = (Array.isArray(list) ? list : []).find(r =>
-            String(r?.station_code || "").trim().toUpperCase() === curSc &&
-            r?.station_order != null
-          );
-        
-          const curOrder = curRow?.station_order != null ? Number(curRow.station_order) : null;
-          if (!curOrder) return [];
-        
-          // For AS1, predecessor is START (expected = bibs with latest station START)
-          let prevCodes = [];
-          if (curOrder <= 1) {
-            prevCodes = ["START"];
-          } else {
-            const want = curOrder - 1;
-            prevCodes = [...new Set(
-              (Array.isArray(list) ? list : [])
-                .filter(r => r?.station_order != null && Number(r.station_order) === want)
-                .map(r => String(r?.station_code || "").trim().toUpperCase())
-                .filter(Boolean)
-            )];
-          }
-        
-          // Exclude finished/DNS/DNF using your existing sticky sets if present
-          const rows = [];
-          for (const [bib, e] of latestMap.entries()) {
-            if (stickyStatusByBib?.dns?.has?.(bib)) continue;
-            if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
-            if (typeof isFinish === "function" && isFinish(e)) continue;
-        
-            const lastSc = String(e?.station_code || "").trim().toUpperCase();
-            if (!prevCodes.includes(lastSc)) continue;
-        
-            rows.push({
-              bib,
-              last_station: String(e?.station_name || "").trim() || lastSc || "N/A",
-              nextArriving_time: "",
-              next_station: "(arriving here)",
-              distance: normalizeDistance(e?.distance_code || e?.distance || "")
-            });
-          }
-        
-          rows.sort((a,b) => Number(a.bib) - Number(b.bib));
-          
-           console.log("AZM expected_prev", {
-              curSc,
-              curOrder,
-              prevCodes,
-              latestCount: latestMap.size,
-              rows: rows.length
-            });
-          
-          return rows;
-        }
-        // end of update block Feb 8 11:10
-            
-          // ✅ CCAS1 reconciliation + CORRAL_AUTO merge
-            if (IS_SOB && stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {   
-
-            const seenAtAS1 = new Set(
-              (list || [])
-                .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
-                .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
-                .filter(Boolean)
-            );
-    
-            const finishedBibs = new Set(
-              Array.from(latestNow.entries())
-                .filter(([_, e]) => isFinish(e))
-                .map(([bib]) => String(bib).trim())
-            );
-    
-            const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
-            const out = [];
-    
-            for (const r of roster) {
-              const bib = String(r?.bib ?? "").trim();
-              if (!bib) continue;
-    
-              if (seenAtAS1.has(bib)) continue;
-              if (stickyStatusByBib?.dns?.has?.(bib)) continue;
-              if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
-              if (finishedBibs.has(bib)) continue;
-    
-              out.push({
-                bib,
-                last_station: "START",
-                nextArriving_time: "",
-                next_station: "(arriving here)",
-                distance: r?.distance || ""
-              });
-            }
-
-            out.sort((a, b) => Number(a.bib) - Number(b.bib));
-    
-            // ✅ AS1 = reconciliation only
-            if (stationUpper === "AS1") return out;
-    
-            // ✅ CORRAL_AUTO = reconciliation + return-leg expected
-            const forcePathForCorralReturn =
-              computeExpectedFromPrev_PATH(latestNow, ["AS8"]).length > 0;
-    
-            let rows;
-            if (forcePathForCorralReturn) {
-              rows = computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-            } else {
-              const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
-              rows = flowPrev
-                ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
-                : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-            }
-    
-            rows = (rows || []).filter(r => {
-              const bib = String(r?.bib ?? "").trim();
-              if (!bib) return false;
-              if (finishedBibs.has(bib)) return false;
-              if (stickyStatusByBib?.dns?.has?.(bib)) return false;
-              if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
-              return true;
-            });
-    
-            const seen = new Set(out.map(r => String(r.bib).trim()));
-            for (const r of rows) {
-              const bib = String(r?.bib ?? "").trim();
-              if (!bib || seen.has(bib)) continue;
-              out.push(r);
-              seen.add(bib);
-            }
-    
-            return out;
-          }
-    
-          // ---- Normal stations: existing FLOW/PATH logic ----
-          const isCorral = (stationUpper === "CORRAL_AUTO");
-          const forcePathForCorralReturn =
-            isCorral && computeExpectedFromPrev_PATH(latestNow, ["AS8"]).length > 0;
-    
-          let rows;
-          if (forcePathForCorralReturn) {
-            rows = computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-          } else {
-            const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
-            rows = flowPrev
-              ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
-              : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-          }
-    
-          const finishedBibs2 = new Set(
-            Array.from(latestNow.entries())
-              .filter(([_, e]) => isFinish(e))
-              .map(([bib]) => String(bib).trim())
-          );
-    
-          rows = (rows || []).filter(r => {
-            const bib = String(r?.bib ?? "").trim();
-            return bib && !finishedBibs2.has(bib);
-          });
-    
-          return rows;
-        },
+        () => (window.__rs_expectedPrevRows || []),
         { refreshMs: 5000 }
       );
     }
         
-   // return;
+    return;  //
   };
-} // end if (btn && sel)
+  
+ } // end if (btn && sel)
 
 } // ✅ end computeAndRender
 
@@ -1911,4 +1748,4 @@ window.ResultsStrip = {
 
 console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
 
-})(); // end IIFE
+})();  // end IIFE  

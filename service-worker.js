@@ -25,10 +25,9 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    // Claim clients so this SW controls open tabs
     await self.clients.claim();
 
-    if (!ENABLE_CACHING) return;
+    // if (!ENABLE_CACHING) return; // optional
 
     // Clean old caches
     const keys = await caches.keys();
@@ -40,14 +39,11 @@ self.addEventListener("activate", (event) => {
   })());
 });
 
+
 // Network-first for API calls; cache-first for same-origin static
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
-
-  // Only handle our app scope + same origin
-  if (url.origin !== self.location.origin) return;
-  if (!url.pathname.startsWith(APP_SCOPE_PREFIX)) return;
 
   // NEVER intercept your PHP APIs in a cachey way
   const isApi =
