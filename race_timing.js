@@ -7,6 +7,102 @@ var event_code = String(window.TVEMC_EVENT_CODE || window.event_code || "AZM-300
 
 let __CACHED_FINISH_CODE = null;
 
+/* ---------------------------
+   Global helpers
+----------------------------*/
+
+// -----------------------------
+// Persist station + distance context (multi-tab safe)
+// -----------------------------
+function persistAidStationFromDropdown() {
+  const sel = document.getElementById("aidStation");
+  if (!sel) return;
+  const val = String(sel.value || "").trim();
+  if (!val) return;
+  sessionStorage.setItem("tvemc_aidStation", val);
+  // optional fallback:
+  localStorage.setItem("tvemc_aidStation", val);
+}
+
+function persistDistanceForEvent() {
+  const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
+  if (!ec) return;
+
+  const sel =
+    document.getElementById("distanceSelect") ||
+    document.getElementById("distance_code") ||
+    document.getElementById("distanceCode");
+
+  const dist = String(sel?.value || "").trim();
+  if (!dist) return;
+
+  const key = `tvemc_raceTimingData_${ec}`;
+  let blob = {};
+  try { blob = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+  blob.distance_code = dist;
+
+  // ✅ REQUIRED for multi-tab station pages (event-scoped)
+  localStorage.setItem(`tvemc_distance_code__${ec}`, dist);
+  localStorage.setItem(key, JSON.stringify(blob));
+}
+
+// Run once after page settles (dropdowns are populated async)
+// Run once after page settles (dropdowns are populated async)
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    persistAidStationFromDropdown();
+
+    // ✅ AZM: force correct default distance once
+    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
+    const distSel = document.getElementById("distanceSelect");
+
+    if (ec === "AZM-300-2026-0004" && distSel) {
+      distSel.value = "300M";
+    }
+
+    // Persist whichever distance is now selected (event-scoped)
+    persistDistanceForEvent();
+  }, 400);
+});
+
+
+// --- TEMP RACE-SAFE: lock distance per event (prevents defaulting to 30K) ---
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
+    const distSel = document.getElementById("distanceSelect");
+
+    // AZM 300
+    if (ec === "AZM-300-2026-0004" && distSel) {
+      // pick the correct option if present
+      const wanted = "300M"; // <-- change if your actual code differs
+      const has = [...distSel.options].some(o => String(o.value).trim() === wanted);
+      if (has) distSel.value = wanted;
+    }
+
+    // After setting, persist to event-scoped storage
+    persistDistanceForEvent();
+  }, 900);
+});
+
+// Update whenever dropdowns change
+document.addEventListener("change", (e) => {
+  if (!e.target) return;
+  if (e.target.id === "aidStation") persistAidStationFromDropdown();
+
+  if (
+    e.target.id === "distanceSelect" ||
+    e.target.id === "distance_code" ||
+    e.target.id === "distanceCode"
+  ) {
+    persistDistanceForEvent();
+  }
+});
+
+function persistDistanceSelection(distCode) {
+  const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "DEFAULT");
+  localStorage.setItem(`tvemc_distance_code__${ec}`, String(distCode || "").trim());
+}
 
 async function getFinishStationCode(event_code) {
   if (__CACHED_FINISH_CODE) return __CACHED_FINISH_CODE;
@@ -190,30 +286,31 @@ function setCurrentTime(force = false) {
   console.log("Time set to:", timeEl.value);
 }
 
-function getEventCode() {
-  try {
-    // 1) URL param wins (multi-event support)
-    const url = new URL(window.location.href);
-    const fromUrl = (url.searchParams.get("event") || "").trim();
-    if (fromUrl) return fromUrl;
-  } catch (e) {
-    // ignore
-  }
-
-  // 2) UI inputs (manual override / admin)
-  const fromEventCode = (document.getElementById("eventCode")?.value || "").trim();
-  if (fromEventCode) return fromEventCode;
-
-  const fromEventName = (document.getElementById("eventName")?.value || "").trim();
-  if (fromEventName) return fromEventName;
-
-  // 3) Safe default
-  return "AZM-300-2026-0004";
+function cleanEventCode(ec) {
+  ec = String(ec || "").trim();
+  // strip anything after ?, &, or /
+  ec = ec.split("?")[0].split("&")[0].split("/")[0];
+  return ec.trim();
 }
 
+window.getEventCode = function getEventCode() {
+  const qs = new URLSearchParams(window.location.search);
+
+  // ✅ Canonical is ?event=...
+  const fromQS = qs.get("event");
+
+  // Fallbacks
+  const fromLS = localStorage.getItem("tvemc_event_code") || "";
+  const fromInput =
+    document.getElementById("eventCode")?.value ||
+    document.getElementById("eventName")?.value ||
+    "";
+
+  return cleanEventCode(fromQS || fromInput || fromLS || "");
+};
 
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
-  const event_code = getEventCode();
+  const event_code = cleanEventCode(getEventCode());
   try {
     const res = await fetch(`events_load.php?event_code=${encodeURIComponent(event_code)}`, { cache: "no-store" });
     const meta = await res.json();
@@ -685,8 +782,8 @@ function stationNameFromCode(station_code) {
     for (const opt of el.options) {
       if (String(opt.value || "").trim() === code) {
         return opt.text.trim();
-     // }
-   // }
+      }
+    }
   }
   return code; // fallback to showing AS3 if dropdown lookup fails
 }
@@ -727,198 +824,195 @@ function publishBibList() {
 }
 
 async function loadPassesFromServer() {
-  const event_code = getEventCode ? getEventCode() : ((document.getElementById("eventName")?.value || "AZM-300-2026-0004").trim());
-  const res = await fetch(`passes_load.php?event_code=${encodeURIComponent(event_code)}&limit=500`, { cache: "no-store" });
-  const rows = await res.json();
-  if (Array.isArray(bibList) && bibList.length) window.bibList = bibList;
+  if (window.__loadingPasses) return;
+  window.__loadingPasses = true;
 
-  if (!Array.isArray(rows)) {
-    console.error("passes_load returned non-array:", rows);
-    return;
-  }
-  
-  if (!event_code) return;        // keep
-    // do NOT require station_code or distance_code for passes_load
+  try {
+    const event_code = cleanEventCode(
+      (typeof getEventCode === "function")
+        ? getEventCode()
+        : (document.getElementById("eventName")?.value || "AZM-300-2026-0004").trim()
+    );
 
-  // Map DB passes -> your Bib Log entry shape expected by filterBibLog()
-  entries = rows.map(r => {
-    const bib = String(r.bib);
-    const runner = bibList.find(x => String(x.bib) === bib) || {};
+    if (!event_code) return; // keep
 
-    const station_order = (r.station_order === null || r.station_order === undefined)
-      ? null
-      : parseInt(r.station_order, 10);
+    const res = await fetch(
+      `passes_load.php?event_code=${encodeURIComponent(event_code)}&limit=500`,
+      { cache: "no-store" }
+    );
 
-    const action = (r.pass_type || "").toUpperCase();
+    const rows = await res.json();
 
-    let station = stationNameFromOrder(station_order);
-
-    // If this is a FINISH action (or FINISH station_code), always show FINISH LINE
-    if (action === "FINISH" || String(r.station_code || "").toUpperCase() === "FINISH") {
-      station = "🏁 FINISH LINE";
+    if (!Array.isArray(rows)) {
+      console.error("passes_load returned non-array:", rows);
+      return;
     }
 
-    const distance_code = runner.distance || r.distance_code || "N/A";
-
-    const station_order_num = (r.station_order !== null && r.station_order !== undefined)
-      ? parseInt(r.station_order, 10)
-      : stationOrderFromCode(r.station_code);
-
-    const passDateUtc = r.pass_ts ? parsePassTsUtcToDate(r.pass_ts) : new Date(NaN);
-    const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts);
-    //Added Feb3-12:07 help misMatch
-    const mode = TVEMC_timeMode();
-    const tz = TVEMC_timeZone();
+    // Map DB passes -> your Bib Log entry shape expected by filterBibLog()
+    entries = rows.map(r => {
+      const bib = String(r.bib);
+      const runner = bibList.find(x => String(x.bib) === bib) || {};
     
-    const timeStr = isNaN(passDateUtc.getTime()) ? "" :
-      (mode === "UTC"
-        ? passDateUtc.toLocaleTimeString("en-US", {
-            timeZone: "UTC",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false
-          })
-        : passDateUtc.toLocaleTimeString("en-US", {
-            timeZone: tz,
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false
-          })
-      );
+      const action = String(r.pass_type || "").toUpperCase();
     
-    const dateStr = isNaN(passDateUtc.getTime()) ? "" :
-      (mode === "UTC"
-        ? passDateUtc.toLocaleDateString("en-US", { timeZone: "UTC" })
-        : passDateUtc.toLocaleDateString("en-US", { timeZone: tz })
-      );
-
-
-    const dayStr = isNaN(passDateUtc.getTime()) ? "" : dayLabelFromDate(passDateUtc);
-    const distCode = canonicalDistanceCode(safeString(r.distance_code || r.distance || ""));
-
-    // --- Station display (single source of truth) ---
-    let sc = String(r.station_code ?? "").trim().toUpperCase();
+      const station_order = (r.station_order === null || r.station_order === undefined)
+        ? null
+        : parseInt(r.station_order, 10);
     
-    // (optional) legacy fallback from station_id index if you add it later
-    // const sid = Number(r.station_id || 0);
-    // const byId = (sid && STATION_BY_ID) ? STATION_BY_ID[sid] : null;
-    // if (!sc && byId?.code) sc = String(byId.code).trim().toUpperCase();
+      // Base station label from order (fallback)
+      let station = stationNameFromOrder(station_order);
     
-    const sname =
-      String(r.station_name ?? "").trim() ||
-      stationNameFromMapByCode(sc) ||
-      station ||   // your existing order-based name
-      sc;
+      // FINISH label safety
+      if (action === "FINISH" || String(r.station_code || "").toUpperCase() === "FINISH") {
+        station = "🏁 FINISH LINE";
+      }
     
-    const stationDisplay =
-      (action === "FINISH" || sc === "FINISH")
-        ? "🏁 FINISH LINE"
-        : (sname ? `📍 ${sname}` : "N/A");
+      // Distance & station order for computations
+      const distance_code = runner.distance || r.distance_code || "N/A";
+    
+      const station_order_num = (r.station_order !== null && r.station_order !== undefined)
+        ? parseInt(r.station_order, 10)
+        : stationOrderFromCode(r.station_code);
+    
+      // Time parsing
+      const passDateUtc = r.pass_ts ? parsePassTsUtcToDate(r.pass_ts) : new Date(NaN);
+      const mode = TVEMC_timeMode();
+      const tz = TVEMC_timeZone();
+    
+      const timeStr = isNaN(passDateUtc.getTime()) ? "" :
+        (mode === "UTC"
+          ? passDateUtc.toLocaleTimeString("en-US", { timeZone: "UTC", hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false })
+          : passDateUtc.toLocaleTimeString("en-US", { timeZone: tz, hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false })
+        );
+    
+      const dateStr = isNaN(passDateUtc.getTime()) ? "" :
+        (mode === "UTC"
+          ? passDateUtc.toLocaleDateString("en-US", { timeZone: "UTC" })
+          : passDateUtc.toLocaleDateString("en-US", { timeZone: tz })
+        );
+    
+      // Results computations
+      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts);
+    
+      const distCode = canonicalDistanceCode(safeString(r.distance_code || r.distance || ""));
+      let sc = String(r.station_code ?? "").trim().toUpperCase();
+    
+      const sname =
+        String(r.station_name ?? "").trim() ||
+        stationNameFromMapByCode(sc) ||
+        station ||
+        sc;
+    
+      const stationDisplay =
+        (action === "FINISH" || sc === "FINISH")
+          ? "🏁 FINISH LINE"
+          : (sname ? `📍 ${sname}` : "N/A");
+    
+      return {
+        pass_id: r.pass_id,
+        bib_number: bib,
+        action,
+        time: timeStr,
+        date: dateStr,
+    
+        station_id: (r.station_id ?? null),
+        station: stationDisplay,
+        station_code: sc,
+        station_name: r.station_name ?? r.station_display ?? r.station ?? "",
+        station_order: (r.station_order != null ? Number(r.station_order) : null),
+        mile: (r.mile != null ? Number(r.mile) : null),
+    
+        event_code: r.event_code ?? "",
+    
+        comment: (r.mismatch == 1 && !(r.note || "").trim())
+          ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
+          : (r.note || ""),
+    
+        pass_ts: r.pass_ts || "",
+        pass_ts_ms: isNaN(passDateUtc.getTime()) ? null : passDateUtc.getTime(),
+    
+        distance_code: distCode,
+    
+        eta: computed.eta_next,
+        elapsed: computed.elapsed,
+        pace: computed.pace,
+    
+        operator: r.operator || "Unknown",
+        first_name: runner.firstName || "N/A",
+        last_name: runner.lastName || "N/A",
+        age: runner.age || "N/A",
+        gender: runner.gender || "N/A",
+        distance: runner.distance || r.distance_code || "N/A",
+        previous_distance: runner.previousDistance || "N/A"
+      };
+    });
 
-    return {
-      pass_id: r.pass_id,
-      eventName: event_code,
-      bib_number: bib,
-      action: action,
-      time: timeStr,
-      date: dateStr,
-      station_id: (r.station_id ?? null),   // Added Feb 7 at 10:20
-      station: stationDisplay,  // Added Feb 7 at 09:35
-      station_code: sc,         // Added Feb 7 at 09:35
-      station_name: r.station_name ?? r.station_display ?? r.station ?? "",       // Added Feb 7 at 19:10
-      station_order: (r.station_order != null ? Number(r.station_order) : null),  // Added Feb 7 at 19:10
-      mile: (r.mile != null ? Number(r.mile) : null),                             // Added Feb 7 at 19:10  
-      distance_code: r.distance_code ?? "",                                       // Added Feb 7 at 19:10
-      event_code: r.event_code ?? "",                                             // Added Feb 7 at 19:10
+  // ----- PASS NUMBER DERIVATION (display only, chronological-safe) 01-07-2026-20:45-----
+  // Work on a chronologically sorted copy (oldest -> newest)
+  // ----- PASS NUMBER DERIVATION (IN increments; others inherit last IN) -----
+  const chron = [...entries].sort((a, b) => (a.pass_ts_ms || 0) - (b.pass_ts_ms || 0));
 
+  const inCount = {};           // "bib|GROUP" -> number of INs
+  const lastInPass = {};        // "bib|GROUP" -> last IN pass #
+  const passLabelByPassId = {}; // pass_id -> pass #
 
-      comment: (r.mismatch == 1 && !(r.note || "").trim())
-      ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
-      : (r.note || ""),
-
-      pass_ts: r.pass_ts || "",
-      pass_ts_ms: isNaN(passDateUtc.getTime()) ? null : passDateUtc.getTime(),
-
-    //  station_code: String(r.station_code || "").trim().toUpperCase(),    Commented OUt Feb 7 at 10:15
-      distance_code: distCode,
-
-      eta: computed.eta_next,
-      elapsed: computed.elapsed,
-      pace: computed.pace,
-
-      operator: r.operator || "Unknown",
-      first_name: runner.firstName || "N/A",
-      last_name: runner.lastName || "N/A",
-      age: runner.age || "N/A",
-      gender: runner.gender || "N/A",
-      distance: runner.distance || r.distance_code || "N/A",
-      previous_distance: runner.previousDistance || "N/A"
-    };
-  });
-
-// ----- PASS NUMBER DERIVATION (display only, chronological-safe) 01-07-2026-20:45-----
-// Work on a chronologically sorted copy (oldest -> newest)
-// ----- PASS NUMBER DERIVATION (IN increments; others inherit last IN) -----
-const chron = [...entries].sort((a, b) => (a.pass_ts_ms || 0) - (b.pass_ts_ms || 0));
-
-const inCount = {};           // "bib|GROUP" -> number of INs
-const lastInPass = {};        // "bib|GROUP" -> last IN pass #
-const passLabelByPassId = {}; // pass_id -> pass #
-
-for (const e of chron) {
-  const bib = String(e.bib_number || "");
-  const group = stationGroupFromCode(e.station_code);
+  for (const e of chron) {
+    const bib = String(e.bib_number || "");
+    const group = stationGroupFromCode(e.station_code);
               // const baseStation = stripPassSuffix(e.station);
               // const group = stationGroupFromName(baseStation);
-  if (!bib || !group) continue;
+    if (!bib || !group) continue;
 
-  const k = `${bib}|${group}`;
-  const act = String(e.action || "").toUpperCase();
+    const k = `${bib}|${group}`;
+    const act = String(e.action || "").toUpperCase();
 
-  if (act === "IN") {
-    inCount[k] = (inCount[k] || 0) + 1;   // increment only on IN
-    lastInPass[k] = inCount[k];
-    passLabelByPassId[e.pass_id] = lastInPass[k];
-  } else {
-    // OUT/DNF/NOTE/etc: inherit last IN, or blank if none
-    passLabelByPassId[e.pass_id] = lastInPass[k] || null;
+    if (act === "IN") {
+      inCount[k] = (inCount[k] || 0) + 1;   // increment only on IN
+      lastInPass[k] = inCount[k];
+      passLabelByPassId[e.pass_id] = lastInPass[k];
+    } else {
+     // OUT/DNF/NOTE/etc: inherit last IN, or blank if none
+      passLabelByPassId[e.pass_id] = lastInPass[k] || null;
+    }
   }
-}
 
-for (const e of entries) {
-  const group = stationGroupFromCode(e.station_code);
-  if (!group) continue;
+  for (const e of entries) {
+    const group = stationGroupFromCode(e.station_code);
+    if (!group) continue;
 
-  const n = passLabelByPassId[e.pass_id];
-  e.pass_num = n ? String(n) : "";  // store pass number only
-}
+    const n = passLabelByPassId[e.pass_id];
+    e.pass_num = n ? String(n) : "";  // store pass number only
+  }
 
 
-function stripPassSuffix(s) {
-  return String(s || "").replace(/\s*\(PASS\s+\d+\)\s*$/i, "").trim();
-}
+  function stripPassSuffix(s) {
+    return String(s || "").replace(/\s*\(PASS\s+\d+\)\s*$/i, "").trim();
+  }
 
-  // Compute Finish/Elapsed/Pace etc (if results engine is present)
-    if (typeof window.TVEMC_computeResults === "function") {
-      try {
-        entries = await window.TVEMC_computeResults(entries);
-      } catch (e) {
-        console.warn("Results compute skipped:", e.message);
-   }
- }
+    // Compute Finish/Elapsed/Pace etc (if results engine is present)
+      if (typeof window.TVEMC_computeResults === "function") {
+        try {
+          entries = await window.TVEMC_computeResults(entries);
+        } catch (e) {
+          console.warn("Results compute skipped:", e.message);
+    }
+  }
  
-  // Now redraw the existing viewer
-  if (typeof filterBibLog === "function") filterBibLog();
-  const entryCount = document.getElementById("entryCount");
-  if (entryCount) entryCount.textContent = entries.length;
- console.log("Loaded passes from DB into Bib Log:", entries.length);
+   // Now redraw the existing viewer
+   if (typeof filterBibLog === "function") filterBibLog();
+   const entryCount = document.getElementById("entryCount");
+   if (entryCount) entryCount.textContent = entries.length;
+  console.log("Loaded passes from DB into Bib Log:", entries.length);
 
-// refresh DNS/DNF sticky status after load (honor overrides)
-await loadStatusOverrides(getEventCode());
-recomputeStickyStatusSets();
-}
+   // refresh DNS/DNF sticky status after load (honor overrides)
+   // refresh DNS/DNF sticky status after load (honor overrides)
+   await loadStatusOverrides(getEventCode());
+   if (typeof recomputeStickyStatusSets === "function") recomputeStickyStatusSets();
+   
+   } finally {
+     window.__loadingPasses = false;
+   }
+   }
 
 // ------------------------------------------------------------
 // Sticky status helper (race-safe)
@@ -976,7 +1070,7 @@ async function addEntry(action) {
     const note = safeString(document.getElementById(commentInputId)?.value || "");
     const eta = safeString(document.getElementById("eta")?.value || "N/A");
     const operator = safeString(document.getElementById("operatorName")?.value || "");
-    const event_code = getEventCode();
+    const event_code = cleanEventCode(getEventCode());
     const messageNum = safeString(document.getElementById("messageNum")?.value || "1");
     const date = new Date().toLocaleDateString("en-US", { timeZone: "America/Los_Angeles" });
 
@@ -1316,6 +1410,15 @@ function populateStationDropdownsFromMap(map, distanceCode) {
     }))
     .filter(o => o.value);
 
+// Added Feb 11 at 22:50 with Global helper
+window.addEventListener("load", () => setTimeout(persistDistanceForEvent, 400));
+
+document.addEventListener("change", (e) => {
+  if (e.target && (e.target.id === "distanceSelect" || e.target.id === "distance_code" || e.target.id === "distanceCode")) {
+    persistDistanceForEvent();
+  }
+});
+
   // ---------------------------
   // TEMP SAFETY FILTER (v2 migration)
   // Prevent phantom codes like AS3 that cause 400s.
@@ -1379,6 +1482,9 @@ function populateStationDropdownsFromMap(map, distanceCode) {
   });
 
   console.log("Dropdowns populated for distance:", dist, "stations:", stationOpts.length);
+  persistAidStationFromDropdown();
+  persistDistanceForEvent();
+
 }
 
 // small helper
@@ -1998,7 +2104,7 @@ function startBibLogAutoRefresh() {
 
 async function exportBibCSV_v2() {
   try {
-    const event_code = getEventCode();
+    const event_code = cleanEventCode(getEventCode());
     const { station_code } = getStationNameAndCode(); // uses your dropdown mapping
 
     // Track last export per event+station
@@ -2103,7 +2209,7 @@ async function exportBibCSV_v2() {
 
 async function exportBibWinlinkTxt_v2() {
   try {
-    const event_code = getEventCode();
+    const event_code = cleanEventCode(getEventCode());
     const { station_code } = getStationNameAndCode(); // optional, but helpful in filename
 
     if (typeof loadPassesFromServer === "function") {
@@ -2299,7 +2405,7 @@ function importRadioWinlinkTxt() {
         throw new Error("Missing required columns: Bib # (or bib) AND Action (or pass_type).");
       }
 
-      const event_code = getEventCode();
+      const event_code = cleanEventCode(getEventCode());
 
       // Build a station display -> station_code map from your dropdown at runtime (most reliable)
       function buildStationDisplayToCodeMap() {
@@ -2506,21 +2612,34 @@ function importRadioWinlinkTxt() {
   input.click();
 }
 
+    // Added with the new distances start times Feb-11 at 17:35
+    function localInputToDb(tsLocal) {
+      const v = String(tsLocal || "").trim();
+      if (!v) return "";
+      // "YYYY-MM-DDTHH:MM" -> "YYYY-MM-DD HH:MM:00"
+      return v.replace("T", " ") + ":00";
+    }
+
 /*----------------------------
           START TIME 
 ----------------------------*/
 async function saveStartTimes() {
   try {
-    const event_code = getEventCode();
+    const event_code = cleanEventCode(getEventCode());
     const set_by = safeString(document.getElementById("operatorName")?.value || "HQ");
 
     const times = {
-      "30K":  document.getElementById("start_30K")?.value || "",
-      "26.2": document.getElementById("start_26_2")?.value || "",
-      "50K":  document.getElementById("start_50K")?.value || "",
-      "50M":  document.getElementById("start_50M")?.value || "",
-      "100K": document.getElementById("start_100K")?.value || ""
+      "30K":  localInputToDb(document.getElementById("start_30K")?.value),
+      "26.2": localInputToDb(document.getElementById("start_26_2")?.value),
+      "50K":  localInputToDb(document.getElementById("start_50K")?.value),
+      "50M":  localInputToDb(document.getElementById("start_50M")?.value),
+      "100K": localInputToDb(document.getElementById("start_100K")?.value),
+      "100M": localInputToDb(document.getElementById("start_100M")?.value),
+      "200M": localInputToDb(document.getElementById("start_200M")?.value),
+      "240M": localInputToDb(document.getElementById("start_240M")?.value),
+      "300M": localInputToDb(document.getElementById("start_300M")?.value)
     };
+
 
     // remove blanks so server doesn't silently save 0
     Object.keys(times).forEach(k => {
@@ -2576,12 +2695,16 @@ function loadStartTimesIntoUI() {
   setVal("start_50K",  times["50K"]);
   setVal("start_50M",  times["50M"]);
   setVal("start_100K", times["100K"]);
+  setVal("start_100M", times["100M"]);
+  setVal("start_200M", times["200M"]);
+  setVal("start_240M", times["240M"]);
+  setVal("start_300M", times["300M"]);
 }
 
 /*---- added 07012026-11:32 ---*/
 async function loadStartTimesFromDBIntoUI() {
   try {
-    const event_code = getEventCode();
+    const event_code = cleanEventCode(getEventCode());
     const res = await fetch(`start_times_load.php?event_code=${encodeURIComponent(event_code)}`, { cache: "no-store" });
     const rows = await res.json();
 
@@ -2610,6 +2733,10 @@ async function loadStartTimesFromDBIntoUI() {
     setVal("start_50K",  toLocalInput(map["50K"]));
     setVal("start_50M",  toLocalInput(map["50M"]));
     setVal("start_100K", toLocalInput(map["100K"]));
+    setVal("start_100M", toLocalInput(map["100M"]));
+    setVal("start_200M", toLocalInput(map["200M"]));
+    setVal("start_240M", toLocalInput(map["240M"]));
+    setVal("start_300M", toLocalInput(map["300M"]));
 
   } catch (e) {
     console.warn("loadStartTimesFromDBIntoUI failed:", e.message);
@@ -2620,7 +2747,7 @@ let AID_STATION_MAP = {};
 // shape: { "26.2": [{station_order, station_code, station_name, mile}, ...], "30K": [...] }
 
 async function loadAidStationsFromServer() {
-  const event_code = getEventCode();
+  const event_code = cleanEventCode(getEventCode());
   const res = await fetch(`aid_stations_load.php?event_code=${encodeURIComponent(event_code)}`, { cache: "no-store" });
   const rows = await res.json();
   if (!Array.isArray(rows)) {
@@ -2999,7 +3126,7 @@ async function loadStatusOverrides(event_code) {
 
 window.clearStickyStatus = async function(kind, bib) {
   try {
-    const event_code = getEventCode();
+    const event_code = cleanEventCode(getEventCode());
     const cleared_by = (document.getElementById("operatorName")?.value || "HQ").trim();
     const note = "HQ cleared status (confirmed running)";
 
