@@ -1728,7 +1728,9 @@ window.getCurrentStationContext = function () {
       );
     }
         
-    return;  //
+    // Default case: unknown view option
+    console.warn("ResultsStrip: Unknown list view option:", v);
+    return;
   };
   
  } // end if (btn && sel)
