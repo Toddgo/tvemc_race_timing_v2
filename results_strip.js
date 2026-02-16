@@ -1483,6 +1483,17 @@ window.getCurrentStationContext = function () {
 
      window.__rs_expectedPrevRows = expectedPrevRows;
      
+     // Save expected_prev payload to localStorage for popup-safe access
+     try {
+       localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
+         rows: expectedPrevRows,
+         stationCodes: stationCodes,
+         stationLabel: stationLabel
+       }));
+     } catch (e) {
+       console.warn('Failed to save expectedPrevRows payload to localStorage:', e);
+     }
+     
     // Card D
     const finishedCount = finishSet.size;
     const notFinishedCount = Math.max(0, entrantsDB - dnsSet.size - finishedCount);
@@ -1659,18 +1670,38 @@ window.getCurrentStationContext = function () {
     }
 
    if (v === "last10_here") {
+      // Capture station context at click time (not relying on shared/stale globals)
       const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
     
       const sc2 = String(ctx.station_code || "").trim();
       const sc  = sc2 || String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();
     
       const codes = (stationCodes && stationCodes.length) ? stationCodes : (sc ? [sc] : []);
+      const capturedStationLabel = stationLabel || sc || "Station";
     
-     console.log("DEBUG last10_here", { stationLabel, stationCodes, ctx, sc, codes });
+     console.log("DEBUG last10_here", { stationLabel: capturedStationLabel, stationCodes: codes, ctx, sc, codes });
     
+      // Initialize per-station fetch interval map if not exists
+      window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || new Map();
+      
+      // Create unique key for this station (using all codes)
+      const stationKey = codes.sort().join('|');
+      
+      // Clear any existing interval for this station
+      const existingInterval = window.__rs_last10_fetch_intervals.get(stationKey);
+      if (existingInterval) {
+        clearInterval(existingInterval);
+        window.__rs_last10_fetch_intervals.delete(stationKey);
+      }
+      
+      // Create a closure that captures the station codes at this moment
+      const getLast10ForStation = () => {
+        return last10SeenHere((window.__rs_lastList || lastList || []), codes);
+      };
+      
       return openListWindow(
-        `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
-        () => last10SeenHere((window.__rs_lastList || lastList || []), codes),
+        `Last 10 Seen Here — ${capturedStationLabel}`,
+        getLast10ForStation,
         { refreshMs: 5000 }
       );
     }
@@ -1721,9 +1752,52 @@ window.getCurrentStationContext = function () {
         }
 
     if (v === "expected_prev") {
+      // Read from localStorage (popup-safe) and filter by stationCodes
+      const getExpectedPrevRows = () => {
+        try {
+          const payload = JSON.parse(localStorage.getItem('__rs_expectedPrevRows_payload') || '{}');
+          const rows = payload.rows || [];
+          const codes = payload.stationCodes || [];
+          const label = payload.stationLabel || stationLabel;
+          
+          // Create a set of station codes for matching (case-insensitive)
+          const codesSet = new Set(codes.map(c => String(c).toUpperCase()));
+          
+          // Filter rows by next_station_code OR next_station name
+          const filtered = rows.filter(r => {
+            // Check next_station_code if present
+            const nextCode = String(r.next_station_code || '').trim().toUpperCase();
+            if (nextCode && codesSet.has(nextCode)) return true;
+            
+            // Check next_station name against station codes
+            const nextStation = String(r.next_station || '').trim();
+            if (nextStation) {
+              // Try to match station name to any of the codes
+              for (const code of codes) {
+                const codeName = stationNameFromCode(code);
+                if (codeName && nextStation.includes(codeName)) return true;
+              }
+            }
+            
+            return false;
+          });
+          
+          // Remove internal codes from display (keep human-friendly columns only)
+          return filtered.map(r => {
+            const clean = { ...r };
+            delete clean.last_station_code;
+            delete clean.next_station_code;
+            return clean;
+          });
+        } catch (e) {
+          console.warn('Failed to read expectedPrevRows from localStorage:', e);
+          return window.__rs_expectedPrevRows || [];
+        }
+      };
+      
       return openListWindow(
         `Expected From Previous — ${stationLabel}`,
-        () => (window.__rs_expectedPrevRows || []),
+        getExpectedPrevRows,
         { refreshMs: 5000 }
       );
     }
