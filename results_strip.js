@@ -1679,13 +1679,13 @@ window.getCurrentStationContext = function () {
       const codes = (stationCodes && stationCodes.length) ? stationCodes : (sc ? [sc] : []);
       const capturedStationLabel = stationLabel || sc || "Station";
     
-     console.log("DEBUG last10_here", { stationLabel: capturedStationLabel, stationCodes: codes, ctx, sc, codes });
+     console.log("DEBUG last10_here", { stationLabel: capturedStationLabel, stationCodes: codes, ctx, sc });
     
       // Initialize per-station fetch interval map if not exists
       window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || new Map();
       
-      // Create unique key for this station (using all codes)
-      const stationKey = codes.sort().join('|');
+      // Create unique key for this station (using all codes, non-mutating sort)
+      const stationKey = [...codes].sort().join('|');
       
       // Clear any existing interval for this station
       const existingInterval = window.__rs_last10_fetch_intervals.get(stationKey);
