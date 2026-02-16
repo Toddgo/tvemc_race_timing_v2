@@ -1752,45 +1752,15 @@ window.getCurrentStationContext = function () {
         }
 
     if (v === "expected_prev") {
-      // Read from localStorage (popup-safe) and filter by stationCodes
+      // Read from localStorage (popup-safe)
+      // Rows are already filtered by stationCodes during compute phase
       const getExpectedPrevRows = () => {
         try {
           const payload = JSON.parse(localStorage.getItem('__rs_expectedPrevRows_payload') || '{}');
-          const rows = payload.rows || [];
-          const codes = payload.stationCodes || [];
-          const label = payload.stationLabel || stationLabel;
-          
-          // Create a set of station codes for matching (case-insensitive)
-          const codesSet = new Set(codes.map(c => String(c).toUpperCase()));
-          
-          // Filter rows by next_station_code OR next_station name
-          const filtered = rows.filter(r => {
-            // Check next_station_code if present
-            const nextCode = String(r.next_station_code || '').trim().toUpperCase();
-            if (nextCode && codesSet.has(nextCode)) return true;
-            
-            // Check next_station name against station codes
-            const nextStation = String(r.next_station || '').trim();
-            if (nextStation) {
-              // Try to match station name to any of the codes
-              for (const code of codes) {
-                const codeName = stationNameFromCode(code);
-                if (codeName && nextStation.includes(codeName)) return true;
-              }
-            }
-            
-            return false;
-          });
-          
-          // Remove internal codes from display (keep human-friendly columns only)
-          return filtered.map(r => {
-            const clean = { ...r };
-            delete clean.last_station_code;
-            delete clean.next_station_code;
-            return clean;
-          });
+          return payload.rows || [];
         } catch (e) {
           console.warn('Failed to read expectedPrevRows from localStorage:', e);
+          // Fallback to in-memory data
           return window.__rs_expectedPrevRows || [];
         }
       };
