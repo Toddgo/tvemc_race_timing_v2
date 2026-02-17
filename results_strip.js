@@ -1059,6 +1059,69 @@ window.getCurrentStationContext = function () {
     
       return rows;
     }
+
+    // Fetch last 10 passes from server with robust normalization
+    async function fetchLast10HereFromServer(eventCode, stationCode) {
+      try {
+        const res = await fetch("passes_load.php", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event_code: eventCode, station_code: stationCode }),
+          cache: "no-store"
+        });
+
+        if (!res.ok) {
+          console.warn("fetchLast10HereFromServer: bad response", res.status);
+          return [];
+        }
+
+        const data = await res.json();
+        const passes = Array.isArray(data) ? data : (data.passes || []);
+
+        // Map server fields and normalize
+        const normalized = passes.map(p => ({
+          bib: String(p?.bib_number ?? p?.bib ?? "").trim(),
+          pass_ts: p?.pass_ts || p?.timestamp || "",
+          pass_type: String(p?.pass_type || p?.action || "").toUpperCase(),
+          pass_count: Number(p?.pass_count ?? p?.pass_num ?? 0),
+          station_name: String(p?.station_name || "").trim()
+        }));
+
+        // Build pass_count map for each bib
+        const passCountMap = new Map();
+        for (const p of normalized) {
+          if (p.bib && p.pass_count > 0) {
+            passCountMap.set(p.bib, Math.max(passCountMap.get(p.bib) || 0, p.pass_count));
+          }
+        }
+
+        // Filter out DNS/DNF
+        const filtered = normalized.filter(p => {
+          if (!p.bib) return false;
+          const pt = p.pass_type;
+          if (pt === "DNS" || pt === "DNF") return false;
+          return true;
+        });
+
+        // Sort newest-first and limit to 10
+        filtered.sort((a, b) => {
+          const tsA = parseTsToMs(a.pass_ts);
+          const tsB = parseTsToMs(b.pass_ts);
+          return tsB - tsA;
+        });
+
+        const top10 = filtered.slice(0, 10);
+
+        // Store in global cache for potential future use (cross-window sync, debugging, etc.)
+        window.__rs_last10HereRowsByStation = window.__rs_last10HereRowsByStation || {};
+        window.__rs_last10HereRowsByStation[stationCode] = top10;
+
+        return top10;
+      } catch (e) {
+        console.warn("fetchLast10HereFromServer error:", e);
+        return [];
+      }
+    }
     
     function computeExpectedFromPrev_FLOW(list, fromCodes, toCodes) {
       const fromLatest = latestAtCodesByBib(list, expandCodesList(fromCodes));
@@ -1153,6 +1216,111 @@ window.getCurrentStationContext = function () {
     
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
       out.forEach(r => delete r._ts);
+      return out;
+    }
+
+    // Helper: persist Expected-From-Previous payload to localStorage
+    function writeExpectedPrevPayload(rows) {
+      const payload = {
+        rows: rows || [],
+        updated_at: new Date().toISOString()
+      };
+      try {
+        localStorage.setItem("__rs_expectedPrevRows_payload", JSON.stringify(payload));
+        // Optional: BroadcastChannel for future cross-tab notifications (commented for now)
+        // if (typeof BroadcastChannel !== "undefined") {
+        //   const bc = new BroadcastChannel("tvemc_expectedPrev");
+        //   bc.postMessage({ type: "updated", updated_at: payload.updated_at });
+        //   bc.close();
+        // }
+      } catch (e) {
+        console.warn("Failed to write expectedPrev payload to localStorage:", e);
+      }
+    }
+
+    // Recompute Expected-From-Previous and persist to localStorage
+    function recomputeExpectedFromPrevForUI(latestMap, list, stationCodes, stationUpper, stickyStatusByBib, bibList) {
+      let out = [];
+
+      if (isPersonnelStation(stationUpper)) {
+        out = [];
+      } else {
+        const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
+        const isCorral = (stationUpper === "CORRAL_AUTO");
+        const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestMap, ["AS8"]).length > 0;
+
+        if (forcePathFor30KCorralReturn) {
+          out = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+        } else if (flowPrev) {
+          out = computeExpectedFromPrev_FLOW(list, flowPrev, stationCodes);
+        } else {
+          out = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+        }
+
+        // ✅ AS1 or CORRAL_AUTO reconciliation (START → AS1) - Sean O'Brien event logic
+        if (stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {
+          const seenAtAS1 = new Set(
+            (list || [])
+              .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
+              .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
+              .filter(Boolean)
+          );
+
+          const finishedBibs = new Set(
+            Array.from(latestMap.entries())
+              .filter(([_, e]) => isFinish(e))
+              .map(([bib]) => String(bib).trim())
+          );
+
+          const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+          out = [];
+
+          for (const r of roster) {
+            const bib = String(r?.bib ?? "").trim();
+            if (!bib) continue;
+
+            if (seenAtAS1.has(bib)) continue;
+            if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+            if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+            if (finishedBibs.has(bib)) continue;
+
+            out.push({
+              bib,
+              last_station: "START",
+              nextArriving_time: "",
+              next_station: "(arriving here)",
+              distance: r?.distance || "",
+              eta_utc_ms: Date.now()  // Use current time for roster-based entries
+            });
+          }
+        }
+
+        // Safety: never show already-finished bibs
+        if (out.length) {
+          const finishedBibs = new Set(
+            Array.from(latestMap.entries())
+              .filter(([_, e]) => isFinish(e))
+              .map(([bib]) => String(bib))
+          );
+
+          out = out.filter(r => {
+            const bib = String(r?.bib ?? "").trim();
+            return bib && !finishedBibs.has(bib);
+          });
+        }
+      }
+
+      // Sort by eta_utc_ms descending (newest first)
+      out.sort((a, b) => (b.eta_utc_ms || 0) - (a.eta_utc_ms || 0));
+      
+      // Persist to global and localStorage
+      window.__rs_expectedPrevRows = out;
+      try {
+        writeExpectedPrevPayload(out);
+      } catch (e) {
+        console.warn("persist expectedPrev failed", e);
+      }
+      
       return out;
     }
 
@@ -1402,84 +1570,15 @@ window.getCurrentStationContext = function () {
 
     const notSeenCount = Math.max(0, expectedActive - seenHereSet.size);
 
-    // Card C: FLOW override where mapped; otherwise PATH
-    let expectedPrevRows = [];
-
-    if (isPersonnelStation(stationUpper)) {
-      expectedPrevRows = [];
-    } else {
-     // const flowPrev = getFlowPredecessors(stationUpper);  Changed Jan 20 17:42
-     const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
-     const isCorral = (stationUpper === "CORRAL_AUTO");
-     const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latest, ["AS8"]).length > 0;
-    
-     // If runners exist whose next stop is AS8 (Corral Pass 2), prefer PATH for this view.
-     if (forcePathFor30KCorralReturn) {
-       expectedPrevRows = computeExpectedFromPrev_PATH(latest, stationCodes);
-     } else {
-       const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
-       if (flowPrev) {
-         expectedPrevRows = computeExpectedFromPrev_FLOW(lastList, flowPrev, stationCodes);
-       } else {
-         expectedPrevRows = computeExpectedFromPrev_PATH(latest, stationCodes);
-       }
-     }
-
-      // ✅ CCAS1: Corral Pass-1 reconciliation (START → AS1)
-        // Override Card C count to match the popup list for CORRAL_AUTO / AS1
-     // if (stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {    // Remove after test
-        if (stationUpper === "AS1") {
-          const seenAtAS1 = new Set(
-            (lastList || [])
-              .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
-              .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
-              .filter(Boolean)
-          );
-        
-          const finishedBibs = new Set(
-            Array.from(latest.entries())
-              .filter(([_, e]) => isFinish(e))
-              .map(([bib]) => String(bib).trim())
-          );
-        
-          const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
-          expectedPrevRows = [];
-        
-          for (const r of roster) {
-            const bib = String(r?.bib ?? "").trim();
-            if (!bib) continue;
-        
-            if (seenAtAS1.has(bib)) continue;
-            if (stickyStatusByBib?.dns?.has?.(bib)) continue;
-            if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
-            if (finishedBibs.has(bib)) continue;
-        
-            expectedPrevRows.push({
-              bib,
-              last_station: "START",
-              nextArriving_time: "",
-              next_station: "(arriving here)",
-              distance: r?.distance || ""
-            });
-          }
-        
-          // optional sort (not required for count)
-          expectedPrevRows.sort((a, b) => Number(a.bib) - Number(b.bib));
-        }
-      
-      // Safety: never show already-finished bibs in Expected From Previous
-      // (prevents FINISH expected lists from including actual finishers)
-      if (expectedPrevRows.length) {
-        const finishedBibs = new Set(Array.from(latest.entries())
-          .filter(([_, e]) => isFinish(e))
-          .map(([bib]) => String(bib)));
-
-        expectedPrevRows = expectedPrevRows.filter(r => {
-          const bib = String(r?.bib ?? "").trim();
-          return bib && !finishedBibs.has(bib);
-        });
-      }
-    }
+    // Card C: Use recomputeExpectedFromPrevForUI to compute and persist
+    const expectedPrevRows = recomputeExpectedFromPrevForUI(
+      latest, 
+      lastList, 
+      stationCodes, 
+      stationUpper, 
+      stickyStatusByBib, 
+      bibList
+    );
 
      window.__rs_expectedPrevRows = expectedPrevRows;
      
@@ -1723,7 +1822,163 @@ window.getCurrentStationContext = function () {
     if (v === "expected_prev") {
       return openListWindow(
         `Expected From Previous — ${stationLabel}`,
-        () => (window.__rs_expectedPrevRows || []),
+        () => {
+          // Try to read from localStorage first (canonical payload)
+          try {
+            const stored = localStorage.getItem("__rs_expectedPrevRows_payload");
+            if (stored) {
+              const payload = JSON.parse(stored);
+              if (payload && Array.isArray(payload.rows)) {
+                return payload.rows;
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to read expectedPrev from localStorage:", e);
+          }
+
+          // Fallback: compute fresh if needed
+          const list = window.__rs_lastList || lastList || [];
+          const latestNow = latestByBib(list);
+          const stationUpper = String(lastStationCode || stationCode || "").toUpperCase();
+          const stationCodesNow = expandStationCodes(lastStationCode || stationCode);
+
+          if (isPersonnelStation(stationUpper)) return [];
+
+          let rows = [];
+
+          // 1) Special case: AS1 (Corral/AS1 reconciliation - START → AS1)
+          if (stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {
+            const seenAtAS1 = new Set(
+              list.filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
+                .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
+                .filter(Boolean)
+            );
+
+            const finishedBibs = new Set(
+              Array.from(latestNow.entries())
+                .filter(([_, e]) => isFinish(e))
+                .map(([bib]) => String(bib).trim())
+            );
+
+            const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+
+            for (const r of roster) {
+              const bib = String(r?.bib ?? "").trim();
+              if (!bib) continue;
+              if (seenAtAS1.has(bib)) continue;
+              if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+              if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+              if (finishedBibs.has(bib)) continue;
+
+              rows.push({
+                bib,
+                last_station: "START",
+                nextArriving_time: "",
+                next_station: "(arriving here)",
+                distance: r?.distance || "",
+                eta_utc_ms: Date.now()  // Use current time for roster-based entries
+              });
+            }
+          } 
+          // 2) First aid station special case: if this is the first staffed station in AID_STATION_MAP
+          else {
+            let isFirstAidStation = false;
+            let currentDistance = "";
+
+            // Determine if this station is the first in AID_STATION_MAP for its distance
+            if (typeof AID_STATION_MAP !== "undefined" && AID_STATION_MAP) {
+              for (const [dist, stations] of Object.entries(AID_STATION_MAP)) {
+                if (Array.isArray(stations) && stations.length > 0) {
+                  const firstStation = stations[0];
+                  const firstCode = String(firstStation?.station_code || "").toUpperCase();
+                  if (firstCode && stationCodesNow.includes(firstCode)) {
+                    isFirstAidStation = true;
+                    currentDistance = dist;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (isFirstAidStation) {
+              // Build reconciliation rows from roster for START → first station
+              const seenHere = new Set(
+                list.filter(e => {
+                  const sc = String(e?.station_code || "").toUpperCase();
+                  return stationCodesNow.includes(sc);
+                })
+                .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
+                .filter(Boolean)
+              );
+
+              const finishedBibs = new Set(
+                Array.from(latestNow.entries())
+                  .filter(([_, e]) => isFinish(e))
+                  .map(([bib]) => String(bib).trim())
+              );
+
+              const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+
+              for (const r of roster) {
+                const bib = String(r?.bib ?? "").trim();
+                if (!bib) continue;
+                
+                // Filter by distance if we know it
+                if (currentDistance) {
+                  const rDist = normalizeDistance(r?.distance || "");
+                  if (rDist !== currentDistance) continue;
+                }
+
+                if (seenHere.has(bib)) continue;
+                if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+                if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+                if (finishedBibs.has(bib)) continue;
+
+                rows.push({
+                  bib,
+                  last_station: "START",
+                  nextArriving_time: "",
+                  next_station: "(arriving here)",
+                  distance: r?.distance || "",
+                  eta_utc_ms: Date.now()  // Use current time for roster-based entries
+                });
+              }
+            } else {
+              // 3) Normal stations: use FLOW or PATH logic
+              const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
+              rows = flowPrev
+                ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
+                : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+            }
+          }
+
+          // Filter out finished/DNS/DNF
+          const finishedBibs = new Set(
+            Array.from(latestNow.entries())
+              .filter(([_, e]) => isFinish(e))
+              .map(([bib]) => String(bib))
+          );
+
+          rows = (rows || []).filter(r => {
+            const bib = String(r?.bib ?? "").trim();
+            if (!bib) return false;
+            if (finishedBibs.has(bib)) return false;
+            if (stickyStatusByBib?.dns?.has?.(bib)) return false;
+            if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
+            return true;
+          });
+
+          // Deduplicate by bib
+          const seen = new Set();
+          rows = rows.filter(r => {
+            const bib = String(r?.bib ?? "").trim();
+            if (seen.has(bib)) return false;
+            seen.add(bib);
+            return true;
+          });
+
+          return rows;
+        },
         { refreshMs: 5000 }
       );
     }
