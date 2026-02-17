@@ -132,12 +132,12 @@ window.getCurrentStationContext = function () {
    function isNonPathStation(code) {
      return NON_PATH_STATIONS.has(String(code || "").toUpperCase());
    }
-  
+
   // ---------- FLOW predecessor overrides (station-by-station) ----------
   // Meaning: "Expected From Previous" = last seen at FROM more recently than last seen at TO (current station group)
   const FLOW_PREV_MAP = {
     // Corral AUTO expects runners last seen at Kanan points
-    CORRAL_AUTO: ["AS7", "AS9"],    // had this as the first "AS2", 
+    CORRAL_AUTO: ["AS7", "AS9"],    // had this as the first "AS2",
 
     // Kanan AUTO expects runners last seen at Corral points (manual corral points)
     KANAN_AUTO: ["AS1", "AS4", "AS6"],   // First layout, Jan15: ["AS1", "AS8", "AS10"] Jan18 pulled "AS4", added AS5 out Jan19.11:42
@@ -147,14 +147,14 @@ window.getCurrentStationContext = function () {
 
     // Bonsall is AS5 — expects runners last seen at Zuma points
     AS5: ["AS4", "AS6"],
-    
+
     // Bulldog is AS9 expects runners last seen at Corrla Canyon points
     AS9: ["AS8"],  // Jan16 was ["AS8", "AS7", "AS1"],
-    
+
     // Finish — expects runners last seen at Bonsall / late-course
     FINISH: ["AS8", "AS10"]  // Jan15 was ["AS5", "AS11", "AS10", "AS8"] ["AS8", "AS10"]// and optionally AS11
   };
-  
+
    function getFlowPredecessors(currentStationCode, stationCodes) {
     const c = String(currentStationCode || "").toUpperCase();
 
@@ -162,7 +162,7 @@ window.getCurrentStationContext = function () {
     const codeSet = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
 
   // 30K Corral "ghost turnaround" case:
-  // When stationCodes contain AS1 + AS8 (but NOT AS10), we must use PATH mode.   
+  // When stationCodes contain AS1 + AS8 (but NOT AS10), we must use PATH mode.
   // FLOW would compare AS1 vs "toCodes including AS1" and never show anyone.
     if (c === "CORRAL_AUTO" && codeSet.has("AS1") && codeSet.has("AS8") && !codeSet.has("AS10")) {
      return null; // force PATH
@@ -170,11 +170,11 @@ window.getCurrentStationContext = function () {
 
     return FLOW_PREV_MAP[c] || null;
  }
- 
+
   function physicalCodeForPath(e) {
    const raw = String(safeStationCode(e) || e.station_code || "").toUpperCase();
    const pass = Number(e?.pass_num || e?.pass || 0);
-        
+
   // Corral group: Pass 1→AS1, Pass 2→AS8, Pass 3→AS10
    if (raw === "CORRAL_AUTO") {
      if (pass === 1) return "AS1";
@@ -243,29 +243,29 @@ window.getCurrentStationContext = function () {
         return "LOCAL";
       }
     }
-    
+
     function TVEMC_timeZone() {
       return (typeof window.TVEMC_getEventTimeZone === "function")
         ? window.TVEMC_getEventTimeZone()
         : "America/Los_Angeles";
     }
 
-      // Added Feb3 1345 for local/utc switch Last 10 Seen Here 
+      // Added Feb3 1345 for local/utc switch Last 10 Seen Here
       function formatLocalDateTime(ts) {
       const s = String(ts || "").trim();
       if (!s) return "";
-    
+
       // DB MySQL UTC datetime -> ISO UTC
       const isoUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)
         ? s.replace(" ", "T") + "Z"
         : s;
-    
+
       const d = new Date(isoUtc);
       if (isNaN(d.getTime())) return "";
-    
+
       const mode = TVEMC_timeMode();
       const tz = (mode === "UTC") ? "UTC" : TVEMC_timeZone();
-    
+
       // Build DD-MM-YYYY HH:mm:ss (24h)
       const parts = new Intl.DateTimeFormat("en-GB", {
         timeZone: tz,
@@ -277,7 +277,7 @@ window.getCurrentStationContext = function () {
         second: "2-digit",
         hour12: false
       }).formatToParts(d);
-    
+
       const get = (t) => parts.find(p => p.type === t)?.value || "";
       const DD = get("day");
       const MM = get("month");
@@ -285,7 +285,7 @@ window.getCurrentStationContext = function () {
       const HH = get("hour");
       const MI = get("minute");
       const SS = get("second");
-    
+
       return `${DD}-${MM}-${YY} ${HH}:${MI}:${SS}`;
     }
 
@@ -299,14 +299,14 @@ window.getCurrentStationContext = function () {
       return Array.from(new Set(out.map(x => String(x).toUpperCase())));
     }
 
-  
+
   // NOTE [2026-01-13]: Canonicalize station codes so ResultsStrip matches DB entries.
   // Examples: "T30K2" -> "AS2", "T50M10" -> "AS10", "AS7" -> "AS7"
   function canonicalStationCode(raw) {
     const up = String(raw || "").toUpperCase().trim();
     if (!up) return "";
     if (isPersonnelStation(up)) return up;
-    
+
     // Jan 18 Added 1950 Fix: explicit T30K
     if (up === "T30K") return "T30K";
 
@@ -459,17 +459,17 @@ window.getCurrentStationContext = function () {
       // Prefer station_code if present, but canonicalize it
     const scRaw = e?.station_code || "";
     const sc = canonicalStationCode(scRaw);
-    
+
     if (sc) {
       // CORRAL pass-to-physical mapping
       if (sc === "CORRAL_AUTO" || sc === "AS1") {
         const stRaw = String(e?.station || e?.station_name || e?.station_label || "").trim();
-    
+
         const passNumFromField = e?.pass_num ? parseInt(String(e.pass_num), 10) : null;
         const passMatch = stRaw.match(/\(Pass\s+(\d+)\)/i);
         const passNumFromText = passMatch ? parseInt(passMatch[1], 10) : null;
         const passNum = Number.isFinite(passNumFromField) ? passNumFromField : passNumFromText;
-    
+
         const stUpper = stRaw.toUpperCase();
         if (stUpper.includes("CORRAL CANYON") && passNum) {
           if (passNum === 1) return "AS1";
@@ -477,39 +477,39 @@ window.getCurrentStationContext = function () {
           if (passNum === 3) return "AS10";
         }
       }
-    
+
       // KANAN pass-to-physical mapping
       // Pass 1 -> AS2, Pass 2 -> AS7
       if (sc === "KANAN_AUTO" || sc === "AS2" || sc === "AS7") {
         const stRaw = String(e?.station || e?.station_name || e?.station_label || "").trim();
-    
+
         const passNumFromField = e?.pass_num ? parseInt(String(e.pass_num), 10) : null;
         const passMatch = stRaw.match(/\(Pass\s+(\d+)\)/i);
         const passNumFromText = passMatch ? parseInt(passMatch[1], 10) : null;
         const passNum = Number.isFinite(passNumFromField) ? passNumFromField : passNumFromText;
-    
+
         const stUpper = stRaw.toUpperCase();
         if (stUpper.includes("KANAN ROAD") && passNum) {
           if (passNum === 1) return "AS2";
           if (passNum === 2) return "AS7";
         }
       }
-    
+
       // Default
       return sc;
     }
 
- 
+
       // OPTIONAL: if you have station_id and a known FINISH station_id
       if (e?.station_id && window.FINISH_STATION_ID &&
           String(e.station_id) === String(window.FINISH_STATION_ID)) {
         return "FINISH";
       }
-    
+
       // Fallback: infer from station text
       const stRaw = String(e?.station || e?.station_name || e?.station_label || "").trim();
       if (!stRaw) return "";
-    
+
       // --- NEW: detect "(Pass N)" BEFORE stripping it ---
       const passNumFromField = e?.pass_num ? parseInt(String(e.pass_num), 10) : null;
       const passMatch = stRaw.match(/\(Pass\s+(\d+)\)/i);
@@ -517,7 +517,7 @@ window.getCurrentStationContext = function () {
       const passNum = Number.isFinite(passNumFromField) ? passNumFromField : passNumFromText;
     //  const passMatch = stRaw.match(/\(Pass\s+(\d+)\)/i);
     //  const passNum = passMatch ? parseInt(passMatch[1], 10) : null;
-    
+
       // --- NEW: CORRAL pass-to-physical mapping (no operator station switching) ---
       // If CORRAL rows look like "CORRAL CANYON #1 (Pass 2)", map pass number to physical point:
       // Pass 1 -> AS1, Pass 2 -> AS8, Pass 3 -> AS10, Pass 4 -> AS11
@@ -528,14 +528,14 @@ window.getCurrentStationContext = function () {
         if (passNum === 3) return "AS10";
     //    if (passNum === 4) return "AS11";  Not a pass 4
       }
-    
+
       // Strip emoji + "(Pass N)" and normalize for matching
       const st = stRaw
         .replace(/^[^\w]+/g, "")
         .replace(/\s*\(Pass\s+\d+\)\s*$/i, "")
         .trim()
         .toUpperCase();
-    
+
       if (st.includes("CORRAL CANYON #1")) return "AS1";
       if (st.includes("KANAN ROAD #1")) return "AS2";
       if (st.includes("ZUMA") && st.includes("#1")) return "AS4";
@@ -548,7 +548,7 @@ window.getCurrentStationContext = function () {
       if (st.includes("PIUMA") || st.includes("PUMA")) return "AS11";
       if (st.includes("FINISH LINE") || st === "FINISH") return "FINISH";
       if (st.includes("TURNAROUND") && st.includes("30K")) return "T30K";
-    
+
       return "";
     }
 
@@ -652,18 +652,18 @@ window.getCurrentStationContext = function () {
     const hint = document.getElementById("rsListHint");
     if (hint) hint.textContent = listHint || "";
   }
-  
+
     // ---------- List window (auto-refresh) ----------
     function openListWindow(title, rowsOrGetter, opts = {}) {
       const w = window.open("", "_blank", "width=1100,height=800");
       if (!w) return;
-    
+
       const MAX_ROWS = Number(opts.maxRows || 300);
       const REFRESH_MS = Number(opts.refreshMs || 5000); // 5s default
-    
+
       const safe = (v) =>
         String(v ?? "").replace(/[<>&]/g, s => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[s]));
-    
+
       // Allow passing either an array OR a function that returns the latest rows
       const getRows = () => {
         try {
@@ -673,7 +673,7 @@ window.getCurrentStationContext = function () {
           return [];
         }
       };
-    
+
       // Build the skeleton once
       w.document.write(`
         <html>
@@ -697,7 +697,7 @@ window.getCurrentStationContext = function () {
         </html>
       `);
       w.document.close();
-      
+
       // Reliable CLEAR click handler (event delegation)
       w.document.addEventListener("click", (ev) => {
       const a = ev.target?.closest?.("a[data-clear-bib]");
@@ -711,54 +711,54 @@ window.getCurrentStationContext = function () {
         const __CLEAR_KIND =
           (String(w.document.title || "").toUpperCase().includes("DNS")) ? "DNS" :
           (String(w.document.title || "").toUpperCase().includes("DNF")) ? "DNF" : "";
-        
+
         // Use opener getEventCode if available
         const __EVENT_CODE =
           (w.opener && typeof w.opener.getEventCode === "function")
             ? String(w.opener.getEventCode() || "AZM-300-2026-0004").trim()
             : "AZM-300-2026-0004";
-        
+
         // Expose a click handler inside the popup
         w.doClear = async function(bib) {
           try {
             const b = String(bib ?? "").trim();
             if (!b) return;
-        
+
             console.log("CLEAR clicked", b);
-        
+
             const kind =
               String(w.document.title || "").toUpperCase().includes("DNS") ? "DNS" :
               String(w.document.title || "").toUpperCase().includes("DNF") ? "DNF" : "";
-        
+
             if (!kind) return alert("CLEAR not available here.");
-        
+
             const event_code =
               (w.opener && typeof w.opener.getEventCode === "function")
                 ? String(w.opener.getEventCode() || "AZM-300-2026-0004").trim()
                 : "AZM-300-2026-0004";
-        
+
             if (!w.opener || typeof w.opener.__rs_hqClear !== "function") {
             await w.opener.loadStatusOverrides(event_code);
               return alert("Main window clear handler not available.");
             }
-        
+
             // Write override in main window (HQ)
             await w.opener.__rs_hqClear({ event_code, bib: b, clear: kind });
             await w.opener.loadStatusOverrides(event_code);
-        
+
             // Reload overrides (important) then recompute sticky sets
             try {
               if (typeof w.opener.loadStatusOverrides === "function") {
                 await w.opener.loadStatusOverrides(event_code);
               }
             } catch {}
-        
+
             try {
               if (typeof w.opener.recomputeStickyStatusSets === "function") {
                 w.opener.recomputeStickyStatusSets();
               }
             } catch {}
-        
+
             // Refresh HQ strip/cards
             try {
               if (w.opener.ResultsStrip && typeof w.opener.ResultsStrip.update === "function") {
@@ -767,9 +767,9 @@ window.getCurrentStationContext = function () {
                 w.opener.ResultsStrip.update(liveList, st);
               }
             } catch {}
-        
+
             alert(`CLEARED ${kind} for Bib ${b}`);
-        
+
             // Refresh this popup immediately
             render();
           } catch (e) {
@@ -777,43 +777,43 @@ window.getCurrentStationContext = function () {
           }
         };
 
-        
+
       function render() {
         if (w.closed) return;
-    
+
         const allRows = getRows();
         const shown = allRows.slice(0, MAX_ROWS);
-        
+
         // ---- Overdue highlighting (display-only) ----
         const OVERDUE_YELLOW_MIN = 15;
         const OVERDUE_RED_MIN    = 20;
-        
+
         // Return best ETA millis we can find for this row (prefer explicit UTC fields if present)
         function getEtaMsForRow(r) {
           if (!r) return null;
-        
+
           // Prefer explicit machine fields if you ever add them (safe future-proofing)
           const explicit =
             r.eta_utc_ms ?? r.etaUtcMs ?? r.nextArriving_utc_ms ?? r.nextArrivingUtcMs ?? null;
           if (Number.isFinite(explicit)) return Number(explicit);
-        
+
           // Try common string fields
           const sRaw =
             r.nextArriving_time_utc ?? r.nextArriving_time ?? r.eta_next ?? r.eta ?? "";
           const s = String(sRaw || "").trim();
           if (!s) return null;
-        
+
           // If it's numeric-like
           if (/^\d{10,13}$/.test(s)) {
             const n = Number(s);
             return (s.length === 10) ? (n * 1000) : n;
           }
-        
+
           // ISO is best (Date.parse handles timezone offsets / Z correctly)
           // Example: 2026-01-31T05:30:00-08:00 or ...Z
           let ms = Date.parse(s);
           if (Number.isFinite(ms)) return ms;
-        
+
           // Fallback: if formatted like "YYYY-MM-DD HH:MM[:SS]" convert to ISO-ish local
           // NOTE: This fallback assumes the string is in the browser's local time.
           // It’s only used if the string isn’t parseable already.
@@ -823,10 +823,10 @@ window.getCurrentStationContext = function () {
             ms = Date.parse(isoLike);
             if (Number.isFinite(ms)) return ms;
           }
-        
+
           return null;
         }
-        
+
         function getOverdueClass(overdueMin) {
           if (!Number.isFinite(overdueMin)) return "";
           if (overdueMin >= OVERDUE_RED_MIN) return "overdue-red";
@@ -842,21 +842,21 @@ window.getCurrentStationContext = function () {
         const headHtml = `<tr>` + cols.map(c =>
           `<th style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;">${safe(c)}</th>`
         ).join("") + `</tr>`;
-    
+
        const bodyHtml = shown.map(r => {
          const bibVal = String(r?.bib ?? "").trim();
-        
+
          // Compute overdue (display-only)
          const etaMs = getEtaMsForRow(r);
          const nowMs = Date.now(); // (UTC epoch millis)
          const overdueMin = (etaMs != null) ? ((nowMs - etaMs) / 60000) : NaN;
-        
+
          const rowClass = getOverdueClass(overdueMin);
-        
+
          const tds = cols.map(c => {
            const key = String(c || "");
            const val = (r && r[c] != null) ? r[c] : "";
-        
+
          // Stronger highlight for the bib cell (easy to see)
            const isBibCell = (key.toLowerCase() === "bib");
            const bibCellStyle = isBibCell && rowClass
@@ -864,7 +864,7 @@ window.getCurrentStationContext = function () {
                 ? "background:#ffe5e5;font-weight:800;"
                 : "background:#fff6cc;font-weight:800;")
             : "";
-        
+
          if (key.toUpperCase() === "CLEAR") {
            return `<td style="padding:6px;border-bottom:1px solid #eee;">
             <a href="#"
@@ -874,16 +874,16 @@ window.getCurrentStationContext = function () {
             </a>
           </td>`;
          }
-        
+
          return `<td style="padding:6px;border-bottom:1px solid #eee;${bibCellStyle}">${safe(val)}</td>`;
        }).join("");
-        
+
       // Row tint (subtle)
        const rowStyle =
          rowClass === "overdue-red"    ? "background:#fff0f0;" :
          rowClass === "overdue-yellow" ? "background:#fffbe6;" :
             "";
-        
+
       return `<tr style="${rowStyle}">${tds}</tr>`;
     }).join("");
 
@@ -891,19 +891,19 @@ window.getCurrentStationContext = function () {
         const theadEl = w.document.getElementById("thead");
         const tbodyEl = w.document.getElementById("tbody");
         const wrapEl  = w.document.getElementById("wrap");
-    
+
         if (!metaEl || !theadEl || !tbodyEl || !wrapEl) return;
-    
+
         // Preserve scroll position
         const scrollTop = wrapEl.scrollTop;
-    
+
         metaEl.textContent = `Showing ${shown.length} of ${allRows.length} rows (refreshes every ${Math.round(REFRESH_MS/1000)}s)`;
         theadEl.innerHTML = headHtml;
         tbodyEl.innerHTML = bodyHtml;
-    
+
         wrapEl.scrollTop = scrollTop;
       }
-    
+
       // Initial render + interval
       render();
       const timer = w.setInterval(() => {
@@ -913,7 +913,7 @@ window.getCurrentStationContext = function () {
         }
         render();
       }, REFRESH_MS);
-    
+
       // If user closes window, stop timer
       w.addEventListener("beforeunload", () => {
         try { w.clearInterval(timer); } catch {}
@@ -974,13 +974,13 @@ window.getCurrentStationContext = function () {
       const out = [];
       for (const [bib, e] of latestMap.entries()) {
         const act = safeAction(e);
-    
+
         // Skip non-starters and dropouts
         if (act === "DNS" || act === "DNF") continue;
-    
+
         // Skip actual finishers (use the same logic as Finished List)
         if (isFinish(e)) continue;
-    
+
         out.push({
           bib,
           last_station: safeStationText(e) || safeStationCode(e) || "",
@@ -997,22 +997,22 @@ window.getCurrentStationContext = function () {
      function last10SeenHere(list, stationCodes) {
       const codes = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
       const src = Array.isArray(list) ? list : [];
-      
+
       // FINISH uses FINISH actions; normal stations use IN actions
       const stationIsFinish = codes.has("FINISH");
       const wantAction = stationIsFinish ? "FINISH" : "IN";
-    
+
       const rows = src
         .filter(e => {
           const act = String(e.action || e.pass_type || "").toUpperCase();
           if (act !== wantAction) return false;
-        
+
           // ✅ FINISH is special: if action is FINISH, include it
           if (stationIsFinish) return true;
-        
+
       const direct = String(e.station_code || "").toUpperCase().trim();
         if (direct && codes.has(direct)) return true;
-            
+
         // fallback (legacy)
         const inferred = String(safeStationCode(e) || "").toUpperCase();
         return inferred && codes.has(inferred);
@@ -1033,7 +1033,7 @@ window.getCurrentStationContext = function () {
         const isCorralAuto = codeSet.has("AS1") && codeSet.has("AS8") && codeSet.has("AS10");
         const isKananAuto  = codeSet.has("AS2") && codeSet.has("AS7");
         const isZumaAuto   = codeSet.has("AS4") && codeSet.has("AS6");
-    
+
           if (isCorralAuto && ["AS1","AS8","AS10"].includes(inferred)) stationDisplay = "Corral Canyon (AUTO)";
           if (isKananAuto  && ["AS2","AS7"].includes(inferred))        stationDisplay = "Kanan Road (AUTO)";
           if (isZumaAuto   && ["AS4","AS6"].includes(inferred))        stationDisplay = "Zuma (AUTO)";
@@ -1053,13 +1053,13 @@ window.getCurrentStationContext = function () {
         })
         .sort((a, b) => parseTsToMs(b._ts) - parseTsToMs(a._ts))
         .slice(0, 10);
-    
+
       // Remove internal sort key so it doesn't show as a popup column
       rows.forEach(r => delete r._ts);
-    
+
       return rows;
     }
-    
+
     function computeExpectedFromPrev_FLOW(list, fromCodes, toCodes) {
       const fromLatest = latestAtCodesByBib(list, expandCodesList(fromCodes));
       const toLatest   = latestAtCodesByBib(list, toCodes);
@@ -1080,30 +1080,30 @@ window.getCurrentStationContext = function () {
 
         const tFrom = parseTsToMs(safePassTs(eFrom));
         const tTo   = eTo ? parseTsToMs(safePassTs(eTo)) : 0;
-        
+
         if (tFrom > tTo) {
           out.push({
             bib,
             last_station: stationNameFromCode(String(safeStationCode(eFrom) || "")),
-        
+
             // Human display (respects HQ LOCAL / UTC toggle)
             nextArriving_time: safePassTs(eFrom),
-        
+
             // ✅ Machine-accurate ETA (UTC millis, never formatted)
             eta_utc_ms: tFrom,
-        
+
             _ts: tFrom,
             next_station: "(arriving here)",
             distance: normalizeDistance(eFrom.distance_code || eFrom.distance || "")
           });
         }
       }
-    
+
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0)); // newest first
       out.forEach(r => delete r._ts);
       return out;
     }
-    
+
     function effectiveLastCodeForPath(e, dist) {
      // Start with the physical code (handles CORRAL/KANAN/ZUMA AUTO groups)
       let code = String(physicalCodeForPath(e) || "").toUpperCase();
@@ -1120,25 +1120,25 @@ window.getCurrentStationContext = function () {
     function computeExpectedFromPrev_PATH(latestMap, stationCodes) {
       const toSet = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
       const out = [];
-    
+
       for (const [bib, e] of latestMap.entries()) {
         const act = safeAction(e);
         if (act === "DNS" || act === "DNF" || act === "FINISH") continue;
-    
+
         const dist = normalizeDistance(e.distance_code || e.distance || "");
         const path = DIST_PATHS[dist];
         if (!path || !path.length) continue;
-    
+
        // const lastCode = String(safeStationCode(e) || "").toUpperCase();  // Jan20 17:52 with New below
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
         const idx = path.indexOf(lastCode);
         if (idx < 0) continue;
-    
+
         const nextCode = path[idx + 1];
         if (!nextCode) continue;
-    
+
         if (toSet.has(String(nextCode).toUpperCase())) {
           out.push({
             bib,
@@ -1150,7 +1150,7 @@ window.getCurrentStationContext = function () {
           });
         }
       }
-    
+
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
       out.forEach(r => delete r._ts);
       return out;
@@ -1159,7 +1159,7 @@ window.getCurrentStationContext = function () {
   // ---------- Main render ----------
   let lastList = [];
   let lastStationCode = "";
-  
+
   // -------- STATUS_OVERRIDES (global, idempotent) --------
     window.STATUS_OVERRIDES = window.STATUS_OVERRIDES || {
       dnsClearedAtMs: new Map(),
@@ -1171,7 +1171,7 @@ window.getCurrentStationContext = function () {
       try {
         const ec = (typeof getEventCode === "function") ? getEventCode() : "";
         if (!ec) return STATUS_OVERRIDES;
-    
+
         const res = await fetch("status_overrides_load.php", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1179,23 +1179,23 @@ window.getCurrentStationContext = function () {
           body: JSON.stringify({ event_code: ec })
         });
 
-    
+
         const text = await res.text();
         let data = null;
         try { data = JSON.parse(text); } catch {}
-    
+
         if (!res.ok || !data) {
           console.warn("Overrides load bad response:", res.status, res.url, text.slice(0,200));
           return STATUS_OVERRIDES;
         }
-    
+
         const dns = new Map();
         const dnf = new Map();
-    
+
         for (const r of (data.rows || [])) {
           const bib = String(r.bib ?? "").trim();
           if (!bib) continue;
-    
+
           if (r.cleared_dns_at) {
             const ms = Date.parse(String(r.cleared_dns_at).replace(" ", "T") + "Z") || 0;
             dns.set(bib, ms);
@@ -1205,7 +1205,7 @@ window.getCurrentStationContext = function () {
             dnf.set(bib, ms);
           }
         }
-    
+
         STATUS_OVERRIDES.dnsClearedAtMs = dns;
         STATUS_OVERRIDES.dnfClearedAtMs = dnf;
         return STATUS_OVERRIDES;
@@ -1216,20 +1216,20 @@ window.getCurrentStationContext = function () {
         return STATUS_OVERRIDES;
       }
     }
-    
+
     async function hqClearStatus({ event_code, bib, clear, cleared_by, note }) {
       console.log("CLEAR POST payload:", { event_code, bib, clear, cleared_by, note });
-    
+
       const res = await fetch("status_overrides_set.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ event_code, bib, clear, cleared_by, note })
       });
-    
+
       const text = await res.text();
       let data = null;
       try { data = JSON.parse(text); } catch {}
-    
+
       if (!res.ok || !data?.success) {
         throw new Error((data && data.error) ? data.error : (text ? text.slice(0, 200) : ("HTTP " + res.status)));
       }
@@ -1239,14 +1239,14 @@ window.getCurrentStationContext = function () {
     function buildStickyStatusMaps(list) {
       const lastDnsTs = new Map(); // bib -> ms
       const lastDnfTs = new Map(); // bib -> ms
-    
+
       for (const e of (list || [])) {
         const bib = String(e?.bib_number ?? e?.bib ?? "").trim();
         if (!bib) continue;
-    
+
         const t = parseTsToMs(safePassTs(e));
         if (!t) continue;
-    
+
         const act = safeAction(e);
         if (act === "DNS") {
           const prev = lastDnsTs.get(bib) || 0;
@@ -1258,7 +1258,7 @@ window.getCurrentStationContext = function () {
       }
       return { lastDnsTs, lastDnfTs };
     }
-    
+
     function buildStickyDnsRows(list, overrides) {
       const { lastDnsTs } = buildStickyStatusMaps(list);
       const out = [];
@@ -1270,7 +1270,7 @@ window.getCurrentStationContext = function () {
       out.sort((a, b) => (Date.parse(b.dns_time) || 0) - (Date.parse(a.dns_time) || 0));
       return out;
     }
-    
+
     function buildStickyDnfRows(list, overrides) {
       const { lastDnfTs } = buildStickyStatusMaps(list);
       const out = [];
@@ -1282,7 +1282,7 @@ window.getCurrentStationContext = function () {
       out.sort((a, b) => (Date.parse(b.dnf_time) || 0) - (Date.parse(a.dnf_time) || 0));
       return out;
     }
-    
+
     function msToIsoLocal(ms) {
       try {
         const d = new Date(ms);
@@ -1292,7 +1292,7 @@ window.getCurrentStationContext = function () {
         return "";
       }
     }
-    
+
     window.__rs_hqClear = async function ({ event_code, bib, clear }) {
       const cleared_by = (document.getElementById("operatorName")?.value || "").trim() || "HQ";
       const note = "HQ cleared status (confirmed running)";
@@ -1306,20 +1306,20 @@ window.getCurrentStationContext = function () {
 
   async function computeAndRender(list, stationCode) {
     mount();
-    
+
     lastList = Array.isArray(list) ? list : [];
     window.__rs_lastList = lastList;
     window.__rs_debug = { safeStationCode, safePassTs, parseTsToMs };
-    
+
     const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-    
+
     const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
     const IS_SOB = /SOB/i.test(eventCode);
-    
+
     const effectiveStation = String(stationCode || ctx.station_code || "").trim();
-    
+
     lastStationCode = effectiveStation;
-    
+
     const stationUpper = effectiveStation.toUpperCase();
     const stationLabel = stationLabelFromDropdown(effectiveStation);
     const stationCodes = expandStationCodes(effectiveStation);
@@ -1331,8 +1331,8 @@ window.getCurrentStationContext = function () {
       STATUS_OVERRIDES.dnsClearedAtMs = new Map();
       STATUS_OVERRIDES.dnfClearedAtMs = new Map();
 
-    }  
-    
+    }
+
     // Entrants (DB) — always event-wide for Card A
     let entrantsDB = 0;
     try {
@@ -1340,7 +1340,7 @@ window.getCurrentStationContext = function () {
     } catch (e) {
       entrantsDB = 0;
     }
-      
+
     const latest = latestByBib(lastList);
     const allBibs = Array.from(latest.keys());
     const { lastDnsTs, lastDnfTs } = buildStickyStatusMaps(lastList);
@@ -1350,7 +1350,7 @@ window.getCurrentStationContext = function () {
       const cleared = STATUS_OVERRIDES.dnsClearedAtMs.get(String(bib)) || 0;
       if (!(cleared >= t)) dnsSet.add(String(bib));
     }
-    
+
     const dnfSet = new Set();
     for (const [bib, t] of lastDnfTs.entries()) {
       const cleared = STATUS_OVERRIDES.dnfClearedAtMs.get(String(bib)) || 0;
@@ -1390,7 +1390,7 @@ window.getCurrentStationContext = function () {
         }
         return false;
       })());
-    
+
     const expectedActive =
       (stationUpper === "FINISH")
         ? Math.max(0, entrantsDB - dnsSet.size - dnfSet.size - finishSet.size)
@@ -1412,7 +1412,7 @@ window.getCurrentStationContext = function () {
      const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
      const isCorral = (stationUpper === "CORRAL_AUTO");
      const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latest, ["AS8"]).length > 0;
-    
+
      // If runners exist whose next stop is AS8 (Corral Pass 2), prefer PATH for this view.
      if (forcePathFor30KCorralReturn) {
        expectedPrevRows = computeExpectedFromPrev_PATH(latest, stationCodes);
@@ -1435,25 +1435,25 @@ window.getCurrentStationContext = function () {
               .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
               .filter(Boolean)
           );
-        
+
           const finishedBibs = new Set(
             Array.from(latest.entries())
               .filter(([_, e]) => isFinish(e))
               .map(([bib]) => String(bib).trim())
           );
-        
+
           const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
           expectedPrevRows = [];
-        
+
           for (const r of roster) {
             const bib = String(r?.bib ?? "").trim();
             if (!bib) continue;
-        
+
             if (seenAtAS1.has(bib)) continue;
             if (stickyStatusByBib?.dns?.has?.(bib)) continue;
             if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
             if (finishedBibs.has(bib)) continue;
-        
+
             expectedPrevRows.push({
               bib,
               last_station: "START",
@@ -1462,11 +1462,11 @@ window.getCurrentStationContext = function () {
               distance: r?.distance || ""
             });
           }
-        
+
           // optional sort (not required for count)
           expectedPrevRows.sort((a, b) => Number(a.bib) - Number(b.bib));
         }
-      
+
       // Safety: never show already-finished bibs in Expected From Previous
       // (prevents FINISH expected lists from including actual finishers)
       if (expectedPrevRows.length) {
@@ -1482,11 +1482,22 @@ window.getCurrentStationContext = function () {
     }
 
      window.__rs_expectedPrevRows = expectedPrevRows;
-     
+
+     // Save expected_prev payload to localStorage for popup-safe access
+     try {
+       localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
+         rows: expectedPrevRows,
+         stationCodes: stationCodes,
+         stationLabel: stationLabel
+       }));
+     } catch (e) {
+       console.warn('Failed to save expectedPrevRows payload to localStorage:', e);
+     }
+
     // Card D
     const finishedCount = finishSet.size;
     const notFinishedCount = Math.max(0, entrantsDB - dnsSet.size - finishedCount);
-    
+
     updateUI({
       // Card A
       aLabel: `Card A — Event Status (DB)`,
@@ -1506,7 +1517,7 @@ window.getCurrentStationContext = function () {
         : (stationUpper === "FINISH"
             ? `Expected to arrive at FINISH (Open List)`
             : `Next expected at ${stationLabel} (Open List)`),
-      
+
       // Card D
       dLabel: `Card D — Finish Status`,
       dVal: `${finishedCount}`,
@@ -1514,37 +1525,37 @@ window.getCurrentStationContext = function () {
 
       listHint: "Choose list type, then Open List"
     });
-    
+
     // Added Feb 7 at 11:35
     function stationNameForRow(row) {
       const dist = canonicalDistanceCode(safeString(row.distance_code || row.distance || ""));
       const sc = String(row.station_code || "").trim().toUpperCase();
-    
+
       // Prefer server-provided station_name if present
       const serverName = safeString(row.station_name || "");
       if (serverName) return serverName;
-    
+
       // Prefer mapping by code for this event
       const mapped = stationNameFromMapByCode(sc);
       if (mapped) return mapped;
-    
+
       // If we have station_order + distance_code, use lookupStationByOrder
       const so = (row.station_order !== null && row.station_order !== undefined)
         ? parseInt(row.station_order, 10)
         : null;
-    
+
       if (dist && so !== null && !isNaN(so)) {
         const hit = lookupStationByOrder(dist, so);
         if (hit?.station_name) return hit.station_name;
       }
-    
+
       return sc || "N/A";
     }
 
     // Wire list selector
     const sel = document.getElementById("rsListSelect");
     const btn = document.getElementById("rsOpenListBtn");
-    
+
     if (btn && sel) {
       btn.onclick = () => {
         const v = String(sel.value || "dns");
@@ -1555,7 +1566,7 @@ window.getCurrentStationContext = function () {
         () => {
           const list = window.__rs_lastList || lastList || window.entries || [];
           let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
-    
+
           if (String(window.location.search || "").includes("hq=1")) {
             rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
           }
@@ -1571,7 +1582,7 @@ window.getCurrentStationContext = function () {
         () => {
           const list = window.__rs_lastList || lastList || [];
           let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
-    
+
           if (String(window.location.search || "").includes("hq=1")) {
             rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
           }
@@ -1599,14 +1610,14 @@ window.getCurrentStationContext = function () {
       const dnfSet = sets.dnfSet || new Set();
       const finishSet = sets.finishSet || new Set();
       const latest = sets.latest || new Map();
-    
+
       const out = [];
       for (const r of roster) {
         const bib = String(r.bib || "").trim();
         if (!bib) continue;
-    
+
         if (dnsSet.has(bib) || dnfSet.has(bib) || finishSet.has(bib)) continue;
-    
+
         const e = latest.get(bib);
         out.push({
           bib,
@@ -1615,11 +1626,11 @@ window.getCurrentStationContext = function () {
           distance:     e ? normalizeDistance(e.distance_code || e.distance || "") : (r.distance || "")
         });
       }
-    
+
       out.sort((a,b)=>Number(a.bib)-Number(b.bib));
       return out;
     },
-    
+
         { refreshMs: 5000 }
       );
     }
@@ -1659,18 +1670,38 @@ window.getCurrentStationContext = function () {
     }
 
    if (v === "last10_here") {
+      // Capture station context at click time (not relying on shared/stale globals)
       const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-    
+
       const sc2 = String(ctx.station_code || "").trim();
       const sc  = sc2 || String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();
-    
+
       const codes = (stationCodes && stationCodes.length) ? stationCodes : (sc ? [sc] : []);
-    
-     console.log("DEBUG last10_here", { stationLabel, stationCodes, ctx, sc, codes });
-    
+      const capturedStationLabel = stationLabel || sc || "Station";
+
+     console.log("DEBUG last10_here", { stationLabel: capturedStationLabel, stationCodes: codes, ctx, sc });
+
+      // Initialize per-station fetch interval map if not exists
+      window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || new Map();
+
+      // Create unique key for this station (using all codes, non-mutating sort)
+      const stationKey = [...codes].sort().join('|');
+
+      // Clear any existing interval for this station
+      const existingInterval = window.__rs_last10_fetch_intervals.get(stationKey);
+      if (existingInterval) {
+        clearInterval(existingInterval);
+        window.__rs_last10_fetch_intervals.delete(stationKey);
+      }
+
+      // Create a closure that captures the station codes at this moment
+      const getLast10ForStation = () => {
+        return last10SeenHere((window.__rs_lastList || lastList || []), codes);
+      };
+
       return openListWindow(
-        `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
-        () => last10SeenHere((window.__rs_lastList || lastList || []), codes),
+        `Last 10 Seen Here — ${capturedStationLabel}`,
+        getLast10ForStation,
         { refreshMs: 5000 }
       );
     }
@@ -1684,27 +1715,27 @@ window.getCurrentStationContext = function () {
             () => {
               const list = window.__rs_lastList || lastList || [];
               const latestNow = latestByBib(list);
-        
+
               const stationUpper = String(lastStationCode || stationCode || "").toUpperCase();
-        
+
               // Only makes sense at Corral (AUTO or physical)
               const isCorralContext = (stationUpper === "CORRAL_AUTO" || stationUpper === "AS1" || stationUpper === "AS8" || stationUpper === "AS10");
               if (!isCorralContext) return [];
-        
+
               // We want "expected to Corral" but NOT from START.
               // Use predecessors that exclude START: Kanan + Bulldog.
               const fromCodes = ["AS7", "AS9"];     // Kanan 1/2 + Bulldog
               const toCodes   = ["AS1", "AS8", "AS10"];    // Corral group
-        
+
               let rows = computeExpectedFromPrev_FLOW(list, fromCodes, toCodes);
-        
+
               // Safety: remove finished/DNS/DNF so list stays clean
               const finishedBibs = new Set(
                 Array.from(latestNow.entries())
                   .filter(([_, e]) => isFinish(e))
                   .map(([bib]) => String(bib).trim())
               );
-        
+
               rows = (rows || []).filter(r => {
                 const bib = String(r?.bib ?? "").trim();
                 if (!bib) return false;
@@ -1713,7 +1744,7 @@ window.getCurrentStationContext = function () {
                 if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
                 return true;
               });
-            
+
               return rows;
             },
             { refreshMs: 5000 }
@@ -1721,16 +1752,29 @@ window.getCurrentStationContext = function () {
         }
 
     if (v === "expected_prev") {
+      // Read from localStorage (popup-safe)
+      // Rows are already filtered by stationCodes during compute phase
+      const getExpectedPrevRows = () => {
+        try {
+          const payload = JSON.parse(localStorage.getItem('__rs_expectedPrevRows_payload') || '{}');
+          return payload.rows || [];
+        } catch (e) {
+          console.warn('Failed to read expectedPrevRows from localStorage:', e);
+          // Fallback to in-memory data
+          return window.__rs_expectedPrevRows || [];
+        }
+      };
+
       return openListWindow(
         `Expected From Previous — ${stationLabel}`,
-        () => (window.__rs_expectedPrevRows || []),
+        getExpectedPrevRows,
         { refreshMs: 5000 }
       );
     }
-        
+
     return;  //
   };
-  
+
  } // end if (btn && sel)
 
 } // ✅ end computeAndRender
@@ -1748,4 +1792,4 @@ window.ResultsStrip = {
 
 console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
 
-})();  // end IIFE  
+})();  // end IIFE
