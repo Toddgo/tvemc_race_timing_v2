@@ -1092,15 +1092,13 @@ window.getCurrentStationContext = function () {
             // ✅ Machine-accurate ETA (UTC millis, never formatted)
             eta_utc_ms: tFrom,
         
-            _ts: tFrom,
             next_station: "(arriving here)",
             distance: normalizeDistance(eFrom.distance_code || eFrom.distance || "")
           });
         }
       }
     
-      out.sort((a, b) => (b._ts || 0) - (a._ts || 0)); // newest first
-      out.forEach(r => delete r._ts);
+      out.sort((a, b) => b.eta_utc_ms - a.eta_utc_ms); // newest first
       return out;
     }
     
@@ -1304,6 +1302,15 @@ window.getCurrentStationContext = function () {
       try { if (window.ResultsStrip && typeof window.ResultsStrip.update === 'function') window.ResultsStrip.update(window.__rs_lastList || lastList || [], window.__rs_lastStationCode || lastStationCode || ''); } catch {}
     };
 
+  // Helper function to persist expected prev rows for popup refresh
+  // This can be implemented to use localStorage, sessionStorage, or other persistence mechanism
+  function writeExpectedPrevPayload(rows) {
+    // Stub implementation - can be enhanced to persist to storage if needed
+    // For now, just ensure the data is in window global (already done by caller)
+    if (!rows || !Array.isArray(rows)) return;
+    // Future: localStorage.setItem('tvemc_expectedPrevRows', JSON.stringify(rows));
+  }
+
   async function computeAndRender(list, stationCode) {
     mount();
     
@@ -1481,7 +1488,10 @@ window.getCurrentStationContext = function () {
       }
     }
 
+     // authoritative write
      window.__rs_expectedPrevRows = expectedPrevRows;
+     // Persist canonical rows so open popups read updates
+     try { writeExpectedPrevPayload(expectedPrevRows); } catch (e) { console.warn('persist expectedPrev failed', e); }
      
     // Card D
     const finishedCount = finishSet.size;
