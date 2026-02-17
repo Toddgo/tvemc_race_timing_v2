@@ -1739,8 +1739,16 @@ window.getCurrentStationContext = function () {
 // Write canonical Expected-From-Previous payload to localStorage so popups read authoritative state.
 function writeExpectedPrevPayload(rows) {
   try {
+    // Determine which rows to use: provided array, or fallback to window.__rs_expectedPrevRows
+    let rowsToStore = [];
+    if (Array.isArray(rows)) {
+      rowsToStore = rows;
+    } else if (Array.isArray(window.__rs_expectedPrevRows)) {
+      rowsToStore = window.__rs_expectedPrevRows;
+    }
+    
     const payload = {
-      rows: Array.isArray(rows) ? rows : (Array.isArray(window.__rs_expectedPrevRows) ? window.__rs_expectedPrevRows : []),
+      rows: rowsToStore,
       updated_at: new Date().toISOString()
     };
     localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify(payload));
