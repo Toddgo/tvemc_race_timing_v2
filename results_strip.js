@@ -1854,7 +1854,7 @@ window.getCurrentStationContext = function () {
               return out;
             }
           } catch (e) {
-            console.warn('first-station detection failed', e);
+            console.warn("first-station detection failed", e);
           }
 
           // ---- Normal stations: existing FLOW/PATH logic ----
