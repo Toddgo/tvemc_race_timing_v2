@@ -1720,10 +1720,170 @@ window.getCurrentStationContext = function () {
           );
         }
 
+    // === Expected From Previous — popup (replaces existing expected_prev handler) ===
     if (v === "expected_prev") {
       return openListWindow(
         `Expected From Previous — ${stationLabel}`,
-        () => (window.__rs_expectedPrevRows || []),
+        () => {
+          const list = window.__rs_lastList || lastList || [];
+          const latestNow = latestByBib(list);
+
+          const stationUpper = String(lastStationCode || stationCode || "").toUpperCase();
+          const stationCodesNow = expandStationCodes(lastStationCode || stationCode);
+
+          // Personnel stations: no expected list
+          if (isPersonnelStation(stationUpper)) return [];
+
+          // Helper sets used across branches
+          const finishedBibsGlobal = new Set(
+            Array.from(latestNow.entries())
+              .filter(([_, e]) => isFinish(e))
+              .map(([bib]) => String(bib).trim())
+          );
+
+          // CORRAL / AS1 special-case (keeps the Sean O'Brien logic you used)
+          if (stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {
+            const seenAtAS1 = new Set(
+              (list || [])
+                .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
+                .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
+                .filter(Boolean)
+            );
+
+            const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+            const out = [];
+
+            for (const r of roster) {
+              const bib = String(r?.bib ?? "").trim();
+              if (!bib) continue;
+              if (seenAtAS1.has(bib)) continue;
+              if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+              if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+              if (finishedBibsGlobal.has(bib)) continue;
+
+              out.push({
+                bib,
+                last_station: "START",
+                nextArriving_time: "",
+                next_station: "(arriving here)",
+                distance: r?.distance || ""
+              });
+            }
+
+            out.sort((a, b) => Number(a.bib) - Number(b.bib));
+
+            // If physical AS1, only reconciliation list (no PATH flow)
+            if (stationUpper === "AS1") return out;
+
+            // CORRAL_AUTO: include reconciliation + expected return-leg / normal expected rows
+            const forcePathForCorralReturn = computeExpectedFromPrev_PATH(latestNow, ["AS8"]).length > 0;
+
+            let rows;
+            if (forcePathForCorralReturn) {
+              rows = computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+            } else {
+              const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
+              rows = flowPrev
+                ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
+                : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+            }
+
+            // Filter rows (remove finished/DNS/DNF)
+            rows = (rows || []).filter(r => {
+              const bib = String(r?.bib ?? "").trim();
+              if (!bib) return false;
+              if (finishedBibsGlobal.has(bib)) return false;
+              if (stickyStatusByBib?.dns?.has?.(bib)) return false;
+              if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
+              return true;
+            });
+
+            // Merge reconciliation list (out) with computed expected rows, dedupe by bib
+            const seen = new Set(out.map(r => String(r.bib).trim()));
+            for (const r of rows) {
+              const bib = String(r?.bib ?? "").trim();
+              if (!bib || seen.has(bib)) continue;
+              out.push(r);
+              seen.add(bib);
+            }
+
+            return out;
+          } // end corral block
+
+          // ---- FIRST-AID STATION (START -> first aid) special-case ----
+          try {
+            const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+            const distKey = Object.keys(map)[0] || null;
+            const stations = distKey ? (map[distKey] || []) : [];
+            const firstStationObj = (Array.isArray(stations) && stations.length) ? stations[0] : null;
+            const firstStationCodes = firstStationObj ? [String(firstStationObj.station_code || firstStationObj.code || firstStationObj.value || '').toUpperCase()] : [];
+            const firstStationNames = firstStationObj ? [String(firstStationObj.station_name || firstStationObj.station || firstStationObj.name || '').toUpperCase()] : [];
+
+            if (firstStationCodes.length && (firstStationCodes.includes(stationUpper) || firstStationNames.includes(stationUpper))) {
+              const seenAtFirst = new Set(
+                (list || [])
+                  .filter(e => {
+                    const sc = String(e?.station_code || e?.station || e?.station_name || '').toUpperCase();
+                    return firstStationCodes.includes(sc) || firstStationNames.includes(sc);
+                  })
+                  .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
+                  .filter(Boolean)
+              );
+
+              const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+              const out = [];
+
+              for (const r of roster) {
+                const bib = String(r?.bib ?? "").trim();
+                if (!bib) continue;
+                if (seenAtFirst.has(bib)) continue;
+                if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+                if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+                if (finishedBibsGlobal.has(bib)) continue;
+
+                out.push({
+                  bib,
+                  last_station: "START",
+                  nextArriving_time: "",
+                  next_station: stationLabel || firstStationObj.station_name || "(arriving here)",
+                  distance: r?.distance || ""
+                });
+              }
+
+              out.sort((a, b) => Number(a.bib) - Number(b.bib));
+              return out;
+            }
+          } catch (e) {
+            console.warn('first-station detection failed', e);
+          }
+
+          // ---- Normal stations: existing FLOW/PATH logic ----
+          const isCorral = (stationUpper === "CORRAL_AUTO");
+          const forcePathForCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestNow, ["AS8"]).length > 0;
+
+          let rows;
+          if (forcePathForCorralReturn) {
+            rows = computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+          } else {
+            const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
+            rows = flowPrev
+              ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
+              : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+          }
+
+          const finishedBibs2 = new Set(
+            Array.from(latestNow.entries())
+              .filter(([_, e]) => isFinish(e))
+              .map(([bib]) => String(bib).trim())
+          );
+
+          rows = (rows || []).filter(r => {
+            const bib = String(r?.bib ?? "").trim();
+            return bib && !finishedBibs2.has(bib);
+          });
+
+          return rows;
+        },
         { refreshMs: 5000 }
       );
     }
