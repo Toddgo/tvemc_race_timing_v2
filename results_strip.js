@@ -1098,7 +1098,7 @@ window.getCurrentStationContext = function () {
         }
       }
     
-      out.sort((a, b) => b.eta_utc_ms - a.eta_utc_ms); // newest first
+      out.sort((a, b) => (b.eta_utc_ms || 0) - (a.eta_utc_ms || 0)); // newest first
       return out;
     }
     
@@ -1304,10 +1304,15 @@ window.getCurrentStationContext = function () {
 
   // Helper function to persist expected prev rows for popup refresh
   // This can be implemented to use localStorage, sessionStorage, or other persistence mechanism
+  // Note: Function name specified in patch requirements
   function writeExpectedPrevPayload(rows) {
+    // Validate input
+    if (!rows || !Array.isArray(rows)) {
+      console.warn('writeExpectedPrevPayload: invalid rows parameter', rows);
+      return;
+    }
     // Stub implementation - can be enhanced to persist to storage if needed
-    // For now, just ensure the data is in window global (already done by caller)
-    if (!rows || !Array.isArray(rows)) return;
+    // For now, data persistence happens via window global (done by caller)
     // Future: localStorage.setItem('tvemc_expectedPrevRows', JSON.stringify(rows));
   }
 
