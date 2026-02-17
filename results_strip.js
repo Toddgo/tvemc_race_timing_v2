@@ -1482,6 +1482,7 @@ window.getCurrentStationContext = function () {
     }
 
      window.__rs_expectedPrevRows = expectedPrevRows;
+     writeExpectedPrevPayload(expectedPrevRows);
      
     // Card D
     const finishedCount = finishSet.size;
@@ -1734,6 +1735,31 @@ window.getCurrentStationContext = function () {
  } // end if (btn && sel)
 
 } // ✅ end computeAndRender
+
+// Write canonical Expected-From-Previous payload to localStorage so popups read authoritative state.
+function writeExpectedPrevPayload(rows) {
+  try {
+    // Determine which rows to use: provided array, or fallback to window.__rs_expectedPrevRows
+    let rowsToStore = [];
+    if (Array.isArray(rows)) {
+      rowsToStore = rows;
+    } else if (Array.isArray(window.__rs_expectedPrevRows)) {
+      rowsToStore = window.__rs_expectedPrevRows;
+    }
+    
+    const payload = {
+      rows: rowsToStore,
+      updated_at: new Date().toISOString()
+    };
+    localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify(payload));
+    // optional: notify via BroadcastChannel if you use cross-tab messaging
+    // if (typeof BroadcastChannel !== 'undefined') {
+    //   try { new BroadcastChannel('tvemc_rs').postMessage({ type: 'expected_prev_update', ts: Date.now() }); } catch (e) {}
+    // }
+  } catch (e) {
+    console.warn('writeExpectedPrevPayload failed', e);
+  }
+}
 
 // ---------- Expose globally ----------
 console.log("✅ results_strip.js BEFORE attach");
