@@ -1112,7 +1112,7 @@ window.getCurrentStationContext = function () {
 
         const top10 = filtered.slice(0, 10);
 
-        // Store in global cache
+        // Store in global cache for potential future use (cross-window sync, debugging, etc.)
         window.__rs_last10HereRowsByStation = window.__rs_last10HereRowsByStation || {};
         window.__rs_last10HereRowsByStation[stationCode] = top10;
 
@@ -1257,8 +1257,8 @@ window.getCurrentStationContext = function () {
           out = computeExpectedFromPrev_PATH(latestMap, stationCodes);
         }
 
-        // ✅ AS1 reconciliation (START → AS1) - Sean O'Brien event logic
-        if (stationUpper === "AS1") {
+        // ✅ AS1 or CORRAL_AUTO reconciliation (START → AS1) - Sean O'Brien event logic
+        if (stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {
           const seenAtAS1 = new Set(
             (list || [])
               .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
@@ -1290,7 +1290,7 @@ window.getCurrentStationContext = function () {
               nextArriving_time: "",
               next_station: "(arriving here)",
               distance: r?.distance || "",
-              eta_utc_ms: 0
+              eta_utc_ms: Date.now()  // Use current time for roster-based entries
             });
           }
         }
@@ -1876,7 +1876,7 @@ window.getCurrentStationContext = function () {
                 nextArriving_time: "",
                 next_station: "(arriving here)",
                 distance: r?.distance || "",
-                eta_utc_ms: 0
+                eta_utc_ms: Date.now()  // Use current time for roster-based entries
               });
             }
           } 
@@ -1940,7 +1940,7 @@ window.getCurrentStationContext = function () {
                   nextArriving_time: "",
                   next_station: "(arriving here)",
                   distance: r?.distance || "",
-                  eta_utc_ms: 0
+                  eta_utc_ms: Date.now()  // Use current time for roster-based entries
                 });
               }
             } else {
