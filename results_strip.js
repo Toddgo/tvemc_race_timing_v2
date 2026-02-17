@@ -1858,28 +1858,18 @@ window.getCurrentStationContext = function () {
           }
 
           // ---- Normal stations: existing FLOW/PATH logic ----
-          const isCorral = (stationUpper === "CORRAL_AUTO");
-          const forcePathForCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestNow, ["AS8"]).length > 0;
-
-          let rows;
-          if (forcePathForCorralReturn) {
-            rows = computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-          } else {
-            const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
-            rows = flowPrev
-              ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
-              : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-          }
-
-          const finishedBibs2 = new Set(
-            Array.from(latestNow.entries())
-              .filter(([_, e]) => isFinish(e))
-              .map(([bib]) => String(bib).trim())
-          );
+          const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);
+          let rows = flowPrev
+            ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
+            : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
 
           rows = (rows || []).filter(r => {
             const bib = String(r?.bib ?? "").trim();
-            return bib && !finishedBibs2.has(bib);
+            if (!bib) return false;
+            if (finishedBibsGlobal.has(bib)) return false;
+            if (stickyStatusByBib?.dns?.has?.(bib)) return false;
+            if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
+            return true;
           });
 
           return rows;
