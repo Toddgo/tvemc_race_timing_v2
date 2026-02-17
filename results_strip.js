@@ -570,6 +570,82 @@ window.getCurrentStationContext = function () {
     return val;
   }
 
+  // ---------- Fetch last 10 seen at station ----------
+  async function fetchLast10HereFromServer(eventCodeLocal, stationCodeLocalInner) {
+    try {
+      if (!eventCodeLocal || !stationCodeLocalInner) {
+        window.__rs_last10HereRowsByStation = window.__rs_last10HereRowsByStation || {};
+        window.__rs_last10HereRowsByStation[stationCodeLocalInner] = window.__rs_last10HereRowsByStation[stationCodeLocalInner] || [];
+        if (typeof stationCodeLocal !== 'undefined' && stationCodeLocalInner === stationCodeLocal) {
+          window.__rs_last10HereRows = window.__rs_last10HereRowsByStation[stationCodeLocalInner];
+        }
+        return;
+      }
+
+      const url = `/tvemc_race_timing_v2/passes_last_seen.php?event_code=${encodeURIComponent(eventCodeLocal)}&station=${encodeURIComponent(stationCodeLocalInner)}`;
+      const resp = await fetch(url, { credentials: 'same-origin' });
+      const json = await resp.json().catch(() => null);
+
+      if (json && json.success && Array.isArray(json.rows)) {
+        const raw = json.rows.slice();
+
+        // Build bib -> count map so we can reliably populate pass_count
+        const counts = {};
+        for (const r of raw) {
+          const bib = String(r?.bib || r?.bib_number || r?.BIB || r?.bib_no || '').trim();
+          if (!bib) continue;
+          counts[bib] = (counts[bib] || 0) + 1;
+        }
+
+        // Normalize, filter out DNS/DNF from the Last 10 view, sort newest-first, limit to 10
+        const rows = raw
+          .map(r => {
+            const out = Object.assign({}, r);
+            out.bib = String(out.bib || out.bib_number || out.BIB || out.bib_no || '').trim();
+            out.pass_ts = out.pass_ts || out.time || out.timestamp || out.date_time || '';
+            out.pass_type = String(out.pass_type || out.action || out.type || '').toUpperCase();
+            out.pass_count = Number(out.pass_count || out.passnum || out.pass_num || counts[out.bib] || 1);
+            out.station_name = String(out.station_name || out.station || out.station_label || '').trim();
+            return out;
+          })
+          // Exclude DNS / DNF rows from the Last 10 popup (they belong on the DNS list)
+          .filter(o => {
+            const pt = (o.pass_type || '').toString().toUpperCase();
+            return pt !== 'DNS' && pt !== 'DNF';
+          })
+          .sort((a, b) => (Date.parse(b.pass_ts) || 0) - (Date.parse(a.pass_ts) || 0))
+          .slice(0, 10);
+
+        window.__rs_last10HereRowsByStation = window.__rs_last10HereRowsByStation || {};
+        window.__rs_last10HereRowsByStation[stationCodeLocalInner] = rows;
+
+        try {
+          if (typeof stationCodeLocal !== 'undefined' && stationCodeLocalInner === stationCodeLocal) {
+            window.__rs_last10HereRows = rows;
+          }
+        } catch (e) {
+          window.__rs_last10HereRows = rows;
+        }
+
+        console.debug('fetchLast10HereFromServer:', stationCodeLocalInner, 'rows=', rows.length);
+      } else {
+        window.__rs_last10HereRowsByStation = window.__rs_last10HereRowsByStation || {};
+        window.__rs_last10HereRowsByStation[stationCodeLocalInner] = [];
+        if (typeof stationCodeLocal !== 'undefined' && stationCodeLocalInner === stationCodeLocal) window.__rs_last10HereRows = [];
+        console.debug('fetchLast10HereFromServer: no rows for', stationCodeLocalInner, 'resp=', json);
+      }
+    } catch (err) {
+      console.warn('fetchLast10HereFromServer error', err);
+      window.__rs_last10HereRowsByStation = window.__rs_last10HereRowsByStation || {};
+      window.__rs_last10HereRowsByStation[stationCodeLocalInner] = window.__rs_last10HereRowsByStation[stationCodeLocalInner] || [];
+      if (typeof stationCodeLocal !== 'undefined' && stationCodeLocalInner === stationCodeLocal) {
+        window.__rs_last10HereRows = window.__rs_last10HereRowsByStation[stationCodeLocalInner];
+      } else {
+        window.__rs_last10HereRows = window.__rs_last10HereRowsByStation[stationCodeLocalInner];
+      }
+    }
+  }
+
   // ---------- UI mount ----------
   function mount() {
     const existing = document.getElementById("resultsStrip");
