@@ -1,4 +1,4 @@
-/* results_strip.js Jan 14 2026 20:00. DNS/DNF repair Jan 25 at 17:54
+/* results_strip.js Feb 19 2026 12:30 Github. 
  TVEMC Results Strip (Cards A/B/C/D) — Jan 2026 Layout
  NOTE [2026-01-12]: Rebuilt to match operator-approved card layout with Open List selector.
 */
@@ -8,6 +8,129 @@ console.log("✅ results_strip.js START");
 // Context helpers (race-safe) Added Feb12 at 11:00
 // Ensures station + distance exist in EVERY tab (HQ, AS windows, popup windows)
 // ------------------------------
+// Build DIST_PATHS entry for a distance from AID_STATION_MAP (if DIST_PATHS missing/outdated)
+function buildPathFromAidStationMap(distance) {
+  const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+  if (!map || !map[distance] || !map[distance].length) return [];
+  return (map[distance] || []).slice().sort((a,b)=> (Number(a.station_order)||0)-(Number(b.station_order)||0)).map(s => (s.station_code||s.code||s.value||'').toString().toUpperCase());
+}
+
+// stationNameFromCode — prefer dynamic lookup from in-memory AID_STATION_MAP
+function stationNameFromCode(code) {
+  if (!code) return '';
+  const c = String(code).toUpperCase().trim();
+  const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+  // search the first distance key (usually only one for this event)
+  for (const key of Object.keys(map || {})) {
+    const arr = map[key] || [];
+    for (const s of arr) {
+      const sc = String(s.station_code || s.code || s.value || '').toUpperCase().trim();
+      if (sc === c) {
+        return s.station_name || s.text || s.name || sc;
+      }
+    }
+  }
+  // fallback to older mapping or code if not found
+  if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) return STATION_NAME_MAP[c];
+  return c;
+}
+
+// Ensure Expected-From-Previous is always computed from the live aid station map (permanent)
+function buildPathFromAidStationMap(distance) {
+  const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+  const key = distance || Object.keys(map)[0] || '300M';
+  const stations = (map[key] || []).slice().sort((a,b)=> (Number(a.station_order)||0)-(Number(b.station_order)||0));
+  return {
+    path: stations.map(s => (String(s.station_code||s.code||s.value||'')).toUpperCase()),
+    stations
+  };
+}
+
+
+// Canonical DB-driven recompute for Expected From Previous (replace existing function)
+function recomputeExpectedFromPrevForUI() {
+  try {
+    const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+    const distKey = Object.keys(map)[0] || '300M';
+    const stations = (map[distKey] || []).slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
+    const path = stations.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
+
+    // latest pass per bib from the in-memory lastList
+    const list = window.__rs_lastList || [];
+    const latestByBib = new Map();
+    for (const e of list) {
+      const bib = String(e.bib || e.bib_number || e.BIB || '').trim();
+      if (!bib) continue;
+      const ts = Date.parse(e.pass_ts || e.time || '') || 0;
+      const prev = latestByBib.get(bib);
+      if (!prev || ts > (Date.parse(prev.pass_ts || prev.time) || 0)) latestByBib.set(bib, e);
+    }
+
+    // helper: normalize simple strings for fuzzy compare
+    const norm = s => String(s || '').toUpperCase().trim();
+    const normLoose = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    const out = [];
+    for (const [bib, e] of latestByBib.entries()) {
+      // find station code for last station: prefer explicit code; otherwise match by name (exact or fuzzy)
+      const rawLast = e.station_code || e.station || e.station_name || '';
+      const lastRawNorm = norm(rawLast);
+      let matchedStation = stations.find(s => {
+        const sc = String(s.station_code || s.code || s.value || '').toUpperCase().trim();
+        const sname = String(s.station_name || s.text || s.name || '').toUpperCase().trim();
+        return sc === lastRawNorm || sname === lastRawNorm;
+      });
+
+      if (!matchedStation && lastRawNorm) {
+        const target = normLoose(lastRawNorm);
+        matchedStation = stations.find(s => {
+          const snameLoose = normLoose(s.station_name || s.text || s.name || '');
+          const scLoose = normLoose(s.station_code || s.code || s.value || '');
+          return snameLoose === target || scLoose === target;
+        });
+      }
+
+      // canonical last station code (use matched station code if available, otherwise use normalized raw)
+      const lastStationCode = matchedStation ? String(matchedStation.station_code || matchedStation.code || matchedStation.value || '').toUpperCase() : lastRawNorm;
+      const idx = path.indexOf(lastStationCode);
+
+      // Only include if we can find the downstream station in the path
+      if (idx < 0) continue;
+      const nextCode = path[idx + 1];
+      if (!nextCode) continue;
+
+      const sObj = stations.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
+
+      out.push({
+        bib: String(bib),
+        last_station: e.station_name || (matchedStation ? matchedStation.station_name : (e.station || e.station_name || '')),
+        last_station_code: lastStationCode || '',
+        last_time: e.pass_ts || e.time || '',
+        nextArriving_time: e.pass_ts || e.time || '',
+        eta_utc_ms: Date.parse(e.pass_ts || e.time) || 0,
+        next_station: sObj.station_name || nextCode || '',
+        next_station_code: nextCode || '',
+        distance: e.distance_code || e.distance || distKey
+      });
+    }
+
+    out.sort((a, b) => b.eta_utc_ms - a.eta_utc_ms);
+
+    // authoritative write
+    window.__rs_expectedPrevRows = out;
+    return out;
+  } catch (err) {
+    console.warn('recomputeExpectedFromPrevForUI error', err);
+    return window.__rs_expectedPrevRows || [];
+  }
+}
+
+// Run it once on load and every 5s to keep UI synced (and to override older logic)
+recomputeExpectedFromPrevForUI();
+if (!window.__rs_expectedPrev_update_interval) {
+  window.__rs_expectedPrev_update_interval = setInterval(recomputeExpectedFromPrevForUI, 5000);
+}
+
 (function ensureContextHelpers() {
   // Event code (you already have cleanEventCode elsewhere; keep it if present)
   window.getEventCode = window.getEventCode || function () {
@@ -114,7 +237,12 @@ window.getCurrentStationContext = function () {
     "26.2": ["AS1", "AS2", "AS8", "FINISH"],
     "50K":  ["AS1", "AS2", "AS7", "AS8", "FINISH"],
     "50M":  ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "FINISH"],
-    "100K": ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "AS9", "AS10", "FINISH"]
+    "100K": ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "AS9", "AS10", "FINISH"],
+    "100M": ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "AS9", "AS10", "FINISH"],
+    "200M": ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "AS9", "AS10", "FINISH"],
+    "240M": ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "AS9", "AS10", "FINISH"],
+    "300M": ["AS1", "AS2", "AS4", "AS5", "AS6", "AS7", "AS8", "AS9", "AS10", "AS11", "AS12", "AS13", "AS14", "AS15", "AS16", "AS17", "AS18", "AS19", "FINISH"]
+
   };
 
   // ---------- Personnel (non-aid-station) ----------
@@ -218,6 +346,28 @@ window.getCurrentStationContext = function () {
     if (u === "200M" || u === "200 MI" || u === "200 MILE" || u === "200 MILES" || u === "200MILE") return "200M";
     if (u === "240M" || u === "240 MI" || u === "240 MILE" || u === "240 MILES" || u === "240MILE") return "240M";
     if (u === "300M" || u === "300 MI" || u === "300 MILE" || u === "300 MILES" || u === "300MILE") return "300M";
+    
+    // AZM-300 station name -> code fallbacks (insert inside safeStationCode() fallback section)
+    if (st.includes("PICKET POST")) return "AS1";
+    if (st.includes("GILA RIVER"))  return "AS2";
+    if (st.includes("GRAND ENCHANTMENT")) return "AS3";
+    if (st.includes("TORTILLA")) return "AS4";
+    if (st.includes("FREEMAN")) return "AS5";
+    if (st.includes("BLACK HILLS")) return "AS6";
+    if (st.includes("TIGER MINE")) return "AS7";
+    if (st.includes("ORACLE")) return "AS8";
+    if (st.includes("MT LEMMON") || st.includes("MT. LEMMON") || st.includes("MTLEM")) return "AS9";
+    if (st.includes("CHARLOUX GAP")) return "AS10";
+    if (st.includes("CATALINA")) return "AS11";
+    if (st.includes("RILLITO")) return "AS12";
+    if (st.includes("VALENCIA")) return "AS13";
+    if (st.includes("PISTOL HILL")) return "AS14";
+    if (st.includes("GABE ZIMMERMAN")) return "AS15";
+    if (st.includes("SANTA RITA")) return "AS16";
+    if (st.includes("OAK TREE")) return "AS17";
+    if (st.includes("APACHE SPRINGS")) return "AS18";
+    if (st.includes("CASA BLANCA")) return "AS19";
+    if (st.includes("FINISH LINE") || st === "FINISH") return "FINISH";
 
     return s; // fallback: keep original
   }
@@ -499,7 +649,6 @@ window.getCurrentStationContext = function () {
       return sc;
     }
 
- 
       // OPTIONAL: if you have station_id and a known FINISH station_id
       if (e?.station_id && window.FINISH_STATION_ID &&
           String(e.station_id) === String(window.FINISH_STATION_ID)) {
@@ -551,7 +700,6 @@ window.getCurrentStationContext = function () {
     
       return "";
     }
-
 
   // ---------- Fetch entrants (DB runners count) ----------
   const entrantsCache = new Map();
@@ -777,7 +925,6 @@ window.getCurrentStationContext = function () {
           }
         };
 
-        
       function render() {
         if (w.closed) return;
     
@@ -1140,14 +1287,17 @@ window.getCurrentStationContext = function () {
         if (!nextCode) continue;
     
         if (toSet.has(String(nextCode).toUpperCase())) {
+          // inside computeExpectedFromPrev_PATH where rows are pushed, use:
           out.push({
-            bib,
-            last_station: stationNameFromCode(lastCode),
-            last_time: safePassTs(e),
-            next_station: stationNameFromCode(nextCode),
-            distance: dist,
-            _ts: parseTsToMs(safePassTs(e))
-          });
+          bib,
+          last_station: stationNameFromCode(lastCode),
+          last_time: safePassTs(e),
+          nextArriving_time: safePassTs(e),
+          eta_utc_ms: parseTsToMs(safePassTs(e)),
+          next_station: stationNameFromCode(nextCode),
+          distance: dist,
+          _ts: parseTsToMs(safePassTs(e))
+         });
         }
       }
     
@@ -1304,130 +1454,152 @@ window.getCurrentStationContext = function () {
       try { if (window.ResultsStrip && typeof window.ResultsStrip.update === 'function') window.ResultsStrip.update(window.__rs_lastList || lastList || [], window.__rs_lastStationCode || lastStationCode || ''); } catch {}
     };
 
-  async function computeAndRender(list, stationCode) {
-    mount();
+    async function computeAndRender(list, stationCode) {
+      // Initialization / mount
+      mount();
     
-    lastList = Array.isArray(list) ? list : [];
-    window.__rs_lastList = lastList;
-    window.__rs_debug = { safeStationCode, safePassTs, parseTsToMs };
+      // canonical lastList
+      lastList = Array.isArray(list) ? list : [];
+      window.__rs_lastList = lastList;
+      window.__rs_debug = { safeStationCode, safePassTs, parseTsToMs };
     
-    const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+      // context & event
+      const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+      const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
+      const IS_SOB = /SOB/i.test(eventCode);
     
-    const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
-    const IS_SOB = /SOB/i.test(eventCode);
+      // station selection and labels
+      const effectiveStation = String(stationCode || ctx.station_code || "").trim();
+      lastStationCode = effectiveStation;
+      const stationUpper = effectiveStation.toUpperCase();
+      const stationLabel = stationLabelFromDropdown(effectiveStation);
+      const stationCodes = expandStationCodes(effectiveStation);
     
-    const effectiveStation = String(stationCode || ctx.station_code || "").trim();
+      // expectedPrevRows canonical holder (single declaration)
+      let expectedPrevRows = [];
     
-    lastStationCode = effectiveStation;
+      // load overrides safely
+      try {
+        await loadStatusOverrides(eventCode);
+      } catch (e) {
+        console.warn("Overrides load failed:", e && e.message);
+        STATUS_OVERRIDES.dnsClearedAtMs = new Map();
+        STATUS_OVERRIDES.dnfClearedAtMs = new Map();
+      }
     
-    const stationUpper = effectiveStation.toUpperCase();
-    const stationLabel = stationLabelFromDropdown(effectiveStation);
-    const stationCodes = expandStationCodes(effectiveStation);
-
-     try {
-      await loadStatusOverrides(eventCode);
-    } catch (e) {
-      console.warn("Overrides load failed:", e.message);
-      STATUS_OVERRIDES.dnsClearedAtMs = new Map();
-      STATUS_OVERRIDES.dnfClearedAtMs = new Map();
-
-    }  
+      // AUTHORITATIVE expected rows — attempt canonical recompute early (non-blocking fallback)
+      try {
+        // recomputeExpectedFromPrevForUI() should return canonical rows and write the global
+        expectedPrevRows = recomputeExpectedFromPrevForUI();
+        window.__rs_expectedPrevRows = expectedPrevRows;
+      } catch (err) {
+        console.warn('recomputeExpectedFromPrevForUI failed (early), using existing global', err);
+        expectedPrevRows = window.__rs_expectedPrevRows || [];
+      }
     
-    // Entrants (DB) — always event-wide for Card A
-    let entrantsDB = 0;
-    try {
-      entrantsDB = await fetchEntrantsCount(eventCode, "ALL");
-    } catch (e) {
-      entrantsDB = 0;
-    }
-      
-    const latest = latestByBib(lastList);
-    const allBibs = Array.from(latest.keys());
-    const { lastDnsTs, lastDnfTs } = buildStickyStatusMaps(lastList);
-
-    const dnsSet = new Set();
-    for (const [bib, t] of lastDnsTs.entries()) {
-      const cleared = STATUS_OVERRIDES.dnsClearedAtMs.get(String(bib)) || 0;
-      if (!(cleared >= t)) dnsSet.add(String(bib));
-    }
+      // Entrants (DB) — always event-wide for Card A
+      let entrantsDB = 0;
+      try {
+        entrantsDB = await fetchEntrantsCount(eventCode, "ALL");
+      } catch (e) {
+        entrantsDB = 0;
+      }
     
-    const dnfSet = new Set();
-    for (const [bib, t] of lastDnfTs.entries()) {
-      const cleared = STATUS_OVERRIDES.dnfClearedAtMs.get(String(bib)) || 0;
-      if (!(cleared >= t)) dnfSet.add(String(bib));
-    }
-
-    const finishSet = new Set(allBibs.filter(b => isFinish(latest.get(b))));
-    window.__rs_sets = { dnsSet, dnfSet, finishSet, latest };   // Added Feb3 -12:35 NOt Finished Open List page
-    const onCourse = Math.max(0, entrantsDB - dnsSet.size - dnfSet.size - finishSet.size);
-
-    // Card B: seen here + not seen
-    const seenHereSet = bibsSeenAtStationCodes(lastList, stationCodes);
-
-    let expectedHereDB = 0;
-    try {
-      expectedHereDB = await fetchEntrantsCount(eventCode, String(stationCode || "ALL"));
-    } catch (e) {
-      expectedHereDB = entrantsDB;
-    }
-
-    // Card B "Total Expected":
-    // - For FINISH, show "On Course" (Entrants - DNS - DNF - Finished) so it matches Card A logic.
-    // - For other stations, keep existing DB expected count minus DNS.
-    // Determine if this is the first real station in the distance (station_order === 1)
-    const isFirstStation =
-      Array.isArray(stationCodes) &&
-      stationCodes.length === 1 &&
-      (String(stationCodes[0]).toUpperCase() !== "START") &&
-      // If your station_code is AS1/AZM01/etc, treat it as first when current station is order 1 in the map
-      (AID_STATION_MAP && (() => {
-        // Find the current distance list that contains this station code
-        const sc = String(stationCodes[0]).toUpperCase();
-        for (const d of Object.keys(AID_STATION_MAP || {})) {
-          const arr = AID_STATION_MAP[d] || [];
-          const hit = arr.find(x => String(x.station_code || "").toUpperCase() === sc);
-          if (hit) return Number(hit.station_order) === 1;
-        }
-        return false;
-      })());
+      // Latest pass per bib (Map)
+      const latest = latestByBib(lastList);
     
-    const expectedActive =
-      (stationUpper === "FINISH")
-        ? Math.max(0, entrantsDB - dnsSet.size - dnfSet.size - finishSet.size)
-        : isFirstStation
-          // ✅ First station expected = "On course" roster count
+      // Build sticky status maps (timestamps for last DNS/DNF)
+      const { lastDnsTs = new Map(), lastDnfTs = new Map() } =
+        (typeof buildStickyStatusMaps === 'function') ? buildStickyStatusMaps(lastList) : { lastDnsTs: new Map(), lastDnfTs: new Map() };
+    
+      // canonical latestMap (single source of truth)
+      const latestMap = latest || (window.__rs_lastList && latestByBib(window.__rs_lastList)) || new Map();
+    
+      // DNS / DNF sets derived from sticky timestamps and overrides (respects STATUS_OVERRIDES)
+      const dnsSet = new Set();
+      for (const [bib, t] of (lastDnsTs && lastDnsTs.entries ? lastDnsTs.entries() : [])) {
+        const cleared = (STATUS_OVERRIDES && STATUS_OVERRIDES.dnsClearedAtMs && STATUS_OVERRIDES.dnsClearedAtMs.get(String(bib))) || 0;
+        if (!(cleared >= t)) dnsSet.add(String(bib).trim());
+      }
+    
+      const dnfSet = new Set();
+      for (const [bib, t] of (lastDnfTs && lastDnfTs.entries ? lastDnfTs.entries() : [])) {
+        const cleared = (STATUS_OVERRIDES && STATUS_OVERRIDES.dnfClearedAtMs && STATUS_OVERRIDES.dnfClearedAtMs.get(String(bib))) || 0;
+        if (!(cleared >= t)) dnfSet.add(String(bib).trim());
+      }
+    
+      // FINISH set derived from latestMap (actual finish passes)
+      const finishSet = new Set(
+        Array.from(latestMap.entries())
+          .filter(([_, e]) => isFinish(e))
+          .map(([bib]) => String(bib).trim())
+      );
+    
+      // Expose sets for debug and reuse
+      window.__rs_sets = { dnsSet, dnfSet, finishSet, latest: latestMap };
+      window.__rs_latestMap = latestMap;
+      window.__rs_dnsSet = dnsSet;
+      window.__rs_dnfSet = dnfSet;
+      window.__rs_finishSet = finishSet;
+    
+      // Derived counts (must be computed after sets exist)
+      const onCourse = Math.max(0, entrantsDB - dnsSet.size - dnfSet.size - finishSet.size);
+      const finishedCount = finishSet.size;
+    
+      // Card B: seen here + not seen
+      const seenHereSet = bibsSeenAtStationCodes(lastList, stationCodes);
+    
+      // Total expected for this station from DB (synchronous await is fine inside this async function)
+      let expectedHereDB = entrantsDB;
+      try {
+        expectedHereDB = await fetchEntrantsCount(eventCode, String(stationCode || "ALL"));
+      } catch (e) {
+        expectedHereDB = entrantsDB;
+      }
+    
+      // Determine if this is the first real station in the distance (station_order === 1)
+      const isFirstStation =
+        Array.isArray(stationCodes) &&
+        stationCodes.length === 1 &&
+        (String(stationCodes[0]).toUpperCase() !== "START") &&
+        (AID_STATION_MAP && (() => {
+          const sc = String(stationCodes[0]).toUpperCase();
+          for (const d of Object.keys(AID_STATION_MAP || {})) {
+            const arr = AID_STATION_MAP[d] || [];
+            const hit = arr.find(x => String(x.station_code || "").toUpperCase() === sc);
+            if (hit) return Number(hit.station_order) === 1;
+          }
+          return false;
+        })());
+    
+      // Card B expectedActive (handles FINISH and first-station special cases)
+      const expectedActive =
+        (stationUpper === "FINISH")
           ? Math.max(0, entrantsDB - dnsSet.size - dnfSet.size - finishSet.size)
-          // Other stations: keep existing DB expected count minus DNS
-          : Math.max(0, expectedHereDB - dnsSet.size);
-
-    const notSeenCount = Math.max(0, expectedActive - seenHereSet.size);
-
-    // Card C: FLOW override where mapped; otherwise PATH
-    let expectedPrevRows = [];
-
-    if (isPersonnelStation(stationUpper)) {
-      expectedPrevRows = [];
-    } else {
-     // const flowPrev = getFlowPredecessors(stationUpper);  Changed Jan 20 17:42
-     const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
-     const isCorral = (stationUpper === "CORRAL_AUTO");
-     const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latest, ["AS8"]).length > 0;
+          : isFirstStation
+            ? Math.max(0, entrantsDB - dnsSet.size - dnfSet.size - finishSet.size)
+            : Math.max(0, expectedHereDB - dnsSet.size);
     
-     // If runners exist whose next stop is AS8 (Corral Pass 2), prefer PATH for this view.
-     if (forcePathFor30KCorralReturn) {
-       expectedPrevRows = computeExpectedFromPrev_PATH(latest, stationCodes);
-     } else {
-       const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
-       if (flowPrev) {
-         expectedPrevRows = computeExpectedFromPrev_FLOW(lastList, flowPrev, stationCodes);
-       } else {
-         expectedPrevRows = computeExpectedFromPrev_PATH(latest, stationCodes);
-       }
-     }
-
-      // ✅ CCAS1: Corral Pass-1 reconciliation (START → AS1)
-        // Override Card C count to match the popup list for CORRAL_AUTO / AS1
-     // if (stationUpper === "AS1" || stationUpper === "CORRAL_AUTO") {    // Remove after test
+      const notSeenCount = Math.max(0, expectedActive - seenHereSet.size);
+    
+      // Card C: FLOW override where mapped; otherwise PATH
+      // expectedPrevRows is assigned here (declared earlier)
+      expectedPrevRows = [];
+    
+      if (!isPersonnelStation(stationUpper)) {
+        const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
+        const isCorral = (stationUpper === "CORRAL_AUTO");
+        const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestMap, ["AS8"]).length > 0;
+    
+        if (forcePathFor30KCorralReturn) {
+          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+        } else if (flowPrev) {
+          expectedPrevRows = computeExpectedFromPrev_FLOW(lastList, flowPrev, stationCodes);
+        } else {
+          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+        }
+    
+        // CCAS1: Corral Pass-1 reconciliation (START → AS1) — event-specific override
         if (stationUpper === "AS1") {
           const seenAtAS1 = new Set(
             (lastList || [])
@@ -1435,26 +1607,25 @@ window.getCurrentStationContext = function () {
               .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
               .filter(Boolean)
           );
-        
+    
           const finishedBibs = new Set(
-            Array.from(latest.entries())
+            Array.from(latestMap.entries())
               .filter(([_, e]) => isFinish(e))
               .map(([bib]) => String(bib).trim())
           );
-        
+    
           const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
-          expectedPrevRows = [];
-        
+          const overrideRows = [];
+    
           for (const r of roster) {
             const bib = String(r?.bib ?? "").trim();
             if (!bib) continue;
-        
             if (seenAtAS1.has(bib)) continue;
             if (stickyStatusByBib?.dns?.has?.(bib)) continue;
             if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
             if (finishedBibs.has(bib)) continue;
-        
-            expectedPrevRows.push({
+    
+            overrideRows.push({
               bib,
               last_station: "START",
               nextArriving_time: "",
@@ -1462,290 +1633,379 @@ window.getCurrentStationContext = function () {
               distance: r?.distance || ""
             });
           }
-        
-          // optional sort (not required for count)
-          expectedPrevRows.sort((a, b) => Number(a.bib) - Number(b.bib));
+    
+          overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
+          // prefer the roster-based override when applicable
+          if (overrideRows.length) expectedPrevRows = overrideRows;
         }
-      
+      } // end if not personnel station
+    
       // Safety: never show already-finished bibs in Expected From Previous
-      // (prevents FINISH expected lists from including actual finishers)
-      if (expectedPrevRows.length) {
-        const finishedBibs = new Set(Array.from(latest.entries())
-          .filter(([_, e]) => isFinish(e))
-          .map(([bib]) => String(bib)));
-
+      if (expectedPrevRows && expectedPrevRows.length) {
+        const finishedBibs = new Set(
+          Array.from(latestMap.entries())
+            .filter(([_, e]) => isFinish(e))
+            .map(([bib]) => String(bib).trim())
+        );
+    
         expectedPrevRows = expectedPrevRows.filter(r => {
           const bib = String(r?.bib ?? "").trim();
           return bib && !finishedBibs.has(bib);
         });
       }
-    }
-
-     window.__rs_expectedPrevRows = expectedPrevRows;
-     
-    // Card D
-    const finishedCount = finishSet.size;
-    const notFinishedCount = Math.max(0, entrantsDB - dnsSet.size - finishedCount);
     
-    updateUI({
-      // Card A
-      aLabel: `Card A — Event Status (DB)`,
-      aVal: entrantsDB,
-      aSub: `DNS: ${dnsSet.size} (Open List)\nDNF: ${dnfSet.size} (Open List)\nFinished: ${finishedCount} (Open List)\nOn course: ${onCourse}`,
-
-      // Card B
-      bLabel: `Card B — Seen at ${stationLabel}`,
-      bVal: `${seenHereSet.size}`,
-      bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast 10 seen here: (Open List)`,
-
-      // Card C
-      cLabel: `Card C — Expected From Previous`,
-      cVal: `${expectedPrevRows.length}`,
-      cSub: isPersonnelStation(stationUpper)
-        ? `Personnel view (no station expectations)`
-        : (stationUpper === "FINISH"
-            ? `Expected to arrive at FINISH (Open List)`
-            : `Next expected at ${stationLabel} (Open List)`),
-      
-      // Card D
-      dLabel: `Card D — Finish Status`,
-      dVal: `${finishedCount}`,
-      dSub: `Not finished: ${notFinishedCount} (Open List)`,
-
-      listHint: "Choose list type, then Open List"
-    });
-    
-    // Added Feb 7 at 11:35
-    function stationNameForRow(row) {
-      const dist = canonicalDistanceCode(safeString(row.distance_code || row.distance || ""));
-      const sc = String(row.station_code || "").trim().toUpperCase();
-    
-      // Prefer server-provided station_name if present
-      const serverName = safeString(row.station_name || "");
-      if (serverName) return serverName;
-    
-      // Prefer mapping by code for this event
-      const mapped = stationNameFromMapByCode(sc);
-      if (mapped) return mapped;
-    
-      // If we have station_order + distance_code, use lookupStationByOrder
-      const so = (row.station_order !== null && row.station_order !== undefined)
-        ? parseInt(row.station_order, 10)
-        : null;
-    
-      if (dist && so !== null && !isNaN(so)) {
-        const hit = lookupStationByOrder(dist, so);
-        if (hit?.station_name) return hit.station_name;
+      // AUTHORITATIVE write: try to let canonical recompute function be the source of truth
+      try {
+        const canonical = recomputeExpectedFromPrevForUI();
+        window.__rs_expectedPrevRows = canonical || expectedPrevRows || [];
+      } catch (err) {
+        console.warn('recomputeExpectedFromPrevForUI failed (final), using local expectedPrevRows', err);
+        window.__rs_expectedPrevRows = expectedPrevRows || [];
       }
     
-      return sc || "N/A";
-    }
-
-    // Wire list selector
-    const sel = document.getElementById("rsListSelect");
-    const btn = document.getElementById("rsOpenListBtn");
+      // Render UI (cards)
+      updateUI({
+        // Card A
+        aLabel: `Card A — Event Status (DB)`,
+        aVal: entrantsDB,
+        aSub: `DNS: ${dnsSet.size} (Open List)\nDNF: ${dnfSet.size} (Open List)\nFinished: ${finishedCount} (Open List)\nOn course: ${onCourse}`,
     
-    if (btn && sel) {
-      btn.onclick = () => {
-        const v = String(sel.value || "dns");
-
-    if (v === "dns") {
-      return openListWindow(
-        "DNS List (Event-wide)",
-        () => {
-          const list = window.__rs_lastList || lastList || window.entries || [];
-          let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
+        // Card B
+        bLabel: `Card B — Seen at ${stationLabel}`,
+        bVal: `${seenHereSet.size}`,
+        bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast 10 seen here: (Open List)`,
     
-          if (String(window.location.search || "").includes("hq=1")) {
-            rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
+        // Card C
+        cLabel: `Card C — Expected From Previous`,
+        cVal: `${(window.__rs_expectedPrevRows || expectedPrevRows || []).length}`,
+        cSub: isPersonnelStation(stationUpper)
+          ? `Personnel view (no station expectations)`
+          : (stationUpper === "FINISH"
+              ? `Expected to arrive at FINISH (Open List)`
+              : `Next expected at ${stationLabel} (Open List)`),
+    
+        // Card D
+        dLabel: `Card D — Finish Status`,
+        dVal: `${finishedCount}`,
+        dSub: `Not finished: ${Math.max(0, entrantsDB - dnsSet.size - finishedCount)} (Open List)`,
+    
+        listHint: "Choose list type, then Open List"
+      });
+    
+      // Wire list selector
+      const sel = document.getElementById("rsListSelect");
+      const btn = document.getElementById("rsOpenListBtn");
+    
+      if (btn && sel) {
+        btn.onclick = () => {
+          const v = String(sel.value || "dns");
+    
+          if (v === "dns") {
+            return openListWindow(
+              "DNS List (Event-wide)",
+              () => {
+                const list = window.__rs_lastList || lastList || window.entries || [];
+                let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
+                if (String(window.location.search || "").includes("hq=1")) {
+                  rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
+                }
+                return rows;
+              },
+              { refreshMs: 5000 }
+            );
           }
-          return rows;
-        },
-        { refreshMs: 5000 }
-      );
-    }
-
-    if (v === "dnf") {
-      return openListWindow(
-        "DNF List (Event-wide)",
-        () => {
-          const list = window.__rs_lastList || lastList || [];
-          let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
     
-          if (String(window.location.search || "").includes("hq=1")) {
-            rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
+          if (v === "dnf") {
+            return openListWindow(
+              "DNF List (Event-wide)",
+              () => {
+                const list = window.__rs_lastList || lastList || [];
+                let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
+                if (String(window.location.search || "").includes("hq=1")) {
+                  rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
+                }
+                return rows;
+              },
+              { refreshMs: 5000 }
+            );
           }
-          return rows;
-        },
-        { refreshMs: 5000 }
-      );
-    }
-
-    if (v === "finished") {
-      return openListWindow(
-        "Finished List (Event-wide)",
-        () => buildFinishedList(latestByBib(window.__rs_lastList || lastList || [])),
-        { refreshMs: 5000 }
-      );
-    }
-
-    if (v === "not_finished") {
-      return openListWindow(
-        "Not Finished (Event-wide)",
-        () => {
-      const roster = Array.isArray(window.bibList) ? window.bibList : [];
-      const sets = window.__rs_sets || {};
-      const dnsSet = sets.dnsSet || new Set();
-      const dnfSet = sets.dnfSet || new Set();
-      const finishSet = sets.finishSet || new Set();
-      const latest = sets.latest || new Map();
     
-      const out = [];
-      for (const r of roster) {
-        const bib = String(r.bib || "").trim();
-        if (!bib) continue;
+          if (v === "finished") {
+            return openListWindow(
+              "Finished List (Event-wide)",
+              () => buildFinishedList(latestByBib(window.__rs_lastList || lastList || [])),
+              { refreshMs: 5000 }
+            );
+          }
     
-        if (dnsSet.has(bib) || dnfSet.has(bib) || finishSet.has(bib)) continue;
+          if (v === "not_finished") {
+            return openListWindow(
+              "Not Finished (Event-wide)",
+              () => {
+                const roster = Array.isArray(window.bibList) ? window.bibList : [];
+                const sets = window.__rs_sets || {};
+                const latestNow = sets.latest || new Map();
     
-        const e = latest.get(bib);
-        out.push({
-          bib,
-          last_station: e ? (safeStationText(e) || safeStationCode(e) || "") : "",
-          last_time:    e ? safePassTs(e) : "",
-          distance:     e ? normalizeDistance(e.distance_code || e.distance || "") : (r.distance || "")
-        });
-      }
+                const out = [];
+                for (const r of roster) {
+                  const bib = String(r.bib || "").trim();
+                  if (!bib) continue;
     
-      out.sort((a,b)=>Number(a.bib)-Number(b.bib));
-      return out;
-    },
+                  if ((sets.dnsSet || dnsSet).has(bib) || (sets.dnfSet || dnfSet).has(bib) || (sets.finishSet || finishSet).has(bib)) continue;
     
-        { refreshMs: 5000 }
-      );
-    }
-
-    if (v === "not_seen") {
-      return openListWindow(
-        `Not Seen Yet (Practical) — ${stationLabel}`,
-        () => {
-          const list = window.__rs_lastList || lastList || [];
-          const latestNow = latestByBib(list);
-
-          const stationUpper = String(lastStationCode || stationCode || "").toUpperCase();
-          const stationCodesNow = expandStationCodes(lastStationCode || stationCode);
-
-          if (isPersonnelStation(stationUpper)) return [];
-
-          const flowPrev = getFlowPredecessors(stationUpper, stationCodesNow);   //Jan21 0954 DNS/DNF stick chagnes
-          let rows = flowPrev
-            ? computeExpectedFromPrev_FLOW(list, flowPrev, stationCodesNow)
-            : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
-
-          const finishedBibs = new Set(
-            Array.from(latestNow.entries())
-              .filter(([_, e]) => isFinish(e))
-              .map(([bib]) => String(bib))
-          );
-
-          rows = rows.filter(r => {
-            const bib = String(r?.bib ?? "").trim();
-            return bib && !finishedBibs.has(bib);
-          });
-
-          return rows;
-        },
-        { refreshMs: 5000 }
-      );
-    }
-
-   if (v === "last10_here") {
-      const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+                  const e = latestNow.get(bib);
+                  out.push({
+                    bib,
+                    last_station: e ? (safeStationText(e) || safeStationCode(e) || "") : "",
+                    last_time:    e ? safePassTs(e) : "",
+                    distance:     e ? normalizeDistance(e.distance_code || e.distance || "") : (r.distance || "")
+                  });
+                }
     
-      const sc2 = String(ctx.station_code || "").trim();
-      const sc  = sc2 || String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();
+                out.sort((a, b) => Number(a.bib) - Number(b.bib));
+                return out;
+              },
+              { refreshMs: 5000 }
+            );
+          }
     
-      const codes = (stationCodes && stationCodes.length) ? stationCodes : (sc ? [sc] : []);
+          if (v === "not_seen") {
+            return openListWindow(
+              `Not Seen Yet (Practical) — ${stationLabel}`,
+              () => {
+                const list = window.__rs_lastList || lastList || [];
+                const latestNow = latestByBib(list);
     
-     console.log("DEBUG last10_here", { stationLabel, stationCodes, ctx, sc, codes });
+                const stationUpperNow = String(lastStationCode || stationCode || "").toUpperCase();
+                const stationCodesNow = expandStationCodes(lastStationCode || stationCode);
     
-      return openListWindow(
-        `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
-        () => last10SeenHere((window.__rs_lastList || lastList || []), codes),
-        { refreshMs: 5000 }
-      );
-    }
-
-    // SPECIAL CASE: First-station reconciliation for multi-pass CORRAL.
-    // Keep this logic for events where first staffed station is multi-pass.
-    // Later: drive from DB config instead of hardcoded AS codes.
-    if (v === "corral_nonstart") {
+                if (isPersonnelStation(stationUpperNow)) return [];
+    
+                const flowPrevNow = getFlowPredecessors(stationUpperNow, stationCodesNow);
+                let rows = flowPrevNow
+                  ? computeExpectedFromPrev_FLOW(list, flowPrevNow, stationCodesNow)
+                  : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+    
+                const finishedBibsNow = new Set(
+                  Array.from(latestNow.entries())
+                    .filter(([_, e]) => isFinish(e))
+                    .map(([bib]) => String(bib))
+                );
+    
+                rows = rows.filter(r => {
+                  const bib = String(r?.bib ?? "").trim();
+                  return bib && !finishedBibsNow.has(bib);
+                });
+    
+                return rows;
+              },
+              { refreshMs: 5000 }
+            );
+          }
+    
+        // Last 10 Seen Here — robust per-station fetch and interval
+        if (v === "last10_here") {
+          const ctxLocal = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+        
+          const scFromCtx = String(ctxLocal.station_code || "").trim();
+          const scFallback = String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();
+          const sc = scFromCtx || scFallback || "";
+        
+          // Normalize to explicit codes array using known helper if present
+          const codes = (typeof expandStationCodes === 'function' && sc) ? (expandStationCodes(sc) || []) : (sc ? [sc] : []);
+        
+          // Helper to fetch last10 rows from server and cache in window.__rs_last10HereRows
+          async function fetchLast10HereFromServer(eventCodeLocal, stationCodeLocal) {
+            try {
+              if (!eventCodeLocal || !stationCodeLocal) {
+                window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+                return;
+              }
+              const url = `/tvemc_race_timing_v2/passes_last_seen.php?event_code=${encodeURIComponent(eventCodeLocal)}&station=${encodeURIComponent(stationCodeLocal)}`;
+              const resp = await fetch(url, { credentials: 'same-origin' });
+              const json = await resp.json();
+              if (json && json.success && Array.isArray(json.rows)) {
+                // store rows for THIS station only
+                window.__rs_last10HereRows = json.rows.map(r => {
+                  const out = Object.assign({}, r);
+                  out.bib = out.bib || out.bib_number || out.BIB || out.bib_no;
+                  out.pass_ts = out.pass_ts || out.time || out.pass_ts;
+                  out.pass_type = out.pass_type || out.action || out.pass_type;
+                  return out;
+                });
+              } else {
+                window.__rs_last10HereRows = [];
+              }
+            } catch (err) {
+              console.warn('fetchLast10HereFromServer error', err);
+              window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+            }
+          }
+        
+          // if we have a code, start/ensure a per-station interval
+          if (codes && codes.length) {
+            const stationCodeLocal = String(codes[0]).trim();
+            const eventCodeLocal = (ctxLocal.event_code || (window._EVENT_META && window._EVENT_META.event_code) || '');
+        
+            // initial fetch once
+            if (eventCodeLocal) fetchLast10HereFromServer(eventCodeLocal, stationCodeLocal);
+        
+            // create per-station interval map so each station has its own timer
+            window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || {};
+            if (!window.__rs_last10_fetch_intervals[stationCodeLocal]) {
+              window.__rs_last10_fetch_intervals[stationCodeLocal] = setInterval(() => {
+                // recompute event and station each tick (defensive)
+                const ctxTick = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: (window._EVENT_META && window._EVENT_META.event_code) || '' });
+                const ev = ctxTick?.event_code || (window._EVENT_META && window._EVENT_META.event_code) || '';
+                const st = stationCodeLocal; // keep the interval tied to the station that created it
+                if (ev && st) fetchLast10HereFromServer(ev, st);
+              }, 5000);
+            }
+          } else {
+            // no station codes: clear any global rows
+            window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+          }
+        
           return openListWindow(
-            `Corral Reconciliation (Non-Start) — ${stationLabel}`,
+            `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
+            () => (window.__rs_last10HereRows || []),
+            { refreshMs: 5000 }
+          );
+        }
+    
+          if (v === "corral_nonstart") {
+            return openListWindow(
+              `Corral Reconciliation (Non-Start) — ${stationLabel}`,
+              () => {
+                const list = window.__rs_lastList || lastList || [];
+                const latestNow = latestByBib(list);
+    
+                const stationUpperNow = String(lastStationCode || stationCode || "").toUpperCase();
+    
+                const isCorralContext = (stationUpperNow === "CORRAL_AUTO" || stationUpperNow === "AS1" || stationUpperNow === "AS8" || stationUpperNow === "AS10");
+                if (!isCorralContext) return [];
+    
+                const fromCodes = ["AS7", "AS9"];
+                const toCodes   = ["AS1", "AS8", "AS10"];
+    
+                let rows = computeExpectedFromPrev_FLOW(list, fromCodes, toCodes);
+    
+                const finishedBibs = new Set(
+                  Array.from(latestNow.entries())
+                    .filter(([_, e]) => isFinish(e))
+                    .map(([bib]) => String(bib).trim())
+                );
+    
+                rows = (rows || []).filter(r => {
+                  const bib = String(r?.bib ?? "").trim();
+                  if (!bib) return false;
+                  if (finishedBibs.has(bib)) return false;
+                  if (stickyStatusByBib?.dns?.has?.(bib)) return false;
+                  if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
+                  return true;
+                });
+    
+                return rows;
+              },
+              { refreshMs: 5000 }
+            );
+          }
+    
+        // Expected From Previous — robust payload write (paste in results_strip.js where expected_prev handled)
+        if (v === "expected_prev") {
+          // authoritative rows
+          let authoritativeRows = [];
+          try {
+            authoritativeRows = (typeof recomputeExpectedFromPrevForUI === 'function') ? recomputeExpectedFromPrevForUI() : (window.__rs_expectedPrevRows || expectedPrevRows || []);
+          } catch (err) {
+            console.warn('Could not recompute expected rows in opener; using existing global', err);
+            authoritativeRows = window.__rs_expectedPrevRows || expectedPrevRows || [];
+          }
+        
+          // Compute station codes robustly (prefer local stationCodes, fallback to lastStationCode / getStationCode())
+          let payloadStationCodes = Array.isArray(stationCodes) && stationCodes.length ? stationCodes.slice() : [];
+          if (!payloadStationCodes.length) {
+            const sc = (typeof lastStationCode !== 'undefined' && lastStationCode) ? lastStationCode : (typeof window.getStationCode === 'function' ? window.getStationCode() : '');
+            if (sc && typeof expandStationCodes === 'function') {
+              payloadStationCodes = expandStationCodes(sc);
+            } else if (sc) {
+              payloadStationCodes = [sc];
+            }
+          }
+          payloadStationCodes = (payloadStationCodes || []).map(s => String(s || '').toUpperCase()).filter(Boolean);
+        
+          // Write full payload (rows + station codes + label)
+          try {
+            localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
+              rows: authoritativeRows || [],
+              stationCodes: payloadStationCodes,
+              stationLabel: stationLabel || ''
+            }));
+          } catch (err) {
+            console.warn('localStorage set failed for expectedPrev payload', err);
+          }
+        
+          return openListWindow(
+            `Expected From Previous — ${stationLabel}`,
             () => {
-              const list = window.__rs_lastList || lastList || [];
-              const latestNow = latestByBib(list);
+              // popup reads and filters — tolerant matching by code OR name (keeps old behavior)
+              let parsed = null;
+              try {
+                const json = localStorage.getItem('__rs_expectedPrevRows_payload');
+                parsed = json ? JSON.parse(json) : null;
+              } catch(e){ /* ignore parse errors */ }
         
-              const stationUpper = String(lastStationCode || stationCode || "").toUpperCase();
+              const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : (Array.isArray(window.__rs_expectedPrevRows) ? window.__rs_expectedPrevRows : []);
+              const popupCodes = parsed && Array.isArray(parsed.stationCodes) && parsed.stationCodes.length ? parsed.stationCodes.map(s=>String(s).toUpperCase()) : (Array.isArray(window.stationCodes) ? window.stationCodes.map(s=>String(s).toUpperCase()) : []);
+              const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : (typeof stationLabel !== 'undefined' ? String(stationLabel).toUpperCase() : '');
         
-              // Only makes sense at Corral (AUTO or physical)
-              const isCorralContext = (stationUpper === "CORRAL_AUTO" || stationUpper === "AS1" || stationUpper === "AS8" || stationUpper === "AS10");
-              if (!isCorralContext) return [];
-        
-              // We want "expected to Corral" but NOT from START.
-              // Use predecessors that exclude START: Kanan + Bulldog.
-              const fromCodes = ["AS7", "AS9"];     // Kanan 1/2 + Bulldog
-              const toCodes   = ["AS1", "AS8", "AS10"];    // Corral group
-        
-              let rows = computeExpectedFromPrev_FLOW(list, fromCodes, toCodes);
-        
-              // Safety: remove finished/DNS/DNF so list stays clean
-              const finishedBibs = new Set(
-                Array.from(latestNow.entries())
-                  .filter(([_, e]) => isFinish(e))
-                  .map(([bib]) => String(bib).trim())
-              );
-        
-              rows = (rows || []).filter(r => {
-                const bib = String(r?.bib ?? "").trim();
-                if (!bib) return false;
-                if (finishedBibs.has(bib)) return false;
-                if (stickyStatusByBib?.dns?.has?.(bib)) return false;
-                if (stickyStatusByBib?.dnf?.has?.(bib)) return false;
-                return true;
+              const filtered = (rows || []).filter(r => {
+                const nextCode = r?.next_station_code ? String(r.next_station_code).toUpperCase() : null;
+                const nextName = r?.next_station ? String(r.next_station).toUpperCase() : '';
+                if (popupCodes && popupCodes.length) {
+                  if (nextCode && popupCodes.includes(nextCode)) return true;
+                  if (nextName && popupCodes.includes(nextName)) return true;
+                  return false;
+                }
+                if (popupLabel) {
+                  if (nextName && (nextName === popupLabel || nextName.includes(popupLabel))) return true;
+                  if (nextCode && nextCode === popupLabel) return true;
+                }
+                return false;
               });
-            
-              return rows;
+              
+              // Remove code-only columns so popup only shows human-readable station names
+              for (const r of filtered) {
+                try {
+                 delete r.last_station_code;
+                 delete r.next_station_code;
+               } catch (e) {
+                 // ignore any errors and continue
+               }
+             }
+        
+              return filtered;
             },
             { refreshMs: 5000 }
           );
         }
-
-    if (v === "expected_prev") {
-      return openListWindow(
-        `Expected From Previous — ${stationLabel}`,
-        () => (window.__rs_expectedPrevRows || []),
-        { refreshMs: 5000 }
-      );
-    }
-        
-    return;  //
-  };
-  
- } // end if (btn && sel)
-
-} // ✅ end computeAndRender
-
-// ---------- Expose globally ----------
-console.log("✅ results_strip.js BEFORE attach");
-
-window.ResultsStrip = {
-  update(list, stationCode) {
-    computeAndRender(list, stationCode).catch(err => {
-      console.error("ResultsStrip compute failed:", err);
-    });
-  }
-};
-
-console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
-
-})();  // end IIFE  
+    
+          return;
+        }; // end onclick
+      } // end if btn && sel
+    } // end computeAndRender
+    
+    // ---------- Expose globally ----------
+    console.log("✅ results_strip.js BEFORE attach");
+    
+    window.ResultsStrip = {
+      update(list, stationCode) {
+        computeAndRender(list, stationCode).catch(err => {
+          console.error("ResultsStrip compute failed:", err);
+        });
+      }
+    };
+    
+    console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
+    
+    })();  // end IIFE
