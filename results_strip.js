@@ -1,4 +1,4 @@
-/* results_strip.js Feb 20 2026 13:30 Github. 
+/* results_strip.js Feb 20 2026 14:00 Github. 
  TVEMC Results Strip (Cards A/B/C/D) — Jan 2026 Layout
  NOTE [2026-01-12]: Rebuilt to match operator-approved card layout with Open List selector.
 */
@@ -1222,22 +1222,25 @@ function stationNameFromCode(code) {
       const wantAction = stationIsFinish ? "FINISH" : "IN";
     
       const rows = src
-        .filter(e => {
-          const act = String(e.action || e.pass_type || "").toUpperCase();
-            // NEW: Skip DNS/DNF even if they match the station
-          if (act === "DNS" || act === "DNF") return false;
+      .filter(e => {
+        const act = String(e.action || e.pass_type || "").toUpperCase();
         
-          // FINISH is special: if action is FINISH, include it
-          if (stationIsFinish) return true;
+        // Skip DNS/DNF
+        if (act === "DNS" || act === "DNF") return false;
         
-      const direct = String(e.station_code || "").toUpperCase().trim();
+        // NEW: Check if action matches what we want (IN or FINISH)
+        if (act !== wantAction) return false;
+      
+        // FINISH is special: if action is FINISH, include it
+        if (stationIsFinish) return true;
+      
+        const direct = String(e.station_code || "").toUpperCase().trim();
         if (direct && codes.has(direct)) return true;
             
         // fallback (legacy)
         const inferred = String(safeStationCode(e) || "").toUpperCase();
         return inferred && codes.has(inferred);
-
-        })
+      })
 
       .map(e => {
         const inferred = String((e.station_code || safeStationCode(e) || "")).toUpperCase().trim();
