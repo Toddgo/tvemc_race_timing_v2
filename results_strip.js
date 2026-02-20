@@ -1,4 +1,4 @@
-/* results_strip.js Feb 19 2026 12:30 Github. 
+/* results_strip.js Feb 20 2026 13:30 Github. 
  TVEMC Results Strip (Cards A/B/C/D) — Jan 2026 Layout
  NOTE [2026-01-12]: Rebuilt to match operator-approved card layout with Open List selector.
 */
@@ -17,21 +17,52 @@ function buildPathFromAidStationMap(distance) {
 
 // stationNameFromCode — prefer dynamic lookup from in-memory AID_STATION_MAP
 function stationNameFromCode(code) {
-  if (!code) return '';
-  const c = String(code).toUpperCase().trim();
-  const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
-  // search the first distance key (usually only one for this event)
-  for (const key of Object.keys(map || {})) {
-    const arr = map[key] || [];
-    for (const s of arr) {
-      const sc = String(s.station_code || s.code || s.value || '').toUpperCase().trim();
-      if (sc === c) {
-        return s.station_name || s.text || s.name || sc;
-      }
-    }
+  const c = String(code || "").toUpperCase();
+  
+  const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+  const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
+  
+  const map = {
+    AS1: isSOB ? "Corral Canyon #1" : "Picket Post",
+    AS2: isSOB ? "Kanan Road #1" : "Gila River",
+    AS3: isSOB ? "Turnaround Spot (30K . No Aid)" : "Grand Enchantment",
+    AS4: isSOB ? "Zuma Edison Ridge Mtwy #1" : "Tortilla",
+    AS5: isSOB ? "Bonsall" : "Freeman",               // ← Add all 19 AZM stations
+    AS6: isSOB ? "Zuma Edison Ridge Mtwy #2" : "Black Hills",
+    AS7: isSOB ? "Kanan Road #2" : "Tiger Mine",
+    AS8: isSOB ? "Corral Canyon #2" : "Oracle",
+    AS9: isSOB ? "100K Turnaround - Bulldog" : "Mt Lemmon",
+    AS10: isSOB ? "Corral Canyon #3" : "Charloux Gap",
+    AS11: isSOB ? "Piuma Creek (No Aid)" : "Catalina",
+    AS12: "Rillito",        // AZM-only stations
+    AS13: "Valencia",
+    AS14: "Pistol Hill",
+    AS15: "Gabe Zimmerman",
+    AS16: "Santa Rita",
+    AS17: "Oak Tree",
+    AS18: "Apache Springs",
+    AS19: "Casa Blanca",
+    START: "Start",
+    FINISH: "Finish Line",
+    T30K: "Turnaround Spot (30K . No Aid)"
+  };
+  
+  // Only add AUTO groups for SOB events
+  if (isSOB) {
+    map.CORRAL_AUTO = "Corral Canyon (AUTO)";
+    map.KANAN_AUTO = "Kanan Road (AUTO)";
+    map.ZUMA_AUTO = "Zuma (AUTO)";
   }
-  // fallback to older mapping or code if not found
-  if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) return STATION_NAME_MAP[c];
+  
+  // Check the map first
+  if (map[c]) return map[c];
+  
+  // Fallback to older mapping if it exists
+  if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) {
+    return STATION_NAME_MAP[c];
+  }
+  
+  // Last resort: return the code itself
   return c;
 }
 
@@ -225,11 +256,19 @@ window.getCurrentStationContext = function () {
 
 (function () {
   // ---------- Config ----------
-  const AUTO_GROUPS = {
-    CORRAL_AUTO: ["AS1", "AS8", "AS10", "CORRAL_AUTO"],
+  const AUTO_GROUPS = (function() {
+  const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+  const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
+  
+  // Only return AUTO groups for Shadow of the Bear events
+  if (!isSOB) return {};
+  
+  return {
+    CORRAL_AUTO: ["AS1", "AS8", "AS10"],
     KANAN_AUTO:  ["AS2", "AS7"],
     ZUMA_AUTO:   ["AS4", "AS6"]
   };
+})();
 
   // Distance paths (station_code order). Used for PATH mode Card C.
   const DIST_PATHS = {
@@ -476,29 +515,58 @@ window.getCurrentStationContext = function () {
   }
 
   // JAN13 2026 Added for Open List Aid Station naming
-  function stationNameFromCode(code) {
-    const c = String(code || "").toUpperCase();
-    const map = {
-      AS1: "Corral Canyon #1",
-      AS2: "Kanan Road #1",
-      AS3: "Turnaround Spot (30K . No Aid)",
-      AS4: "Zuma Edison Ridge Mtwy #1",
-      AS5: "Bonsall",
-      AS6: "Zuma Edison Ridge Mtwy #2",
-      AS7: "Kanan Road #2",
-      AS8: "Corral Canyon #2",
-      AS9: "100K Turnaround - Bulldog",
-      AS10: "Corral Canyon #3",
-      AS11: "Piuma Creek (No Aid)",
-      START: "Start",
-      FINISH: "Finish Line",
-      T30K: "Turnaround Spot (30K . No Aid)",
-      CORRAL_AUTO: "Corral Canyon (AUTO)",
-      KANAN_AUTO: "Kanan Road (AUTO)",
-      ZUMA_AUTO: "Zuma (AUTO)"
-    };
-    return map[c] || c;
+  // JAN13 2026 Added for Open List Aid Station naming
+// FEB20 2026 Updated for multi-event support (SOB vs AZM-300)
+function stationNameFromCode(code) {
+  const c = String(code || "").toUpperCase();
+  
+  // Determine which event we're running
+  const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+  const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
+  
+  const map = {
+    AS1: isSOB ? "Corral Canyon #1" : "Picket Post",
+    AS2: isSOB ? "Kanan Road #1" : "Gila River",
+    AS3: isSOB ? "Turnaround Spot (30K . No Aid)" : "Grand Enchantment",
+    AS4: isSOB ? "Zuma Edison Ridge Mtwy #1" : "Tortilla",
+    AS5: isSOB ? "Bonsall" : "Freeman",
+    AS6: isSOB ? "Zuma Edison Ridge Mtwy #2" : "Black Hills",
+    AS7: isSOB ? "Kanan Road #2" : "Tiger Mine",
+    AS8: isSOB ? "Corral Canyon #2" : "Oracle",
+    AS9: isSOB ? "100K Turnaround - Bulldog" : "Mt Lemmon",
+    AS10: isSOB ? "Corral Canyon #3" : "Charloux Gap",
+    AS11: isSOB ? "Piuma Creek (No Aid)" : "Catalina",
+    AS12: "Rillito",        // AZM-300 only
+    AS13: "Valencia",
+    AS14: "Pistol Hill",
+    AS15: "Gabe Zimmerman",
+    AS16: "Santa Rita",
+    AS17: "Oak Tree",
+    AS18: "Apache Springs",
+    AS19: "Casa Blanca",
+    START: "Start",
+    FINISH: "Finish Line",
+    T30K: "Turnaround Spot (30K . No Aid)"
+  };
+  
+  // Only add AUTO groups for SOB events
+  if (isSOB) {
+    map.CORRAL_AUTO = "Corral Canyon (AUTO)";
+    map.KANAN_AUTO = "Kanan Road (AUTO)";
+    map.ZUMA_AUTO = "Zuma (AUTO)";
   }
+  
+  // Check the map first
+  if (map[c]) return map[c];
+  
+  // Fallback to older mapping if it exists
+  if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) {
+    return STATION_NAME_MAP[c];
+  }
+  
+  // Last resort: return the code itself
+  return c;
+}
 
   function safeBib(e) {
     return (e && (e.bib_number ?? e.bib)) ?? "";
@@ -576,29 +644,33 @@ window.getCurrentStationContext = function () {
     return m;
   }
 
-   function bibsSeenAtStationCodes(list, stationCodes) {
-   const codes = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
-   const out = new Set();
+    function bibsSeenAtStationCodes(list, stationCodes) {
+    const codes = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
+    const out = new Set();
 
-   for (const e of (Array.isArray(list) ? list : [])) {
-     const bib = String(safeBib(e)).trim();
-     if (!bib) continue;
+    for (const e of (Array.isArray(list) ? list : [])) {
+      const bib = String(safeBib(e)).trim();
+      if (!bib) continue;
 
-     const inferred = String(safeStationCode(e) || "").toUpperCase();
-     if (inferred && codes.has(inferred)) {
-       out.add(bib);
-       continue;
-     }
+     // ✅ NEW: Skip DNS/DNF passes - they shouldn't count as "seen here"
+      const act = safeAction(e);
+      if (act === "DNS" || act === "DNF") continue;
+
+      const inferred = String(safeStationCode(e) || "").toUpperCase();
+      if (inferred && codes.has(inferred)) {
+        out.add(bib);
+        continue;
+      }
 
      // FINISH fallback: match by station text (same idea as last10SeenHere)
-     if (codes.has("FINISH")) {
-       const txt = String(safeStationText(e) || "").toUpperCase();
-       if (txt.includes("FINISH")) out.add(bib);
-     }
-   }
+      if (codes.has("FINISH")) {
+        const txt = String(safeStationText(e) || "").toUpperCase();
+        if (txt.includes("FINISH")) out.add(bib);
+      }
+    }
 
-   return out;
- }
+    return out;
+  }
 
   function isDNS(e)    { return safeAction(e) === "DNS"; }
   function isDNF(e)    { return safeAction(e) === "DNF"; }
@@ -1152,9 +1224,10 @@ window.getCurrentStationContext = function () {
       const rows = src
         .filter(e => {
           const act = String(e.action || e.pass_type || "").toUpperCase();
-          if (act !== wantAction) return false;
+            // NEW: Skip DNS/DNF even if they match the station
+          if (act === "DNS" || act === "DNF") return false;
         
-          // ✅ FINISH is special: if action is FINISH, include it
+          // FINISH is special: if action is FINISH, include it
           if (stationIsFinish) return true;
         
       const direct = String(e.station_code || "").toUpperCase().trim();
@@ -1181,9 +1254,14 @@ window.getCurrentStationContext = function () {
         const isKananAuto  = codeSet.has("AS2") && codeSet.has("AS7");
         const isZumaAuto   = codeSet.has("AS4") && codeSet.has("AS6");
     
+          const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+          const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
+            
+          if (isSOB) {  // ← ADD THIS CHECK
           if (isCorralAuto && ["AS1","AS8","AS10"].includes(inferred)) stationDisplay = "Corral Canyon (AUTO)";
           if (isKananAuto  && ["AS2","AS7"].includes(inferred))        stationDisplay = "Kanan Road (AUTO)";
           if (isZumaAuto   && ["AS4","AS6"].includes(inferred))        stationDisplay = "Zuma (AUTO)";
+        }
         const p = Number(e?.pass_num || 0);
           if (stationDisplay.includes("(AUTO)") && p > 0) {
            stationDisplay += ` Pass-${p}`;
@@ -1462,7 +1540,46 @@ window.getCurrentStationContext = function () {
       lastList = Array.isArray(list) ? list : [];
       window.__rs_lastList = lastList;
       window.__rs_debug = { safeStationCode, safePassTs, parseTsToMs };
+      
+    // --- Ensure pass_count present on loaded list (idempotent) ---
+    // Place this immediately after `window.__rs_lastList = lastList;` inside computeAndRender
+    (function attachPassCountAfterLoad(loadedList){
+      try {
+        var list = Array.isArray(loadedList) ? loadedList : (Array.isArray(window.__rs_lastList) ? window.__rs_lastList : []);
+        if (!Array.isArray(list) || list.length === 0) return;
     
+        // compute counts per bib
+        var counts = {};
+        for (var i = 0; i < list.length; i++) {
+          var r = list[i];
+          if (!r) continue;
+          var bib = String((r.bib || r.bib_number || '')).trim();
+          if (!bib) continue;
+          counts[bib] = (counts[bib] || 0) + 1;
+        }
+    
+        // attach pass_count where missing or different
+        var updated = 0;
+        for (var i = 0; i < list.length; i++) {
+          var r = list[i];
+          if (!r) continue;
+          var bib = String((r.bib || r.bib_number || '')).trim();
+          if (!bib) continue;
+          var pc = counts[bib] || 1;
+          if (r.pass_count !== pc) {
+            r.pass_count = pc;
+            updated++;
+          }
+        }
+    
+        // NOTE: Do NOT call renderBibLog() here — computeAndRender is already in the render path.
+        // Leaving the render call out avoids re-entrancy / infinite recursion.
+      } catch (e) {
+        try { console.warn('attachPassCountAfterLoad failed', e); } catch (_) {}
+      }
+    })(lastList);
+    // --- end ensure pass_count ---
+        
       // context & event
       const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
       const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
@@ -1675,9 +1792,9 @@ window.getCurrentStationContext = function () {
         bVal: `${seenHereSet.size}`,
         bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast 10 seen here: (Open List)`,
     
-        // Card C
+        // Card C - CHANGE THIS LINE:
         cLabel: `Card C — Expected From Previous`,
-        cVal: `${(window.__rs_expectedPrevRows || expectedPrevRows || []).length}`,
+        cVal: `${Math.max(0, (window.__rs_expectedPrevRows || expectedPrevRows || []).length - seenHereSet.size)}`,  // ✅ NEW
         cSub: isPersonnelStation(stationUpper)
           ? `Personnel view (no station expectations)`
           : (stationUpper === "FINISH"
@@ -1989,6 +2106,57 @@ window.getCurrentStationContext = function () {
             { refreshMs: 5000 }
           );
         }
+        
+                        // Added Feb 19th 12:55 --- Ensure pass_count is attached to loaded rows (idempotent, safe) ---
+            // This runs shortly after the file loads and will compute pass counts
+            // from window.__rs_lastList (or window.lastList) and attach pass_count
+            // to each row. It stops once it has applied counts.
+            (function ensurePassCountOnLoadedList(){
+              try {
+                var attempts = 0;
+                var timer = setInterval(function(){
+                  attempts++;
+                  var list = window.__rs_lastList || window.lastList || [];
+                  if (!list || list.length === 0) {
+                    if (attempts > 12) clearInterval(timer); // give up after ~6s
+                    return;
+                  }
+            
+                  // compute counts per bib
+                  var counts = {};
+                  for (var i = 0; i < list.length; i++) {
+                    var r = list[i];
+                    var bib = String((r && (r.bib || r.bib_number || r.BIB)) || '').trim();
+                    if (!bib) continue;
+                    counts[bib] = (counts[bib] || 0) + 1;
+                  }
+            
+                  // attach pass_count where different or missing
+                  var changed = false;
+                  for (var i = 0; i < list.length; i++) {
+                    var r = list[i];
+                    if (!r) continue;
+                    var bib = String((r.bib || r.bib_number || '') || '').trim();
+                    if (!bib) continue;
+                    var pc = counts[bib] || 1;
+                    if (r.pass_count !== pc) {
+                      r.pass_count = pc;
+                      changed = true;
+                    }
+                  }
+            
+                  // trigger UI re-render if available
+                  if (changed) {
+                    try { if (typeof renderBibLog === 'function') renderBibLog(); } catch (e) { /* ignore */ }
+                  }
+            
+                  // We only need to run once we successfully attached counts
+                  clearInterval(timer);
+                }, 500);
+              } catch (e) {
+                console.warn('ensurePassCountOnLoadedList failed', e);
+              }
+            })();
     
           return;
         }; // end onclick
