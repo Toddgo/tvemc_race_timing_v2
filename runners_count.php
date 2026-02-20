@@ -29,10 +29,20 @@ if (!$row) {
 }
 $event_id = (int)$row['event_id'];
 
-// Personnel / unknown station codes -> total entrants
+// Personnel / unknown station codes -> total entrants (only runners with at least one pass)
 if (!preg_match('/^(START|FINISH|T30K|AS\d+)$/', $station_code)) {
-  $q = $conn->prepare("SELECT COUNT(*) AS c FROM runners WHERE event_id=?");
-  $q->bind_param("i", $event_id);
+  $sql = "
+    SELECT COUNT(DISTINCT r.bib) AS c
+    FROM runners r
+    WHERE r.event_id = ?
+      AND EXISTS (
+        SELECT 1 FROM passes p
+        WHERE p.event_code = ?
+          AND p.bib = r.bib
+      )
+  ";
+  $q = $conn->prepare($sql);
+  $q->bind_param("is", $event_id, $event_code);
   $q->execute();
   $c = (int)($q->get_result()->fetch_assoc()['c'] ?? 0);
   $q->close();
@@ -65,10 +75,20 @@ if ($station_code === "FINISH") {
   exit;
 }
 
-// START: show total entrants (simplest + least confusing)
+// START: show total entrants who have started (at least one pass)
 if ($station_code === "START") {
-  $q = $conn->prepare("SELECT COUNT(*) AS c FROM runners WHERE event_id=?");
-  $q->bind_param("i", $event_id);
+  $sql = "
+    SELECT COUNT(DISTINCT r.bib) AS c
+    FROM runners r
+    WHERE r.event_id = ?
+      AND EXISTS (
+        SELECT 1 FROM passes p
+        WHERE p.event_code = ?
+          AND p.bib = r.bib
+      )
+  ";
+  $q = $conn->prepare($sql);
+  $q->bind_param("is", $event_id, $event_code);
   $q->execute();
   $c = (int)($q->get_result()->fetch_assoc()['c'] ?? 0);
   $q->close();
@@ -94,9 +114,19 @@ switch ($station_code) {
 }
 
 if (!$pattern) {
-  // fallback total entrants
-  $q = $conn->prepare("SELECT COUNT(*) AS c FROM runners WHERE event_id=?");
-  $q->bind_param("i", $event_id);
+  // fallback total entrants (only runners with at least one pass)
+  $sql = "
+    SELECT COUNT(DISTINCT r.bib) AS c
+    FROM runners r
+    WHERE r.event_id = ?
+      AND EXISTS (
+        SELECT 1 FROM passes p
+        WHERE p.event_code = ?
+          AND p.bib = r.bib
+      )
+  ";
+  $q = $conn->prepare($sql);
+  $q->bind_param("is", $event_id, $event_code);
   $q->execute();
   $c = (int)($q->get_result()->fetch_assoc()['c'] ?? 0);
   $q->close();
