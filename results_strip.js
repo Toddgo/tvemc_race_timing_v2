@@ -2284,7 +2284,6 @@ function stationNameFromCode(code) {
     
     console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
     
-     };
     }
     })();  // end IIFE
- })();
+ });
