@@ -1,4 +1,4 @@
-/* results_strip.js Feb 20 2026 14:00 Github. 
+/* results_strip.js Feb 21 2026 12:30 Github. 
  TVEMC Results Strip (Cards A/B/C/D) — Jan 2026 Layout
  NOTE [2026-01-12]: Rebuilt to match operator-approved card layout with Open List selector.
 */
@@ -1381,20 +1381,43 @@ function stationNameFromCode(code) {
         if (!nextCode) continue;
     
         if (toSet.has(String(nextCode).toUpperCase())) {
-          // inside computeExpectedFromPrev_PATH where rows are pushed, use:
+          const lastMs = parseTsToMs(safePassTs(e));
+          
+          // Get AID_STATION_MAP for this distance
+          const aidMap = window.AID_STATION_MAP?.[dist] || window.__AID_STATION_MAP_DEBUG?.[dist] || [];
+          const curStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === lastCode);
+          const nextStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === nextCode);
+          
+          let etaMs = lastMs;
+          let etaTime = safePassTs(e);
+          
+          if (curStation?.mile && nextStation?.mile && lastMs) {
+            // Get race start time
+            const startMs = window.RACE_START_TIMES?.[dist] || 0;
+            if (startMs) {
+              const elapsedSec = (lastMs - startMs) / 1000;
+              const mph = curStation.mile / (elapsedSec / 3600);
+              
+              if (mph > 0 && nextStation.mile > curStation.mile) {
+                const segmentMiles = nextStation.mile - curStation.mile;
+                const travelTimeSec = (segmentMiles / mph) * 3600;
+                etaMs = lastMs + (travelTimeSec * 1000);
+                etaTime = new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+              }
+            }
+          
+  
           out.push({
-          bib,
-          last_station: stationNameFromCode(lastCode),
-          last_time: safePassTs(e),
-          nextArriving_time: safePassTs(e),
-          eta_utc_ms: parseTsToMs(safePassTs(e)),
-          next_station: stationNameFromCode(nextCode),
-          distance: dist,
-          _ts: parseTsToMs(safePassTs(e))
-         });
+            bib,
+            last_station: stationNameFromCode(lastCode),
+            last_time: safePassTs(e),
+            nextArriving_time: etaTime,
+            eta_utc_ms: etaMs,
+            next_station: stationNameFromCode(nextCode),
+            distance: dist,
+            _ts: lastMs
+          });
         }
-      }
-    
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
       out.forEach(r => delete r._ts);
       return out;
@@ -2261,4 +2284,7 @@ function stationNameFromCode(code) {
     
     console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
     
+     };
+    }
     })();  // end IIFE
+ })();
