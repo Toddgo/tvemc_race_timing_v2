@@ -410,28 +410,6 @@ window.getCurrentStationContext = function () {
     if (u === "240M" || u === "240 MI" || u === "240 MILE" || u === "240 MILES" || u === "240MILE") return "240M";
     if (u === "300M" || u === "300 MI" || u === "300 MILE" || u === "300 MILES" || u === "300MILE") return "300M";
     
-    // AZM-300 station name -> code fallbacks (insert inside safeStationCode() fallback section)
-    if (st.includes("PICKET POST")) return "AS1";
-    if (st.includes("GILA RIVER"))  return "AS2";
-    if (st.includes("GRAND ENCHANTMENT")) return "AS3";
-    if (st.includes("TORTILLA")) return "AS4";
-    if (st.includes("FREEMAN")) return "AS5";
-    if (st.includes("BLACK HILLS")) return "AS6";
-    if (st.includes("TIGER MINE")) return "AS7";
-    if (st.includes("ORACLE")) return "AS8";
-    if (st.includes("MT LEMMON") || st.includes("MT. LEMMON") || st.includes("MTLEM")) return "AS9";
-    if (st.includes("CHARLOUX GAP")) return "AS10";
-    if (st.includes("CATALINA")) return "AS11";
-    if (st.includes("RILLITO")) return "AS12";
-    if (st.includes("VALENCIA")) return "AS13";
-    if (st.includes("PISTOL HILL")) return "AS14";
-    if (st.includes("GABE ZIMMERMAN")) return "AS15";
-    if (st.includes("SANTA RITA")) return "AS16";
-    if (st.includes("OAK TREE")) return "AS17";
-    if (st.includes("APACHE SPRINGS")) return "AS18";
-    if (st.includes("CASA BLANCA")) return "AS19";
-    if (st.includes("FINISH LINE") || st === "FINISH") return "FINISH";
-
     return s; // fallback: keep original
   }
 
