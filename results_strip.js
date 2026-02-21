@@ -4,10 +4,34 @@
 */
 console.log("✅ results_strip.js START");
 
+
 // ------------------------------
 // Context helpers (race-safe) Added Feb12 at 11:00
 // Ensures station + distance exist in EVERY tab (HQ, AS windows, popup windows)
 // ------------------------------
+(function() {
+  "use strict";
+
+  // ========================================
+  // EVENT CONFIGURATION
+  // ========================================
+  const EVENT_CONFIG = {
+    'AZM-300-2026-0004': {
+      use_out_for_expected: true,
+      name: 'Arizona Monster 300'
+    },
+    'LDV-100-2026-0001': {
+      use_out_for_expected: false,
+      name: 'Leona Divide 100'
+    }
+    // Add more events here as needed
+  };
+
+  // Helper to get config for current event
+  function getEventConfig(eventCode) {
+    return EVENT_CONFIG[eventCode] || { use_out_for_expected: false };
+  }
+
 // Build DIST_PATHS entry for a distance from AID_STATION_MAP (if DIST_PATHS missing/outdated)
 function buildPathFromAidStationMap(distance) {
   const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
@@ -1284,11 +1308,17 @@ function stationNameFromCode(code) {
     
       // Remove internal sort key so it doesn't show as a popup column
       rows.forEach(r => delete r._ts);
-    
+     
       return rows;
     }
     
     function computeExpectedFromPrev_FLOW(list, fromCodes, toCodes) {
+      // ✅ ADD THESE 4 LINES RIGHT HERE (after function starts, before any other code):
+      const ctx = window.getCurrentStationContext ? window.getCurrentStationContext() : {};
+      const eventCode = ctx.event_code || '';
+      const config = getEventConfig(eventCode);
+      console.log("🔍 FLOW Debug: eventCode =", eventCode, ", use_out_for_expected =", config.use_out_for_expected);    
+          
       const fromLatest = latestAtCodesByBib(list, expandCodesList(fromCodes));
       const toLatest   = latestAtCodesByBib(list, toCodes);
       // ---- NEW: Distance eligibility filter ----
@@ -1297,6 +1327,12 @@ function stationNameFromCode(code) {
 
       const out = [];
       for (const [bib, eFrom] of fromLatest.entries()) {
+        // ✅ ADD THESE 4 LINES RIGHT HERE (first thing inside the for loop):
+        if (config.use_out_for_expected && eFrom.pass_type !== 'OUT') {
+          console.log(`  - SKIP bib ${bib}: pass_type="${eFrom.pass_type}" (needs OUT)`);
+          continue; // Skip IN passes for events that require OUT
+        }
+        
         const eTo = toLatest.get(bib);
         // ---- NEW: Distance eligibility filter ----
         const dist = normalizeDistance(eFrom.distance_code || eFrom.distance || "");
@@ -1316,10 +1352,9 @@ function stationNameFromCode(code) {
         
             // Human display (respects HQ LOCAL / UTC toggle)
             nextArriving_time: safePassTs(eFrom),
-        
             // ✅ Machine-accurate ETA (UTC millis, never formatted)
             eta_utc_ms: tFrom,
-        
+            
             _ts: tFrom,
             next_station: "(arriving here)",
             distance: normalizeDistance(eFrom.distance_code || eFrom.distance || "")
@@ -1426,7 +1461,7 @@ function stationNameFromCode(code) {
         for (const r of (data.rows || [])) {
           const bib = String(r.bib ?? "").trim();
           if (!bib) continue;
-    
+        
           if (r.cleared_dns_at) {
             const ms = Date.parse(String(r.cleared_dns_at).replace(" ", "T") + "Z") || 0;
             dns.set(bib, ms);
@@ -1436,7 +1471,7 @@ function stationNameFromCode(code) {
             dnf.set(bib, ms);
           }
         }
-    
+      
         STATUS_OVERRIDES.dnsClearedAtMs = dns;
         STATUS_OVERRIDES.dnfClearedAtMs = dnf;
         return STATUS_OVERRIDES;
@@ -1446,7 +1481,7 @@ function stationNameFromCode(code) {
         // never throw; keep last known overrides
         return STATUS_OVERRIDES;
       }
-    }
+     }
     
     async function hqClearStatus({ event_code, bib, clear, cleared_by, note }) {
       console.log("CLEAR POST payload:", { event_code, bib, clear, cleared_by, note });
@@ -1606,7 +1641,19 @@ function stationNameFromCode(code) {
         STATUS_OVERRIDES.dnsClearedAtMs = new Map();
         STATUS_OVERRIDES.dnfClearedAtMs = new Map();
       }
+      
+      // context & event
+     // const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+     // const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
+     // const IS_SOB = /SOB/i.test(eventCode);
     
+      // ✅ ADD THIS DEBUG:
+      console.log("🔍 Event Context Debug:");
+      console.log("  - ctx.event_code:", ctx.event_code);
+      console.log("  - eventCode:", eventCode);
+      console.log("  - IS_SOB:", IS_SOB);
+      console.log("  - ctx.station_code:", ctx.station_code); 
+       
       // AUTHORITATIVE expected rows — attempt canonical recompute early (non-blocking fallback)
       try {
         // recomputeExpectedFromPrevForUI() should return canonical rows and write the global
@@ -1734,55 +1781,122 @@ function stationNameFromCode(code) {
               .map(([bib]) => String(bib).trim())
           );
     
-          const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
-          const overrideRows = [];
-    
-          for (const r of roster) {
-            const bib = String(r?.bib ?? "").trim();
-            if (!bib) continue;
-            if (seenAtAS1.has(bib)) continue;
-            if (stickyStatusByBib?.dns?.has?.(bib)) continue;
-            if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
-            if (finishedBibs.has(bib)) continue;
-    
-            overrideRows.push({
-              bib,
-              last_station: "START",
-              nextArriving_time: "",
-              next_station: "(arriving here)",
-              distance: r?.distance || ""
-            });
+        const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+        const overrideRows = [];
+        
+        // ✅ ADD THESE DEBUG LINES:
+        console.log("🔍 AS1 Override Debug:");
+        console.log("  - stationUpper:", stationUpper);
+        console.log("  - bibList exists?", typeof bibList !== "undefined");
+        console.log("  - bibList is array?", Array.isArray(bibList));
+        console.log("  - roster length:", roster.length);
+        console.log("  - seenAtAS1 size:", seenAtAS1.size);
+        
+        for (const r of roster) {
+          const bib = String(r?.bib ?? "").trim();
+          if (!bib) {
+            console.log("  - SKIP: empty bib");
+            continue;
           }
-    
-          overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
-          // prefer the roster-based override when applicable
-          if (overrideRows.length) expectedPrevRows = overrideRows;
+          if (seenAtAS1.has(bib)) {
+            console.log("  - SKIP bib", bib, ": already seen at AS1");
+            continue;
+          }
+          if (stickyStatusByBib?.dns?.has?.(bib)) {
+            console.log("  - SKIP bib", bib, ": DNS");
+            continue;
+          }
+          if (stickyStatusByBib?.dnf?.has?.(bib)) {
+            console.log("  - SKIP bib", bib, ": DNF");
+            continue;
+          }
+          if (finishedBibs.has(bib)) {
+            console.log("  - SKIP bib", bib, ": finished");
+            continue;
+          }
+        
+          console.log("  ✅ ADDING bib", bib, "to overrideRows");
+          overrideRows.push({
+            bib,
+            last_station: "START",
+            last_station_code: "START",
+            nextArriving_time: "",
+            next_station: "(arriving here)",
+            next_station_code: "AS1",
+            distance: r?.distance || ""
+          });
+        }
+        
+        overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
+        console.log("  - overrideRows created:", overrideRows.length);
+        // ✅ ADD THIS DEBUG:
+        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
+        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
+        
+        if (overrideRows.length) expectedPrevRows = overrideRows;
+        // ✅ ADD THIS DEBUG:
+        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
+        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
         }
       } // end if not personnel station
     
       // Safety: never show already-finished bibs in Expected From Previous
-      if (expectedPrevRows && expectedPrevRows.length) {
-        const finishedBibs = new Set(
-          Array.from(latestMap.entries())
-            .filter(([_, e]) => isFinish(e))
-            .map(([bib]) => String(bib).trim())
-        );
-    
-        expectedPrevRows = expectedPrevRows.filter(r => {
-          const bib = String(r?.bib ?? "").trim();
-          return bib && !finishedBibs.has(bib);
-        });
-      }
-    
-      // AUTHORITATIVE write: try to let canonical recompute function be the source of truth
-      try {
-        const canonical = recomputeExpectedFromPrevForUI();
-        window.__rs_expectedPrevRows = canonical || expectedPrevRows || [];
-      } catch (err) {
-        console.warn('recomputeExpectedFromPrevForUI failed (final), using local expectedPrevRows', err);
-        window.__rs_expectedPrevRows = expectedPrevRows || [];
-      }
-    
+        if (expectedPrevRows && expectedPrevRows.length) {
+          const finishedBibs = new Set(
+            Array.from(latestMap.entries())
+              .filter(([_, e]) => isFinish(e))
+              .map(([bib]) => String(bib).trim())
+          );
+        
+          expectedPrevRows = expectedPrevRows.filter(r => {
+            const bib = String(r?.bib ?? "").trim();
+            return bib && !finishedBibs.has(bib);
+          });
+        }
+        // ✅ ADD THIS DEBUG BEFORE THE TRY-CATCH:
+        console.log("🔍 Before AUTHORITATIVE write:");
+        console.log("  - expectedPrevRows.length:", expectedPrevRows.length);
+        console.log("  - Sample:", expectedPrevRows[0]);
+
+        // AUTHORITATIVE write: DON'T overwrite AS1 special override
+        try {
+          console.log("🔍 INSIDE AUTHORITATIVE try block:");
+          console.log("  - expectedPrevRows.length BEFORE:", expectedPrevRows.length);
+          
+          // ✅ FIX: Skip recompute if we already have expectedPrevRows (AS1 START override)
+          if (!expectedPrevRows || expectedPrevRows.length === 0) {
+            console.log("  - Calling recomputeExpectedFromPrevForUI()");
+            const canonical = recomputeExpectedFromPrevForUI();
+            window.__rs_expectedPrevRows = canonical || [];
+            console.log("  - window.__rs_expectedPrevRows set from canonical:", window.__rs_expectedPrevRows.length);
+          } else {
+            // Use our override (AS1 START→Picket Post)
+            console.log("  - Using expectedPrevRows override (AS1)");
+            window.__rs_expectedPrevRows = expectedPrevRows;
+            console.log("  - window.__rs_expectedPrevRows set from override:", window.__rs_expectedPrevRows.length);
+          }
+        } catch (err) {
+          console.warn('recomputeExpectedFromPrevForUI failed (final), using local expectedPrevRows', err);
+          window.__rs_expectedPrevRows = expectedPrevRows || [];
+        }
+        
+        console.log("🔍 AFTER AUTHORITATIVE write:");
+        console.log("  - window.__rs_expectedPrevRows.length:", window.__rs_expectedPrevRows.length);
+        console.log("  - Sample:", window.__rs_expectedPrevRows[0]);
+        
+        // ✅ ADD THIS: Update localStorage so popup gets fresh data
+        try {
+          localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
+            rows: window.__rs_expectedPrevRows || [],
+            stationCodes: [stationUpper],  // ✅ USE stationUpper (which is "AS1")
+            stationLabel: stationLabel || ''
+          }));
+          console.log("  - ✅ localStorage updated with", (window.__rs_expectedPrevRows || []).length, "rows, stationCodes:", [stationUpper]);
+        
+        } catch (e) {
+          console.warn("  - ❌ Failed to update localStorage:", e);
+        }
+          
       // Render UI (cards)
       updateUI({
         // Card A
@@ -1988,7 +2102,10 @@ function stationNameFromCode(code) {
         
           return openListWindow(
             `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
-            () => (window.__rs_last10HereRows || []),
+            () => (window.__rs_last10HereRows || []).filter(r => {
+              const a = String(r?.pass_type || r?.action || "").toUpperCase();
+              return a !== "DNS" && a !== "DNF";
+            }),
             { refreshMs: 5000 }
           );
         }
@@ -2031,68 +2148,55 @@ function stationNameFromCode(code) {
             );
           }
     
-        // Expected From Previous — robust payload write (paste in results_strip.js where expected_prev handled)
+        // Expected From Previous — robust payload write
         if (v === "expected_prev") {
-          // authoritative rows
-          let authoritativeRows = [];
-          try {
-            authoritativeRows = (typeof recomputeExpectedFromPrevForUI === 'function') ? recomputeExpectedFromPrevForUI() : (window.__rs_expectedPrevRows || expectedPrevRows || []);
-          } catch (err) {
-            console.warn('Could not recompute expected rows in opener; using existing global', err);
-            authoritativeRows = window.__rs_expectedPrevRows || expectedPrevRows || [];
-          }
+          // ❌ DELETE THIS ENTIRE BLOCK (lines that compute and write to localStorage):
+          // let authoritativeRows = window.__rs_expectedPrevRows || expectedPrevRows || [];
+          // let payloadStationCodes = ...
+          // localStorage.setItem('__rs_expectedPrevRows_payload', ...);
         
-          // Compute station codes robustly (prefer local stationCodes, fallback to lastStationCode / getStationCode())
-          let payloadStationCodes = Array.isArray(stationCodes) && stationCodes.length ? stationCodes.slice() : [];
-          if (!payloadStationCodes.length) {
-            const sc = (typeof lastStationCode !== 'undefined' && lastStationCode) ? lastStationCode : (typeof window.getStationCode === 'function' ? window.getStationCode() : '');
-            if (sc && typeof expandStationCodes === 'function') {
-              payloadStationCodes = expandStationCodes(sc);
-            } else if (sc) {
-              payloadStationCodes = [sc];
-            }
-          }
-          payloadStationCodes = (payloadStationCodes || []).map(s => String(s || '').toUpperCase()).filter(Boolean);
-        
-          // Write full payload (rows + station codes + label)
-          try {
-            localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
-              rows: authoritativeRows || [],
-              stationCodes: payloadStationCodes,
-              stationLabel: stationLabel || ''
-            }));
-          } catch (err) {
-            console.warn('localStorage set failed for expectedPrev payload', err);
-          }
-        
+          // ✅ JUST OPEN THE POPUP - let it read from localStorage that was already written by recompute()
           return openListWindow(
             `Expected From Previous — ${stationLabel}`,
             () => {
-              // popup reads and filters — tolerant matching by code OR name (keeps old behavior)
+              // popup reads from localStorage (which has the fresh 23 rows from recompute)
               let parsed = null;
               try {
                 const json = localStorage.getItem('__rs_expectedPrevRows_payload');
                 parsed = json ? JSON.parse(json) : null;
               } catch(e){ /* ignore parse errors */ }
         
-              const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : (Array.isArray(window.__rs_expectedPrevRows) ? window.__rs_expectedPrevRows : []);
-              const popupCodes = parsed && Array.isArray(parsed.stationCodes) && parsed.stationCodes.length ? parsed.stationCodes.map(s=>String(s).toUpperCase()) : (Array.isArray(window.stationCodes) ? window.stationCodes.map(s=>String(s).toUpperCase()) : []);
-              const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : (typeof stationLabel !== 'undefined' ? String(stationLabel).toUpperCase() : '');
-        
+              const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
+              const popupCodes = parsed && Array.isArray(parsed.stationCodes) ? parsed.stationCodes : [];
+              const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : '';
+              
+              console.log("🔍 POPUP Debug:");
+              console.log("  - rows.length:", rows.length);
+              console.log("  - popupCodes:", popupCodes);
+      
               const filtered = (rows || []).filter(r => {
-                const nextCode = r?.next_station_code ? String(r.next_station_code).toUpperCase() : null;
-                const nextName = r?.next_station ? String(r.next_station).toUpperCase() : '';
-                if (popupCodes && popupCodes.length) {
-                  if (nextCode && popupCodes.includes(nextCode)) return true;
-                  if (nextName && popupCodes.includes(nextName)) return true;
-                  return false;
-                }
-                if (popupLabel) {
-                  if (nextName && (nextName === popupLabel || nextName.includes(popupLabel))) return true;
-                  if (nextCode && nextCode === popupLabel) return true;
-                }
-                return false;
-              });
+                const bib = String(r?.bib ?? "").trim();
+                if (!bib) {
+                 console.log("  - FILTER: Skip row (no bib):", r);
+                 return false;
+              }
+            
+                const nextCode = String(r?.next_station_code || "").toUpperCase();
+                const nextName = String(r?.next_station || "").toUpperCase();
+              
+               // ✅ ADD DEBUG:
+               console.log(`  - FILTER bib ${bib}: nextCode="${nextCode}", nextName="${nextName}"`);
+               console.log(`    popupCodes includes "${nextCode}"?`, popupCodes.includes(nextCode));
+               console.log(`    popupLabel includes "${nextName}"?`, popupLabel.includes(nextName));
+            
+               const codeMatch = popupCodes.includes(nextCode);
+               const nameMatch = popupLabel && nextName && popupLabel.includes(nextName);
+              
+               const keep = codeMatch || nameMatch;
+               console.log(`    → KEEP: ${keep}`);
+              
+               return keep;
+             });
               
               // Remove code-only columns so popup only shows human-readable station names
               for (const r of filtered) {
