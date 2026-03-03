@@ -97,59 +97,25 @@ if ($station_code === "START") {
   exit;
 }
 
-// Map station_code -> station_name pattern (distance-safe)
-$pattern = null;
-switch ($station_code) {
-  case "AS1": $pattern = "CORRAL CANYON #1"; break;
-  case "AS2": $pattern = "KANAN ROAD #1"; break;
-  case "T30K": $pattern = "TURNAROUND"; break;
-  case "AS4": $pattern = "ZUMA EDISON RIDGE MTWY #1"; break;
-  case "AS5": $pattern = "BONSALL"; break;
-  case "AS6": $pattern = "ZUMA EDISON RIDGE MTWY #2"; break;
-  case "AS7": $pattern = "KANAN ROAD #2"; break;
-  case "AS8": $pattern = "CORRAL CANYON #2"; break;
-  case "AS9": $pattern = "BULLDOG"; break;
-  case "AS10": $pattern = "CORRAL CANYON #3"; break;
-  case "AS11": $pattern = "PIUMA CREEK"; break;
-}
-
-if (!$pattern) {
-  // fallback total entrants (only runners with at least one pass)
-  $sql = "
-    SELECT COUNT(DISTINCT r.bib) AS c
-    FROM runners r
-    WHERE r.event_id = ?
-      AND EXISTS (
-        SELECT 1 FROM passes p
-        WHERE p.event_code = ?
-          AND p.bib = r.bib
-      )
-  ";
-  $q = $conn->prepare($sql);
-  $q->bind_param("is", $event_id, $event_code);
-  $q->execute();
-  $c = (int)($q->get_result()->fetch_assoc()['c'] ?? 0);
-  $q->close();
-  echo json_encode(["event_code"=>$event_code, "station_code"=>$station_code, "entrant_count"=>$c]);
-  $conn->close();
-  exit;
-}
-
-// Count expected here by station_name match (LIKE is forgiving for "(NO AID)" variants)
+// Count runners expected at this station: match by station_code, restrict to runners with passes
 $sql = "
-  SELECT COUNT(*) AS c
+  SELECT COUNT(DISTINCT r.bib) AS c
   FROM runners r
   WHERE r.event_id = ?
     AND EXISTS (
-      SELECT 1
-      FROM aid_stations a
+      SELECT 1 FROM passes p
+      WHERE p.event_code = ?
+        AND p.bib = r.bib
+    )
+    AND EXISTS (
+      SELECT 1 FROM aid_stations a
       WHERE a.event_id = r.event_id
         AND a.distance_code = r.distance_code
-        AND a.station_name LIKE CONCAT('%', ?, '%')
+        AND a.station_code = ?
     )
 ";
 $q = $conn->prepare($sql);
-$q->bind_param("is", $event_id, $pattern);
+$q->bind_param("iss", $event_id, $event_code, $station_code);
 $q->execute();
 $c = (int)($q->get_result()->fetch_assoc()['c'] ?? 0);
 $q->close();
