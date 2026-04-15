@@ -47,42 +47,12 @@ function persistDistanceForEvent() {
 }
 
 // Run once after page settles (dropdowns are populated async)
-// Run once after page settles (dropdowns are populated async)
 window.addEventListener("load", () => {
   setTimeout(() => {
     persistAidStationFromDropdown();
-
-    // ✅ AZM: force correct default distance once
-    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
-    const distSel = document.getElementById("distanceSelect");
-
-    if (ec === "AZM-300-2026-0004" && distSel) {
-      distSel.value = "300M";
-    }
-
     // Persist whichever distance is now selected (event-scoped)
     persistDistanceForEvent();
   }, 400);
-});
-
-
-// --- TEMP RACE-SAFE: lock distance per event (prevents defaulting to 30K) ---
-window.addEventListener("load", () => {
-  setTimeout(() => {
-    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
-    const distSel = document.getElementById("distanceSelect");
-
-    // AZM 300
-    if (ec === "AZM-300-2026-0004" && distSel) {
-      // pick the correct option if present
-      const wanted = "300M"; // <-- change if your actual code differs
-      const has = [...distSel.options].some(o => String(o.value).trim() === wanted);
-      if (has) distSel.value = wanted;
-    }
-
-    // After setting, persist to event-scoped storage
-    persistDistanceForEvent();
-  }, 900);
 });
 
 // Update whenever dropdowns change
@@ -296,17 +266,22 @@ function cleanEventCode(ec) {
 window.getEventCode = function getEventCode() {
   const qs = new URLSearchParams(window.location.search);
 
-  // ✅ Canonical is ?event=...
+  // 1. URL param ?event=...
   const fromQS = qs.get("event");
 
-  // Fallbacks
-  const fromLS = localStorage.getItem("tvemc_event_code") || "";
-  const fromInput =
-    document.getElementById("eventCode")?.value ||
-    document.getElementById("eventName")?.value ||
-    "";
+  // 2. Event selector dropdown (new multi-event UI)
+  const fromSelector = document.getElementById("eventSelect")?.value || "";
 
-  return cleanEventCode(fromQS || fromInput || fromLS || "");
+  // 3. Hidden input (kept for backward compat)
+  const fromHidden = document.getElementById("eventCode")?.value || "";
+
+  // 4. localStorage (last known selection)
+  const fromLS = localStorage.getItem("tvemc_event_code") || "";
+
+  // 5. eventName text field (legacy fallback)
+  const fromInput = document.getElementById("eventName")?.value || "";
+
+  return cleanEventCode(fromQS || fromSelector || fromHidden || fromLS || fromInput || "");
 };
 
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
@@ -777,6 +752,7 @@ function stationNameFromCode(station_code) {
   const code = String(station_code || "").trim();
   if (!code) return "N/A";
 
+  // 1. Try the dropdown (populated from DB after event loads)
   const el = document.getElementById("aidStation");
   if (el) {
     for (const opt of el.options) {
@@ -785,7 +761,12 @@ function stationNameFromCode(station_code) {
       }
     }
   }
-  return code; // fallback to showing AS3 if dropdown lookup fails
+
+  // 2. Fall back to the in-memory station map (AID_STATION_MAP loaded from DB)
+  const fromMap = stationNameFromMapByCode(code);
+  if (fromMap) return fromMap;
+
+  return code; // last resort: show the raw code
 }
 
  // Bib # pass count 01-07-2026-20:00
@@ -1576,7 +1557,7 @@ if (window.ResultsStrip?.update) {
       <td title="Original: ${e.time ?? ""}">${displayTimeForEntry(e)}${correctedTimeFromNote(e.comment) ? " ✎" : ""}</td>
       <td>${e.date ?? ""}</td>
       <td class="pass-col">${passNum}</td>
-      <td>${((e.station_name ?? stationNameFromCode(e.station_code) ?? e.station ?? "") || "") + autoSuffix}</td>
+      <td>${(e.station_name || stationNameFromMapByCode(e.station_code) || stationNameFromCode(e.station_code) || e.station || e.station_code || "") + autoSuffix}</td>
       <td>${e.comment ?? ""}</td>
       <td>${e.operator ?? ""}</td>
       <td>${e.finish_time || ""}</td>
