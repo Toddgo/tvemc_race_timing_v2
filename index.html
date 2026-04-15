@@ -385,19 +385,22 @@
 </div>
       
     
-    <h1>KH_SOB_2026_3 KH Race Tvemc-Tracker “Race Timing-T (race_timingT)”</h1>
-   <!-- KH_SOB_2026_0003 for event_id = 1, KH_SOB_TEST event_id = 2 -->
-    
+    <h1 id="appTitle">TVEMC Race Tracker</h1>
+
     <div class="section">
         <input type="checkbox" id="highContrast" name="highContrast" tabindex="0">
         <label for="highContrast">High Contrast Mode (for sunlight)</label>
           <button onclick="document.getElementById('hqPasswordGate').style.display='flex'" style="background:#000080;color:white;font-size:18px;padding:12px 24px;border-radius:12px;margin-left:20px;vertical-align:middle;">Enter HQ / Race Director Mode</button>
     <form id="raceForm">
-     <!--  <input type="hidden" id="eventCode" value="KH_SOB_2026_0003"> -->
-           <input type="hidden" id="eventCode" value="KH_SOB_2026_0003">
+        <!-- Event selector — populated from DB by race_timing.js on load -->
+        <input type="hidden" id="eventCode" value="">
 
         <div class="section">
-            <label for="eventName">Event Name:</label>
+            <label for="eventSelect" style="font-weight:bold;font-size:16px;">Event:</label>
+            <select id="eventSelect" name="eventSelect" tabindex="0" style="font-size:16px;padding:6px;border-radius:6px;min-width:280px;">
+              <option value="">&#8212; loading events… &#8212;</option>
+            </select><br><br>
+            <label for="eventName">Event Name / Label (optional override):</label>
             <input type="text" id="eventName" name="eventName" value="" tabindex="1"><br><br>
             <label for="messageNum">Message #:</label>
             <input type="number" id="messageNum" name="messageNum" value="1" tabindex="2">
@@ -407,26 +410,9 @@
             <label for="sendTo">Send to:</label>
             <input type="text" id="sendTo" name="sendTo" placeholder="e.g., Your Email Address" tabindex="5"><br><br>
             <label for="aidStation">Aid Station:</label>
+            <!-- Options populated dynamically from DB when event is selected -->
             <select id="aidStation" name="aidStation" tabindex="6">
-              <option value="START">🏁 START</option>
-              <option value="CORRAL_AUTO">📍 CORRAL CANYON (AUTO)</option>
-              <option value="KANAN_AUTO">📍 KANAN ROAD (AUTO)</option>
-              <option value="ZUMA_AUTO">📍 ZUMA (AUTO)</option>
-              <option value="AS1">📍 CORRAL CANYON #1</option>
-              <option value="AS2">📍 KANAN ROAD #1</option>
-              <option value="T30K">📍 TURNAROUND SPOT (30K NO AID)</option>
-              <option value="AS4">📍 ZUMA EDISION RIDGE MTWY #1</option>
-              <option value="AS5">📍 BONSALL</option>
-              <option value="AS6">📍 ZUMA EDISON RIDGE MTWY #2</option>
-              <option value="AS7">📍 KANAN ROAD #2</option>
-              <option value="AS8">📍 CORRAL CANYON #2</option>
-              <option value="AS9">📍 100K TURNAROUND - BULLDOG</option>
-              <option value="AS10">📍 CORRAL CANYON #3</option>
-              <option value="AS11">📍 PIUMA CREEK (NO AID)</option>
-              <option value="FINISH">🏁 FINISH LINE</option>
-              <option value="SOBRD">SOB-RD</option>
-              <option value="AMANDABOSS">Amanda-Boss</option>
-              <option value="NETCONTROL">Net Control</option>
+              <option value="">&#8212; select event first &#8212;</option>
             </select><br><br>
             <label for="subject">Subject:</label>
             <input type="text" id="subject" name="subject" readonly tabindex="7">
