@@ -316,11 +316,26 @@ async function loadEventsFromServer() {
 
   try {
     const res = await fetch("events_list.php", { cache: "no-store" });
-    const events = await res.json();
+    const rawText = await res.text();
+    // Log raw so operator can see exactly what the server returned
+    console.log("events_list.php raw response (first 500 chars):", rawText.substring(0, 500));
+
+    let events;
+    try {
+      events = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error("events_list.php returned non-JSON — check server PHP errors:", rawText.substring(0, 300));
+      sel.innerHTML = '<option value="">— error loading events —</option>';
+      return;
+    }
+
     if (!Array.isArray(events) || events.length === 0) {
+      console.warn("events_list.php returned empty array");
       sel.innerHTML = '<option value="">— no events found —</option>';
       return;
     }
+
+    console.log("events_list.php returned", events.length, "events:", events.map(e => e.event_code));
 
     // Remember previously selected code (from URL param, localStorage, or hidden input)
     const qs = new URLSearchParams(window.location.search);
@@ -339,14 +354,16 @@ async function loadEventsFromServer() {
       sel.appendChild(opt);
     }
 
-    // Auto-select: use preferred, else fall back to most-recent (first) event
-    const best = preferred || events[0].event_code;
+    // Auto-select: use preferred if it exists in the list, else fall back to most-recent (first) event
+    const codes = events.map(e => e.event_code);
+    const best = (preferred && codes.includes(preferred)) ? preferred : events[0].event_code;
     if (best) {
       sel.value = best;
       // Sync hidden input and localStorage
       const ecHidden = document.getElementById("eventCode");
       if (ecHidden) ecHidden.value = best;
       localStorage.setItem("tvemc_event_code", best);
+      console.log("Event selector set to:", best);
     }
   } catch (e) {
     console.warn("loadEventsFromServer failed:", e);
