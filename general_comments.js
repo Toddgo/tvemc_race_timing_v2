@@ -24,7 +24,11 @@ function formatToLA(ts) {
   }).format(d);
 }
 
-function getEventId() { return (document.getElementById("eventId")?.value || "AZM-300-2026-0004").trim(); }
+function getEventId() {
+  return (typeof getEventCode === "function" ? getEventCode() : "") ||
+    (document.getElementById("eventCode")?.value || "").trim() ||
+    localStorage.getItem("tvemc_event_code") || "";
+}
 
 
 function getStationLabel() {

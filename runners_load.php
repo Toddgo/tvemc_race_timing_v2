@@ -11,7 +11,12 @@ if ($conn->connect_error) {
   exit;
 }
 
-$event_code = trim($_GET['event_code'] ?? 'AZM-300-2026-0004');   // KH_SOB_2026_TEST
+$event_code = trim($_GET['event_code'] ?? '');
+if ($event_code === '') {
+  http_response_code(400);
+  echo json_encode(['success' => false, 'error' => 'Missing event_code']);
+  exit;
+}
 
 $ev = $conn->prepare("SELECT event_id FROM events WHERE event_code=? LIMIT 1");
 $ev->bind_param("s", $event_code);

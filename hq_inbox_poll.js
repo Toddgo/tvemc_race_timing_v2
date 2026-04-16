@@ -259,7 +259,7 @@ window.addEventListener("load", function () {
 
     try {
       const urlObj = new URL("fetch_hq_messages.php", window.location.href);
-      urlObj.searchParams.set("event_code",(typeof getEventCode === "function" && getEventCode()) || "AZM-300-2026-0004");
+      urlObj.searchParams.set("event_code",(typeof getEventCode === "function" && getEventCode()) || localStorage.getItem("tvemc_event_code") || "");
          // urlObj.searchParams.set("event_code", "KH_SOB_2026_01");   // KH_SOB_2026_01
       urlObj.searchParams.set("station", stationId);
       if (lastHqMessageId > 0) urlObj.searchParams.set("since_id", String(lastHqMessageId));
@@ -314,7 +314,7 @@ window.addEventListener("load", function () {
     try {
       const urlObj = new URL("fetch_hq_log.php", window.location.href);
       // urlObj.searchParams.set("event_code", "KH_SOB_2026_01");   /// WAS  KH_SOB_TEST
-      urlObj.searchParams.set("event_code",(typeof getEventCode === "function" && getEventCode()) || "AZM-300-2026-0004");
+      urlObj.searchParams.set("event_code",(typeof getEventCode === "function" && getEventCode()) || localStorage.getItem("tvemc_event_code") || "");
 
       urlObj.searchParams.set("station", stationId);
       urlObj.searchParams.set("limit", "10");

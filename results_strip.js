@@ -137,7 +137,7 @@ if (!window.__rs_expectedPrev_update_interval) {
     // Try a couple known inputs / fallbacks
     const el = document.getElementById("event_code") || document.getElementById("eventCode");
     const v = (el && el.value) ? String(el.value).trim() : "";
-    return v || "AZM-300-2026-0004";
+    return v || (typeof getEventCode === "function" ? getEventCode() : "") || localStorage.getItem("tvemc_event_code") || "";
   };
 
   // Station: prefer per-tab sessionStorage, then UI, then localStorage
@@ -188,7 +188,7 @@ window.getCurrentStationContext = function () {
     (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "") ||
     String(new URLSearchParams(location.search).get("event") || "").trim() ||
     String(localStorage.getItem("tvemc_event_code") || "").trim() ||
-    "AZM-300-2026-0004";
+    "";
 
   const station_code = String(
     sessionStorage.getItem("tvemc_aidStation") ||
@@ -862,8 +862,8 @@ window.getCurrentStationContext = function () {
         // Use opener getEventCode if available
         const __EVENT_CODE =
           (w.opener && typeof w.opener.getEventCode === "function")
-            ? String(w.opener.getEventCode() || "AZM-300-2026-0004").trim()
-            : "AZM-300-2026-0004";
+            ? String(w.opener.getEventCode() || "").trim()
+            : (typeof getEventCode === "function" ? getEventCode() : "") || "";
         
         // Expose a click handler inside the popup
         w.doClear = async function(bib) {
@@ -881,8 +881,8 @@ window.getCurrentStationContext = function () {
         
             const event_code =
               (w.opener && typeof w.opener.getEventCode === "function")
-                ? String(w.opener.getEventCode() || "AZM-300-2026-0004").trim()
-                : "AZM-300-2026-0004";
+                ? String(w.opener.getEventCode() || "").trim()
+                : (typeof getEventCode === "function" ? getEventCode() : "") || "";
         
             if (!w.opener || typeof w.opener.__rs_hqClear !== "function") {
             await w.opener.loadStatusOverrides(event_code);
@@ -1463,8 +1463,8 @@ window.getCurrentStationContext = function () {
       window.__rs_debug = { safeStationCode, safePassTs, parseTsToMs };
     
       // context & event
-      const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-      const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
+      const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "", station_code: "" });
+      const eventCode = String(ctx.event_code || (typeof getEventCode === "function" ? getEventCode() : "") || "").trim();
       const IS_SOB = /SOB/i.test(eventCode);
     
       // station selection and labels
@@ -1804,7 +1804,7 @@ window.getCurrentStationContext = function () {
     
         // Last 10 Seen Here — robust per-station fetch and interval
         if (v === "last10_here") {
-          const ctxLocal = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
+          const ctxLocal = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "", station_code: "" });
         
           const scFromCtx = String(ctxLocal.station_code || "").trim();
           const scFallback = String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();

@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $data = json_decode(file_get_contents('php://input'), true) ?: [];
 
 // required
-$event_code    = trim($data['event_code'] ?? 'AZM-300-2026-0004');
+$event_code    = trim($data['event_code'] ?? '');
 $bib           = (int)($data['bib'] ?? 0);
 $distance_code = trim($data['distance_code'] ?? '');
 $pass_type     = strtoupper(trim($data['pass_type'] ?? 'IN'));
@@ -37,9 +37,9 @@ $note          = trim($data['note'] ?? '');
 // timestamp: store UTC
 $pass_ts = gmdate('Y-m-d H:i:s');
 
-if ($bib <= 0 || $distance_code === '' || $station_code === '') {
+if ($event_code === '' || $bib <= 0 || $distance_code === '' || $station_code === '') {
   http_response_code(400);
-  echo json_encode(['success'=>false,'error'=>'Missing bib, distance_code, or station_code']);
+  echo json_encode(['success'=>false,'error'=>'Missing event_code, bib, distance_code, or station_code']);
   exit;
 }
 

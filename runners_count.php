@@ -12,7 +12,12 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-$event_code = trim($_GET['event_code'] ?? 'AZM-300-2026-0004');
+$event_code = trim($_GET['event_code'] ?? '');
+if ($event_code === '') {
+  http_response_code(400);
+  echo json_encode(["error" => "missing_event_code"]);
+  exit;
+}
 $station_code = strtoupper(trim($_GET['station_code'] ?? ''));
 
 // Resolve event_id
