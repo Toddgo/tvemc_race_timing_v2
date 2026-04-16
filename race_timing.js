@@ -1501,7 +1501,7 @@ document.addEventListener("change", (e) => {
   { value: "ZUMA_AUTO",   label: "📍 ZUMA (AUTO)" }
  ] : [];
 
-  // HQ extras (non-station message targets)
+  // HQ extras (non-station message targets — for HQ message board only, NOT the aid station operator dropdown)
   const hqExtras = [
     { value: "DT-RD", label: "DT-RD" },
     { value: "Garrett", label: "Garrett-Boss" },
@@ -1509,7 +1509,7 @@ document.addEventListener("change", (e) => {
     { value: "NETCONTROL", label: "Net Control" }
   ];
 
-  // aidStation (field selector)
+  // aidStation (field operator selector — race stations only, no HQ message targets)
   const hasStart  = stationOpts.some(o => o.value === "START");
   const hasFinish = stationOpts.some(o => o.value === "FINISH");
 
@@ -1518,8 +1518,8 @@ document.addEventListener("change", (e) => {
       ...(hasStart  ? [] : [{ value: "START",  label: "🏁 START" }]),
       ...autoOpts,
       ...(hasFinish ? [] : [{ value: "FINISH", label: "🏁 FINISH" }]),
-    ],
-    append: hqExtras
+    ]
+    // No hqExtras here — DT-RD / Garrett / B-Medic / NetControl are HQ message targets, not race stations
   });
 
   // hqTarget (message target)
