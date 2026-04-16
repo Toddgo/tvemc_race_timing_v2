@@ -13,9 +13,9 @@ if ($conn->connect_error) {
 $conn->set_charset('utf8mb4');
 
 $res = $conn->query(
-  "SELECT event_id, event_code, event_name, race_date, timezone
+  "SELECT event_id, event_code, event_name, event_date, timezone
    FROM events
-   ORDER BY race_date DESC, event_id DESC"
+   ORDER BY event_date DESC, event_id DESC"
 );
 
 $out = [];
@@ -24,7 +24,7 @@ while ($row = $res->fetch_assoc()) {
     'event_id'   => (int)$row['event_id'],
     'event_code' => (string)$row['event_code'],
     'event_name' => (string)$row['event_name'],
-    'race_date'  => (string)($row['race_date'] ?? ''),
+    'race_date'  => (string)($row['event_date'] ?? ''),
     'timezone'   => (string)($row['timezone'] ?? 'UTC'),
   ];
 }

@@ -309,6 +309,84 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
   }
 }
 
+// ---- Load all events into the #eventSelect dropdown ----
+async function loadEventsFromServer() {
+  const sel = document.getElementById("eventSelect");
+  if (!sel) return;
+
+  try {
+    const res = await fetch("events_list.php", { cache: "no-store" });
+    const events = await res.json();
+    if (!Array.isArray(events) || events.length === 0) {
+      sel.innerHTML = '<option value="">— no events found —</option>';
+      return;
+    }
+
+    // Remember previously selected code (from URL param, localStorage, or hidden input)
+    const qs = new URLSearchParams(window.location.search);
+    const preferred = cleanEventCode(
+      qs.get("event") ||
+      localStorage.getItem("tvemc_event_code") ||
+      document.getElementById("eventCode")?.value ||
+      ""
+    );
+
+    sel.innerHTML = '<option value="">— select event —</option>';
+    for (const ev of events) {
+      const opt = document.createElement("option");
+      opt.value = ev.event_code;
+      opt.textContent = ev.event_name + (ev.race_date ? ` (${ev.race_date})` : "");
+      sel.appendChild(opt);
+    }
+
+    // Auto-select: use preferred, else fall back to most-recent (first) event
+    const best = preferred || events[0].event_code;
+    if (best) {
+      sel.value = best;
+      // Sync hidden input and localStorage
+      const ecHidden = document.getElementById("eventCode");
+      if (ecHidden) ecHidden.value = best;
+      localStorage.setItem("tvemc_event_code", best);
+    }
+  } catch (e) {
+    console.warn("loadEventsFromServer failed:", e);
+    if (sel) sel.innerHTML = '<option value="">— error loading events —</option>';
+  }
+}
+
+// ---- Called whenever operator picks a different event ----
+async function switchEvent(newCode) {
+  newCode = cleanEventCode(newCode);
+  if (!newCode) return;
+
+  // Update all references
+  const ecHidden = document.getElementById("eventCode");
+  if (ecHidden) ecHidden.value = newCode;
+  localStorage.setItem("tvemc_event_code", newCode);
+
+  // Update the module-level event_code var so all subsequent API calls use it
+  window.TVEMC_EVENT_CODE = newCode;
+
+  // Clear cached AID_STATION_MAP so it reloads for the new event
+  AID_STATION_MAP = {};
+
+  // Reload meta, stations, runners for new event
+  await loadEventMetaFromServer();
+  await loadAidStationsFromServer();
+
+  const defaultDist = Object.keys(AID_STATION_MAP || {})[0] || "";
+  populateStationDropdownsFromMap(AID_STATION_MAP, defaultDist);
+
+  await loadRunnerRegistryFromServer();
+  updateBibInfo();
+  updateSubject();
+
+  // Clear the results cache so counts refetch for the new event
+  if (window.ResultsStrip?.clearCache) window.ResultsStrip.clearCache();
+
+  console.log("Switched to event:", newCode);
+}
+
 function saveData() {
   try {
     const payload = {
@@ -3272,12 +3350,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupHighContrastToggle();
   restoreHeaderFields();
   wireHeaderFieldPersistence();
-  
+
+  // ---- Load event list into selector FIRST so getEventCode() returns correct value ----
+  await loadEventsFromServer();
+
+  // Wire the event selector change → reload everything for new event
+  const eventSelEl = document.getElementById("eventSelect");
+  if (eventSelEl) {
+    eventSelEl.addEventListener("change", async (e) => {
+      const code = String(e.target.value || "").trim();
+      if (code) await switchEvent(code);
+    });
+  }
+
   // ✅ Data bootstrap (must be early)
   await loadEventMetaFromServer();
   await loadAidStationsFromServer();
   await loadRunnerRegistryFromServer();
-  // Pick a default distance for dropdowns (use event primary later) Added Feb 6 14:17 with Line 1263
+  // Pick a default distance for dropdowns (use event primary later)
   const defaultDist = Object.keys(AID_STATION_MAP || {})[0] || "";
   populateStationDropdownsFromMap(AID_STATION_MAP, defaultDist);
 
