@@ -1405,8 +1405,8 @@ function stationNameFromCode(code) {
                 etaTime = new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
               }
             }
-          
-  
+          }
+
           out.push({
             bib,
             last_station: stationNameFromCode(lastCode),
@@ -1418,6 +1418,8 @@ function stationNameFromCode(code) {
             _ts: lastMs
           });
         }
+      }
+
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
       out.forEach(r => delete r._ts);
       return out;
@@ -2284,6 +2286,5 @@ function stationNameFromCode(code) {
     
     console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
     
-    }
     })();  // end IIFE
- });
+})();
