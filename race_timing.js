@@ -3019,8 +3019,14 @@ async function loadResultsConfig() {
 
   window.TVEMC_milesByDistance = new Map(Object.entries(data.distances || {}));
 
-  // ISO-preferred map (this is what getStartTimeForDistance uses)
-  window.TVEMC_startByDistance = new Map(Object.entries(data.start_times_iso || data.start_times || {}));
+  // Only replace TVEMC_startByDistance if the server returned actual start times.
+  // Don't clobber auto-derived start times (from Start Line passes) with an empty map.
+  const newStarts = new Map(Object.entries(data.start_times_iso || data.start_times || {}));
+  if (newStarts.size > 0) {
+    window.TVEMC_startByDistance = newStarts;
+  } else if (!window.TVEMC_startByDistance) {
+    window.TVEMC_startByDistance = new Map();
+  }
 
   // Optional raw fallback
   window.TVEMC_startByDistanceRaw = new Map(Object.entries(data.start_times || {}));
