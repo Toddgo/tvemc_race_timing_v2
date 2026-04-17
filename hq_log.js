@@ -29,11 +29,6 @@
     // Normalize whatever we got from the DB
     var code = String(codeRaw).trim().toUpperCase();
 
-    // Hard override for Hell Hill, in case the dropdown or DB ever disagree.
-    if (code === "AS1") {
-      return "📍 CORRAL CANYON #1";
-    }
-
     // Look at the existing HQ log station filter for labels
     var filter = document.getElementById("hqLogStationFilter");
     if (!filter) return code;
