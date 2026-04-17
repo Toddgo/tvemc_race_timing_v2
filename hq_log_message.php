@@ -117,18 +117,19 @@ try {
 
   $table = "hq_messages";
 
+  // Use UTC_TIMESTAMP() explicitly — immune to server/session timezone settings.
   if ($msg_num_int === null) {
     $sql = "INSERT INTO `$table`
-            (event_id, station_target, channel, message_text, operator, msg_number)
-            VALUES (?, ?, ?, ?, ?, NULL)";
+            (event_id, station_target, channel, message_text, operator, msg_number, created_at)
+            VALUES (?, ?, ?, ?, ?, NULL, UTC_TIMESTAMP())";
     $stmt = $conn->prepare($sql);
     if (!$stmt) fail(500, "DB prepare failed", ["details" => $conn->error]);
 
     $stmt->bind_param("issss", $event_id, $station_target, $channel, $message_text, $operator);
   } else {
     $sql = "INSERT INTO `$table`
-            (event_id, station_target, channel, message_text, operator, msg_number)
-            VALUES (?, ?, ?, ?, ?, ?)";
+            (event_id, station_target, channel, message_text, operator, msg_number, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())";
     $stmt = $conn->prepare($sql);
     if (!$stmt) fail(500, "DB prepare failed", ["details" => $conn->error]);
 

@@ -81,10 +81,10 @@ if ($comment === '') {
 $station_name = isset($data['station_name']) ? trim((string)$data['station_name']) : null;
 $operator     = isset($data['operator']) ? trim((string)$data['operator']) : null;
 
-// Use server time for comment_ts
+// Use UTC_TIMESTAMP() — always UTC regardless of MySQL server/session timezone.
 $stmt = $conn->prepare("
   INSERT INTO general_comments (event_id, comment_ts, station_name, operator, comment)
-  VALUES (?, NOW(), ?, ?, ?)
+  VALUES (?, UTC_TIMESTAMP(), ?, ?, ?)
 ");
 if (!$stmt) {
   http_response_code(500);
