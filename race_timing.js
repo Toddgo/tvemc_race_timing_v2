@@ -1589,6 +1589,24 @@ document.addEventListener("change", (e) => {
   persistAidStationFromDropdown();
   persistDistanceForEvent();
 
+  // Correct the station label after the dropdown has been rebuilt with event-specific names.
+  // hq_inbox_poll.js captures TVEMC_STATION_LABEL on window.load (before this async call
+  // finishes) and can end up with the stale hardcoded SOB option text (e.g. "KANAN ROAD #1").
+  // Overwriting it here ensures the HQ Inbox title reflects the actual event's station name.
+  const aidEl = document.getElementById("aidStation");
+  if (aidEl) {
+    const freshLabel = (aidEl.selectedOptions?.[0]?.textContent || "").trim();
+    if (freshLabel) {
+      window.TVEMC_STATION_LABEL = freshLabel;
+      // Also update the live DOM title so it corrects immediately if messages were
+      // already displayed with the stale label.
+      const titleEl = document.getElementById("stationInboxTitle");
+      if (titleEl && titleEl.textContent.startsWith("HQ Inbox")) {
+        titleEl.textContent = "HQ Inbox — " + freshLabel;
+      }
+    }
+  }
+
 }
 
 // small helper
