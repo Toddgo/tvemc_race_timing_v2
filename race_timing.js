@@ -848,6 +848,39 @@ async function loadPassesFromServer() {
       return;
     }
 
+    // --- Auto-derive start times from earliest Start-Line IN pass ---------------
+    // Covers the common case where the user never explicitly saved start times in
+    // the UI but has already tagged runners through the Start Line.
+    // Only fills distances that have NO entry in TVEMC_startByDistance yet.
+    // Explicit saved start times (from event_start_times via loadResultsConfig)
+    // always take precedence and are never overwritten here.
+    if (!window.TVEMC_startByDistance) {
+      window.TVEMC_startByDistance = new Map();
+    }
+    {
+      const derivedStarts = new Map(); // distance_code -> earliest UTC ms
+      for (const r of rows) {
+        const dc = String(r.distance_code || "").trim();
+        if (!dc || dc === "N/A") continue;
+        if (window.TVEMC_startByDistance.has(dc)) continue; // explicit start already set
+        const isStartStation = (r.station_order === 0) ||
+          String(r.station_code || "").toUpperCase() === "START";
+        const isIn = String(r.pass_type || "").toUpperCase() === "IN";
+        if (!isStartStation || !isIn) continue;
+        const d = new Date(String(r.pass_ts || "").replace(" ", "T") + "Z");
+        if (isNaN(d.getTime())) continue;
+        const existing = derivedStarts.get(dc);
+        if (existing === undefined || d.getTime() < existing) {
+          derivedStarts.set(dc, d.getTime());
+        }
+      }
+      for (const [dc, ms] of derivedStarts) {
+        window.TVEMC_startByDistance.set(dc, new Date(ms).toISOString());
+        console.log(`[auto-start] No saved start time for ${dc}; using earliest Start Line IN pass: ${new Date(ms).toISOString()}`);
+      }
+    }
+    // -------------------------------------------------------------------------
+
     // Map DB passes -> your Bib Log entry shape expected by filterBibLog()
     entries = rows.map(r => {
       const bib = String(r.bib);

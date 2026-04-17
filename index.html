@@ -652,10 +652,16 @@
 
   async function loadResultsConfigOnce() {
     if (__resultsConfigLoaded) return;
-    const eventCode =
-      (window.TVEMC_EVENT_CODE ||
-       document.getElementById("eventName")?.value ||
-       "KH_SOB_2026_0003").toString().trim();
+    // Use the same event-code resolution order as getEventCode() in race_timing.js:
+    // URL ?event=  →  #eventCode hidden input  →  #eventName text input  →  hardcoded fallback
+    const qs = new URLSearchParams(window.location.search);
+    const eventCode = (
+      window.TVEMC_EVENT_CODE ||
+      qs.get("event") ||
+      document.getElementById("eventCode")?.value ||
+      document.getElementById("eventName")?.value ||
+      "KH_SOB_2026_0003"
+    ).toString().trim();
 
     const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, {
       cache: "no-store"
@@ -664,7 +670,14 @@
     if (!data.success) throw new Error(data.error || "results_config_load failed");
 
     window.TVEMC_milesByDistance = new Map(Object.entries(data.distances || {}));
-    window.TVEMC_startByDistance = new Map(Object.entries(data.start_times_iso || {}));
+    // Only overwrite TVEMC_startByDistance if the server returned actual start times;
+    // don't clobber auto-derived start times (from earliest Start Line pass) with an empty map.
+    const newStarts = new Map(Object.entries(data.start_times_iso || {}));
+    if (newStarts.size > 0) {
+      window.TVEMC_startByDistance = newStarts;
+    } else if (!window.TVEMC_startByDistance) {
+      window.TVEMC_startByDistance = new Map();
+    }
     window.TVEMC_runnerStartByBib = new Map(Object.entries(data.runner_starts_iso || {}));
 
     __resultsConfigLoaded = true;
