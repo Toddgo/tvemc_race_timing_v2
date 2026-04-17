@@ -417,8 +417,10 @@
            <input type="hidden" id="eventCode" value="KH_SOB_2026_0003">
 
         <div class="section">
-            <label for="eventName">Event Name:</label>
-            <input type="text" id="eventName" name="eventName" value="" tabindex="1"><br><br>
+            <label for="eventName">Event:</label>
+            <select id="eventName" name="eventName" tabindex="1">
+              <option value="">— Loading events… —</option>
+            </select><br><br>
             <label for="messageNum">Message #:</label>
             <input type="number" id="messageNum" name="messageNum" value="1" tabindex="2">
             <button type="button" class="increment-button" onclick="incrementMessage()" tabindex="3" role="button" aria-label="Increment Message Number">Increment</button><br><br>

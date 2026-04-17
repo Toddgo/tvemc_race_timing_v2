@@ -299,14 +299,15 @@ window.getEventCode = function getEventCode() {
   // ✅ Canonical is ?event=...
   const fromQS = qs.get("event");
 
-  // Fallbacks
-  const fromLS = localStorage.getItem("tvemc_event_code") || "";
+  // Fallbacks (tvemc_eventName is set by the event dropdown on change)
+  const fromLSName = localStorage.getItem("tvemc_eventName") || "";
+  const fromLSCode = localStorage.getItem("tvemc_event_code") || "";
   const fromInput =
     document.getElementById("eventCode")?.value ||
     document.getElementById("eventName")?.value ||
     "";
 
-  return cleanEventCode(fromQS || fromInput || fromLS || "");
+  return cleanEventCode(fromQS || fromInput || fromLSName || fromLSCode || "");
 };
 
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
@@ -331,6 +332,76 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
   } catch (e) {
     console.warn("Failed to load event meta:", e);
     return null;
+  }
+}
+
+// Populate the #eventName <select> dropdown from events_list.php.
+// The currently-active event code (from URL ?event=, or localStorage tvemc_eventName) is
+// pre-selected.  When the user picks a different event the page reloads with ?event=<code>
+// so all stations, runners, and start-times refresh cleanly.
+async function loadEventListIntoDropdown() {
+  const sel = document.getElementById("eventName");
+  if (!sel || sel.tagName !== "SELECT") return; // nothing to do if it's still a text input
+
+  try {
+    const res = await fetch("events_list.php", { cache: "no-store" });
+    const events = await res.json();
+    if (!Array.isArray(events) || events.length === 0) {
+      console.warn("events_list returned empty array");
+      sel.innerHTML = '<option value="">— No events found —</option>';
+      return;
+    }
+
+    // Determine which event should be selected:
+    // Priority: URL ?event=  →  localStorage tvemc_eventName  →  hidden #eventCode input
+    const qs = new URLSearchParams(window.location.search);
+    const fromQS = cleanEventCode(qs.get("event") || "");
+    const fromLS = cleanEventCode(localStorage.getItem("tvemc_eventName") || "");
+    const fromHidden = cleanEventCode(document.getElementById("eventCode")?.value || "");
+    const active = fromQS || fromLS || fromHidden;
+
+    // Rebuild options: blank placeholder + one per event
+    sel.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "— Select Event —";
+    sel.appendChild(placeholder);
+
+    let matched = false;
+    for (const ev of events) {
+      const opt = document.createElement("option");
+      opt.value = ev.event_code;
+      opt.textContent = `${ev.event_name} (${ev.event_code})`;
+      if (ev.event_code === active) {
+        opt.selected = true;
+        matched = true;
+      }
+      sel.appendChild(opt);
+    }
+
+    if (matched) {
+      // Ensure localStorage is in sync with what the dropdown shows
+      localStorage.setItem("tvemc_eventName", active);
+    }
+
+    console.log("Event list loaded:", events.length, "events; active:", active, "matched:", matched);
+
+    // When the user picks a new event, persist and reload the page with ?event=<code>
+    if (!sel.__tvemc_event_bound) {
+      sel.__tvemc_event_bound = true;
+      sel.addEventListener("change", (e) => {
+        const chosen = cleanEventCode(e.target.value || "");
+        if (!chosen) return;
+        localStorage.setItem("tvemc_eventName", chosen);
+        // Reload with new event in URL so all data (stations, runners, start times) refreshes
+        const url = new URL(window.location.href);
+        url.searchParams.set("event", chosen);
+        window.location.href = url.toString();
+      });
+    }
+  } catch (e) {
+    console.warn("loadEventListIntoDropdown failed:", e.message);
+    sel.innerHTML = '<option value="">— Could not load events —</option>';
   }
 }
 
@@ -1832,6 +1903,11 @@ function wireHeaderFieldPersistence() {
     localStorage.setItem("tvemc_eventName", e.target.value || "");
     updateSubject();
   });
+  // Also handle <select> change events (for the event picker dropdown)
+  document.getElementById("eventName")?.addEventListener("change", (e) => {
+    localStorage.setItem("tvemc_eventName", e.target.value || "");
+    updateSubject();
+  });
 
   document.getElementById("messageNum")?.addEventListener("input", (e) => {
     localStorage.setItem("tvemc_messageNum", e.target.value || "");
@@ -3228,6 +3304,7 @@ function canonicalDistanceCode(d) {
   if (u === "30K") return "30K";
   if (u === "26.2" || u === "MARATHON") return "26.2";
   if (u === "100K") return "100K";
+  if (new Set(["100M","100 MI","100 MILE","100 MILES","100 MILER","100MILER"]).has(u)) return "100M";
 
   // Optional future-proofing (AZM/Bigfoot/Moab style)
   if (u === "200M" || u === "200 MI" || u === "200 MILE" || u === "200 MILES") return "200M";
@@ -3330,6 +3407,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupHighContrastToggle();
   restoreHeaderFields();
   wireHeaderFieldPersistence();
+
+  // Populate event picker dropdown before restoring fields so the saved value can be selected
+  try {
+    await loadEventListIntoDropdown();
+  } catch (e) {
+    console.warn("Event list dropdown load skipped:", e.message);
+  }
   
   // ✅ Data bootstrap (must be early)
   await loadEventMetaFromServer();
@@ -3358,8 +3442,9 @@ document.addEventListener("DOMContentLoaded", async () => {
  // updateSubject();
  // updateBibInfo();
 
-  // Attach listeners
+  // Attach listeners — support both "input" (text box) and "change" (select) on eventName
   document.getElementById("eventName")?.addEventListener("input", updateSubject);
+  document.getElementById("eventName")?.addEventListener("change", updateSubject);
   document.getElementById("aidStation")?.addEventListener("change", updateSubject);
   document.getElementById("messageNum")?.addEventListener("input", updateSubject);
   document.getElementById("bibNumber")?.addEventListener("input", updateBibInfo);
