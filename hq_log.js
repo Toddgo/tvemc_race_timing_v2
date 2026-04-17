@@ -2,6 +2,24 @@
 // HQ Message Log (HQ / ?hq=1 only)
 // ==============================
 (function () {
+  // Format a UTC timestamp string (from DB) to LA local time
+  function formatToLA(raw) {
+    if (!raw) return "";
+    try {
+      // Normalize: replace space separator with T, append Z if no tz suffix
+      var s = String(raw).trim().replace(" ", "T");
+      if (!/[Z+\-]\d*$/.test(s)) s += "Z";
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return raw;
+      return d.toLocaleString("en-US", {
+        timeZone: "America/Los_Angeles",
+        month: "2-digit", day: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: true
+      });
+    } catch (e) { return raw; }
+  }
+
   // Map a station code from the DB (AS1, AS4, START, etc.)
   // to a human-friendly label using the HQ filter dropdown.
   // Includes a safe override for AS1 (HELL HILL AID #1).
@@ -111,7 +129,7 @@
         return c;
       }
 
-      const timeText = msg.created_at || "";
+      const timeText = formatToLA(msg.created_at);
       const stationText = prettyStationLabel(msg.station_target || "");
       const channelText = (msg.channel || "").toUpperCase();
       const messageText = msg.message_text || "";
@@ -119,7 +137,7 @@
 
       const acked = Number(msg.acknowledged || 0) === 1;
       const ackText = acked ? "✅" : "⏳";
-      const ackTimeText = acked && msg.ack_time ? msg.ack_time : "";
+      const ackTimeText = acked && msg.ack_time ? formatToLA(msg.ack_time) : "";
 
       row.appendChild(td(timeText));
       row.appendChild(td(stationText));

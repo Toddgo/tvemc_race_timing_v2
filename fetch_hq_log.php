@@ -16,6 +16,7 @@ if ($conn->connect_error) {
   echo json_encode(['success'=>false,'error'=>'DB connect failed: '.$conn->connect_error]);
   exit;
 }
+$conn->query("SET time_zone = '+00:00'");
 
 $event_code = trim($_GET['event_code'] ?? '');
 if ($event_code === '') {
@@ -76,7 +77,12 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 $messages = [];
-while ($r = $result->fetch_assoc()) $messages[] = $r;
+while ($r = $result->fetch_assoc()) {
+  // Append Z so JS knows these are UTC
+  if (!empty($r['created_at'])) $r['created_at'] = str_replace(' ', 'T', $r['created_at']) . 'Z';
+  if (!empty($r['ack_time']))   $r['ack_time']   = str_replace(' ', 'T', $r['ack_time'])   . 'Z';
+  $messages[] = $r;
+}
 
 $stmt->close();
 $conn->close();
