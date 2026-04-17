@@ -2,6 +2,30 @@
 // HQ Message Log (HQ / ?hq=1 only)
 // ==============================
 (function () {
+  // Convert a MySQL UTC datetime string ("YYYY-MM-DD HH:MM:SS") to a human-readable
+  // local timestamp in America/Los_Angeles.  All HQ message timestamps are stored
+  // in UTC (fetch_hq_log.php sets SET time_zone='+00:00' on the DB connection).
+  function formatHqTimestamp(ts) {
+    if (!ts) return "";
+    var s = String(ts).trim();
+    // Append "Z" so JavaScript Date treats the string as UTC, not local time
+    var isoUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)
+      ? s.replace(" ", "T") + "Z"
+      : s;
+    var d = new Date(isoUtc);
+    if (isNaN(d.getTime())) return ts; // fall back to raw string if unparseable
+    return d.toLocaleString("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    });
+  }
+
   // Map a station code from the DB (AS1, AS4, START, etc.)
   // to a human-friendly label using the HQ filter dropdown.
   // Includes a safe override for AS1 (HELL HILL AID #1).
@@ -111,7 +135,7 @@
         return c;
       }
 
-      const timeText = msg.created_at || "";
+      const timeText = formatHqTimestamp(msg.created_at);
       const stationText = prettyStationLabel(msg.station_target || "");
       const channelText = (msg.channel || "").toUpperCase();
       const messageText = msg.message_text || "";
@@ -119,7 +143,7 @@
 
       const acked = Number(msg.acknowledged || 0) === 1;
       const ackText = acked ? "✅" : "⏳";
-      const ackTimeText = acked && msg.ack_time ? msg.ack_time : "";
+      const ackTimeText = acked && msg.ack_time ? formatHqTimestamp(msg.ack_time) : "";
 
       row.appendChild(td(timeText));
       row.appendChild(td(stationText));

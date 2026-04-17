@@ -59,6 +59,7 @@ try {
     fail(500, "DB connect failed", ["details" => $conn->connect_error]);
   }
   $conn->set_charset("utf8mb4");
+  $conn->query("SET time_zone = '+00:00'");
 
   // 4) Read JSON
   $raw = file_get_contents("php://input");

@@ -16,6 +16,7 @@ if ($conn->connect_error) {
   echo json_encode(['success'=>false,'error'=>'DB connect failed: '.$conn->connect_error]);
   exit;
 }
+$conn->query("SET time_zone = '+00:00'");
 
 $event_code = trim($_GET['event_code'] ?? '');
 if ($event_code === '') {
