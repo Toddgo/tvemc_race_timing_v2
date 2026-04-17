@@ -5,7 +5,7 @@
   // formatHqTimestamp is defined and exposed as window.formatHqTimestamp by
   // hq_inbox_poll.js (which loads before this file).  Use that shared implementation;
   // fall back to a raw-string display only if somehow not available.
-  function formatHqTimestamp(ts) {
+  function safeFormatTimestamp(ts) {
     if (typeof window.formatHqTimestamp === "function") {
       return window.formatHqTimestamp(ts);
     }
@@ -121,7 +121,7 @@
         return c;
       }
 
-      const timeText = formatHqTimestamp(msg.created_at);
+      const timeText = safeFormatTimestamp(msg.created_at);
       const stationText = prettyStationLabel(msg.station_target || "");
       const channelText = (msg.channel || "").toUpperCase();
       const messageText = msg.message_text || "";
@@ -129,7 +129,7 @@
 
       const acked = Number(msg.acknowledged || 0) === 1;
       const ackText = acked ? "✅" : "⏳";
-      const ackTimeText = acked && msg.ack_time ? formatHqTimestamp(msg.ack_time) : "";
+      const ackTimeText = acked && msg.ack_time ? safeFormatTimestamp(msg.ack_time) : "";
 
       row.appendChild(td(timeText));
       row.appendChild(td(stationText));
