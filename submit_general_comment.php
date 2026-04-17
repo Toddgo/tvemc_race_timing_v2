@@ -21,6 +21,8 @@ if ($conn->connect_error) {
   exit;
 }
 $conn->set_charset("utf8mb4");
+// Always store timestamps in UTC so display is timezone-independent
+$conn->query("SET time_zone = '+00:00'");
 
 // Read JSON
 $raw = file_get_contents('php://input');

@@ -6,11 +6,14 @@ let rtGeneralComments = [];
 let rtLastGeneralId = 0;
 
 // Format DB datetime -> readable LA time
+// Timestamps from server are UTC (either already ISO-8601 with Z, or bare "YYYY-MM-DD HH:MM:SS")
 function formatToLA(ts) {
   if (!ts) return "";
-  // If server returns "YYYY-MM-DD HH:MM:SS", treat as local-ish string:
-  // We'll render with Intl for consistency (works fine with Date parsing on most browsers).
-  const d = new Date(ts.replace(" ", "T"));
+  // Normalize: replace space with T; append Z if no timezone marker present
+  let normalized = ts.trim();
+  if (!normalized.includes('T')) normalized = normalized.replace(' ', 'T');
+  if (!normalized.endsWith('Z') && !normalized.includes('+')) normalized += 'Z';
+  const d = new Date(normalized);
   if (isNaN(d.getTime())) return ts;
 
   return new Intl.DateTimeFormat("en-US", {

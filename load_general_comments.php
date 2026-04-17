@@ -21,6 +21,8 @@ if ($conn->connect_error) {
   exit;
 }
 $conn->set_charset("utf8mb4");
+// Read timestamps as UTC so JS can parse them correctly
+$conn->query("SET time_zone = '+00:00'");
 
 // Accept numeric event_id OR event_code string
 $event_id = 0;
@@ -76,7 +78,18 @@ if (!$stmt->execute()) {
 
 $res = $stmt->get_result();
 $rows = [];
-while ($r = $res->fetch_assoc()) $rows[] = $r;
+while ($r = $res->fetch_assoc()) {
+  // Normalize timestamp to ISO-8601 UTC string so JS Date() parses it correctly
+  if (!empty($r['comment_ts'])) {
+    $ts = $r['comment_ts'];
+    // "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SSZ"
+    if (!str_contains($ts, 'T') && !str_contains($ts, 'Z') && !str_contains($ts, '+')) {
+      $ts = str_replace(' ', 'T', $ts) . 'Z';
+    }
+    $r['comment_ts'] = $ts;
+  }
+  $rows[] = $r;
+}
 
 $stmt->close();
 $conn->close();
