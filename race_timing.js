@@ -2979,7 +2979,7 @@ function sortBibTable(col) {
 
 // Timing Module Jan 7 11:56
 async function loadResultsConfig() {
-  const eventCode = window.TVEMC_EVENT_CODE || document.getElementById("eventName")?.value;
+  const eventCode = cleanEventCode(getEventCode());
   const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, { cache: "no-store" });
   const data = await res.json();
   if (!data.success) throw new Error("Results config load failed");
@@ -3348,6 +3348,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadResultsConfig();
   } catch (e) {
     console.warn("Results config load skipped:", e.message);
+  }
+
+  // Initial pass load now that start times are in memory.
+  // This ensures elapsed/pace/ETA are computed correctly on the first open.
+  try {
+    await loadPassesFromServer();
+  } catch (e) {
+    console.warn("Initial passes load skipped:", e.message);
   }
 
   // Refresh Bib Log periodically ONLY when it is visible (single timer)
