@@ -3342,6 +3342,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("Aid station map load failed:", e.message);
   }
 
+  // Load results config (start times + distances) so computeElapsedPaceEta works
+  // without requiring the user to manually save start times first.
+  try {
+    await loadResultsConfig();
+  } catch (e) {
+    console.warn("Results config load skipped:", e.message);
+  }
+
   // Refresh Bib Log periodically ONLY when it is visible (single timer)
   setInterval(() => {
 //    const table = document.getElementById("bibLogTable");

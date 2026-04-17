@@ -51,6 +51,7 @@ while ($r = $res->fetch_assoc()) {
 
 /* Start times */
     $starts = [];
+    $starts_iso = [];
     $res = $conn->query("SELECT distance_code, start_ts FROM event_start_times WHERE event_id=$event_id");
     while ($r = $res->fetch_assoc()) {
       $code = $r['distance_code'];
@@ -63,9 +64,11 @@ while ($r = $res->fetch_assoc()) {
 
 /* Runner overrides */
 $runnerStarts = [];
+$runnerStarts_iso = [];
 $res = $conn->query("SELECT bib, start_ts_actual FROM runner_starts WHERE event_id=$event_id");
 while ($r = $res->fetch_assoc()) {
   $runnerStarts[(string)$r['bib']] = $r['start_ts_actual'];
+  $runnerStarts_iso[(string)$r['bib']] = toIsoLA($r['start_ts_actual']);
 }
 
 $conn->close();
