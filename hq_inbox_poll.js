@@ -11,6 +11,7 @@
   // local time string in America/Los_Angeles.
   // fetch_hq_messages.php and fetch_hq_log.php both set SET time_zone='+00:00' so all
   // timestamps arrive as UTC.
+  // Exposed as window.formatHqTimestamp so hq_log.js can share the same implementation.
   function formatHqTimestamp(ts) {
     if (!ts) return "";
     var s = String(ts).trim();
@@ -30,6 +31,7 @@
       hour12: true
     });
   }
+  window.formatHqTimestamp = formatHqTimestamp;
 
     // Aid Station: show a new message from HQ (Pending inbox UI + ACK)
 window.showHqMessageAtStation = function (msg) {
