@@ -2151,67 +2151,31 @@ function stationNameFromCode(code) {
             );
           }
     
-        // Expected From Previous — robust payload write
+        // Expected From Previous
         if (v === "expected_prev") {
-          // ❌ DELETE THIS ENTIRE BLOCK (lines that compute and write to localStorage):
-          // let authoritativeRows = window.__rs_expectedPrevRows || expectedPrevRows || [];
-          // let payloadStationCodes = ...
-          // localStorage.setItem('__rs_expectedPrevRows_payload', ...);
-        
-          // ✅ JUST OPEN THE POPUP - let it read from localStorage that was already written by recompute()
           return openListWindow(
             `Expected From Previous — ${stationLabel}`,
             () => {
-              // popup reads from localStorage (which has the fresh 23 rows from recompute)
+              // Rows are already station-specific: written to localStorage by update() for
+              // the current station on every bib-log refresh.  No station re-filtering is
+              // needed here — the previous filter was broken for FLOW rows because those
+              // rows set next_station to "(arriving here)" which never matched the label.
               let parsed = null;
               try {
                 const json = localStorage.getItem('__rs_expectedPrevRows_payload');
                 parsed = json ? JSON.parse(json) : null;
-              } catch(e){ /* ignore parse errors */ }
-        
+              } catch(e){ /* ignore */ }
+
               const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
-              const popupCodes = parsed && Array.isArray(parsed.stationCodes) ? parsed.stationCodes : [];
-              const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : '';
-              
-              console.log("🔍 POPUP Debug:");
-              console.log("  - rows.length:", rows.length);
-              console.log("  - popupCodes:", popupCodes);
-      
-              const filtered = (rows || []).filter(r => {
+              const out = [];
+              for (const r of rows) {
                 const bib = String(r?.bib ?? "").trim();
-                if (!bib) {
-                 console.log("  - FILTER: Skip row (no bib):", r);
-                 return false;
+                if (!bib) continue;
+                // Remove internal code-only fields before display
+                try { delete r.last_station_code; delete r.next_station_code; } catch(e) {}
+                out.push(r);
               }
-            
-                const nextCode = String(r?.next_station_code || "").toUpperCase();
-                const nextName = String(r?.next_station || "").toUpperCase();
-              
-               // ✅ ADD DEBUG:
-               console.log(`  - FILTER bib ${bib}: nextCode="${nextCode}", nextName="${nextName}"`);
-               console.log(`    popupCodes includes "${nextCode}"?`, popupCodes.includes(nextCode));
-               console.log(`    popupLabel includes "${nextName}"?`, popupLabel.includes(nextName));
-            
-               const codeMatch = popupCodes.includes(nextCode);
-               const nameMatch = popupLabel && nextName && popupLabel.includes(nextName);
-              
-               const keep = codeMatch || nameMatch;
-               console.log(`    → KEEP: ${keep}`);
-              
-               return keep;
-             });
-              
-              // Remove code-only columns so popup only shows human-readable station names
-              for (const r of filtered) {
-                try {
-                 delete r.last_station_code;
-                 delete r.next_station_code;
-               } catch (e) {
-                 // ignore any errors and continue
-               }
-             }
-        
-              return filtered;
+              return out;
             },
             { refreshMs: 5000 }
           );
