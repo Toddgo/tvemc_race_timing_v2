@@ -1681,7 +1681,7 @@ if (window.ResultsStrip?.update) {
 
     // AUTO suffix: always for multi-pass station groups (stable, no dropdown dependency)
     const sc = safeString(e.station_code).toUpperCase();
-    const isAutoGroupStation = ["AS1","AS8","AS10","AS2","AS7","AS4","AS6"].includes(sc);
+    const isAutoGroupStation = ["AS1","AS8","AS10","AS12","AS2","AS7","AS4","AS6"].includes(sc);
     const autoSuffix = isAutoGroupStation ? " (AUTO)" : "";
 
 
@@ -3176,7 +3176,7 @@ function shouldAutoFocusBib() {
 
 function stationGroupFromCode(station_code) {
   const sc = String(station_code || "").toUpperCase();
-  if (["AS1", "AS8", "AS10"].includes(sc)) return "CORRAL";
+  if (["AS1", "AS8", "AS10", "AS12"].includes(sc)) return "CORRAL";
   if (["AS2", "AS7"].includes(sc)) return "KANAN";
   if (["AS4", "AS6"].includes(sc)) return "ZUMA";
   return "";
