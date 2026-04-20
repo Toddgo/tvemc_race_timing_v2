@@ -1028,9 +1028,17 @@ async function loadPassesFromServer() {
     
         event_code: r.event_code ?? "",
     
-        comment: (r.mismatch == 1 && !(r.note || "").trim())
+        // Strip any legacy mismatch prefix baked into the note by the old passes_submit.php.
+        // The mismatch flag (r.mismatch) is stored as a proper column and drives display.
+        const _rawNote = String(r.note || "");
+        const _operatorNote = _rawNote.replace(/^⚠️\s*RUNNER OFF COURSE\s*—[^.]*\.\s*/i, "").trim();
+        const _mismatchLabel = (r.mismatch == 1)
           ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
-          : (r.note || ""),
+          : "";
+
+        comment: _mismatchLabel
+          ? (_operatorNote ? `${_mismatchLabel} ${_operatorNote}` : _mismatchLabel)
+          : _operatorNote,
     
         pass_ts: r.pass_ts || "",
         pass_ts_ms: isNaN(passDateUtc.getTime()) ? null : passDateUtc.getTime(),
@@ -1776,7 +1784,10 @@ function editPass(pass_id) {
   if (newTime === null) return;
   const correctedLocal = newTime.trim();
 
-  const newNote = prompt("Edit Note:", entry.comment || "");
+  // Strip any legacy baked-in mismatch prefix so the user sees their original note only
+  const cleanedComment = String(entry.comment || "").replace(/^⚠️\s*RUNNER OFF COURSE\s*—[^.]*\.\s*/i, "").trim();
+
+  const newNote = prompt("Edit Note:", cleanedComment);
   if (newNote === null) return;
   const userNote = (newNote || "").trim();
 

@@ -277,14 +277,6 @@ if ($has_station_code) {
   }
 }
 
-// If mismatch, persist warning into note so it survives refresh/viewer reload
-if ($is_mismatch === 1) {
-  $prefix = "⚠️ {$warning} — {$distance_code} at {$scode}. ";
-  if (stripos($note, $warning) === false) {
-    $note = $prefix . $note;
-  }
-}
-
 // ---------- insert pass ----------
 $stmt = $conn->prepare("
   INSERT INTO passes
