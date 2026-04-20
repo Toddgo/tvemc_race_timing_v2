@@ -42,7 +42,14 @@ function buildPathFromAidStationMap(distance) {
 // stationNameFromCode — prefer dynamic lookup from in-memory AID_STATION_MAP
 function stationNameFromCode(code) {
   const c = String(code || "").toUpperCase();
-  
+
+  // Dynamic lookup first: works for any event (LDV, AZM, SOB, etc.)
+  const aidMap = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+  for (const dist of Object.keys(aidMap)) {
+    const hit = (aidMap[dist] || []).find(s => String(s.station_code || '').toUpperCase() === c);
+    if (hit && hit.station_name) return hit.station_name;
+  }
+
   const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
   const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
   
@@ -51,14 +58,14 @@ function stationNameFromCode(code) {
     AS2: isSOB ? "Kanan Road #1" : "Gila River",
     AS3: isSOB ? "Turnaround Spot (30K . No Aid)" : "Grand Enchantment",
     AS4: isSOB ? "Zuma Edison Ridge Mtwy #1" : "Tortilla",
-    AS5: isSOB ? "Bonsall" : "Freeman",               // ← Add all 19 AZM stations
+    AS5: isSOB ? "Bonsall" : "Freeman",
     AS6: isSOB ? "Zuma Edison Ridge Mtwy #2" : "Black Hills",
     AS7: isSOB ? "Kanan Road #2" : "Tiger Mine",
     AS8: isSOB ? "Corral Canyon #2" : "Oracle",
     AS9: isSOB ? "100K Turnaround - Bulldog" : "Mt Lemmon",
     AS10: isSOB ? "Corral Canyon #3" : "Charloux Gap",
     AS11: isSOB ? "Piuma Creek (No Aid)" : "Catalina",
-    AS12: "Rillito",        // AZM-only stations
+    AS12: "Rillito",
     AS13: "Valencia",
     AS14: "Pistol Hill",
     AS15: "Gabe Zimmerman",
@@ -78,15 +85,12 @@ function stationNameFromCode(code) {
     map.ZUMA_AUTO = "Zuma (AUTO)";
   }
   
-  // Check the map first
   if (map[c]) return map[c];
   
-  // Fallback to older mapping if it exists
   if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) {
     return STATION_NAME_MAP[c];
   }
   
-  // Last resort: return the code itself
   return c;
 }
 
@@ -102,13 +106,17 @@ function buildPathFromAidStationMap(distance) {
 }
 
 
-// Canonical DB-driven recompute for Expected From Previous (replace existing function)
+// Canonical DB-driven recompute for Expected From Previous.
+// Filters to only runners expected at the CURRENT station (per-bib distance path).
 function recomputeExpectedFromPrevForUI() {
   try {
-    const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
-    const distKey = Object.keys(map)[0] || '300M';
-    const stations = (map[distKey] || []).slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
-    const path = stations.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
+    // Current station code — needed to filter output to the right station
+    const currentStation = String(
+      window.__rs_lastStationCode ||
+      (typeof window.getStationCode === 'function' ? window.getStationCode() : '') || ''
+    ).toUpperCase();
+
+    const aidMap = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
 
     // latest pass per bib from the in-memory lastList
     const list = window.__rs_lastList || [];
@@ -121,51 +129,45 @@ function recomputeExpectedFromPrevForUI() {
       if (!prev || ts > (Date.parse(prev.pass_ts || prev.time) || 0)) latestByBib.set(bib, e);
     }
 
-    // helper: normalize simple strings for fuzzy compare
     const norm = s => String(s || '').toUpperCase().trim();
-    const normLoose = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     const out = [];
     for (const [bib, e] of latestByBib.entries()) {
-      // find station code for last station: prefer explicit code; otherwise match by name (exact or fuzzy)
-      const rawLast = e.station_code || e.station || e.station_name || '';
-      const lastRawNorm = norm(rawLast);
-      let matchedStation = stations.find(s => {
-        const sc = String(s.station_code || s.code || s.value || '').toUpperCase().trim();
-        const sname = String(s.station_name || s.text || s.name || '').toUpperCase().trim();
-        return sc === lastRawNorm || sname === lastRawNorm;
-      });
-
-      if (!matchedStation && lastRawNorm) {
-        const target = normLoose(lastRawNorm);
-        matchedStation = stations.find(s => {
-          const snameLoose = normLoose(s.station_name || s.text || s.name || '');
-          const scLoose = normLoose(s.station_code || s.code || s.value || '');
-          return snameLoose === target || scLoose === target;
-        });
+      // Resolve this bib's distance and get the matching aid-station path
+      const dist = norm(e.distance_code || e.distance || '');
+      let distStations = dist && aidMap[dist] ? (aidMap[dist] || []) : [];
+      if (!distStations.length) {
+        // Fallback: first available distance in the map
+        const firstKey = Object.keys(aidMap)[0];
+        distStations = firstKey ? (aidMap[firstKey] || []) : [];
       }
+      if (!distStations.length) continue;
 
-      // canonical last station code (use matched station code if available, otherwise use normalized raw)
-      const lastStationCode = matchedStation ? String(matchedStation.station_code || matchedStation.code || matchedStation.value || '').toUpperCase() : lastRawNorm;
-      const idx = path.indexOf(lastStationCode);
+      const sorted = distStations.slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
+      const path = sorted.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
 
-      // Only include if we can find the downstream station in the path
+      const rawLast = norm(e.station_code || e.station || e.station_name || '');
+      const idx = path.indexOf(rawLast);
       if (idx < 0) continue;
+
       const nextCode = path[idx + 1];
       if (!nextCode) continue;
 
-      const sObj = stations.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
+      // Only include runners expected at the current station
+      if (currentStation && String(nextCode).toUpperCase() !== currentStation) continue;
+
+      const sObj = sorted.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
 
       out.push({
         bib: String(bib),
-        last_station: e.station_name || (matchedStation ? matchedStation.station_name : (e.station || e.station_name || '')),
-        last_station_code: lastStationCode || '',
+        last_station: e.station_name || e.station || rawLast,
+        last_station_code: rawLast,
         last_time: e.pass_ts || e.time || '',
         nextArriving_time: e.pass_ts || e.time || '',
         eta_utc_ms: Date.parse(e.pass_ts || e.time) || 0,
         next_station: sObj.station_name || nextCode || '',
         next_station_code: nextCode || '',
-        distance: e.distance_code || e.distance || distKey
+        distance: dist || (Object.keys(aidMap)[0] || '')
       });
     }
 
@@ -521,6 +523,13 @@ window.getCurrentStationContext = function () {
 // FEB20 2026 Updated for multi-event support (SOB vs AZM-300)
 function stationNameFromCode(code) {
   const c = String(code || "").toUpperCase();
+
+  // Dynamic lookup first: works for any event (LDV, AZM, SOB, etc.)
+  const aidMap = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+  for (const dist of Object.keys(aidMap)) {
+    const hit = (aidMap[dist] || []).find(s => String(s.station_code || '').toUpperCase() === c);
+    if (hit && hit.station_name) return hit.station_name;
+  }
   
   // Determine which event we're running
   const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
@@ -558,15 +567,12 @@ function stationNameFromCode(code) {
     map.ZUMA_AUTO = "Zuma (AUTO)";
   }
   
-  // Check the map first
   if (map[c]) return map[c];
   
-  // Fallback to older mapping if it exists
   if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) {
     return STATION_NAME_MAP[c];
   }
   
-  // Last resort: return the code itself
   return c;
 }
 
@@ -1367,10 +1373,15 @@ function stationNameFromCode(code) {
         if (act === "DNS" || act === "DNF" || act === "FINISH") continue;
     
         const dist = normalizeDistance(e.distance_code || e.distance || "");
-        const path = DIST_PATHS[dist];
+
+        // Use hardcoded path if it covers the target station; otherwise fall back to dynamic AID_STATION_MAP path.
+        // This makes PATH mode work correctly for events (like LDV) whose course differs from the SOB defaults.
+        let path = DIST_PATHS[dist];
+        if (!path || !path.length || !path.some(c => toSet.has(String(c).toUpperCase()))) {
+          path = buildPathFromAidStationMap(dist).path || [];
+        }
         if (!path || !path.length) continue;
     
-       // const lastCode = String(safeStationCode(e) || "").toUpperCase();  // Jan20 17:52 with New below
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
@@ -1392,8 +1403,14 @@ function stationNameFromCode(code) {
           let etaTime = safePassTs(e);
           
           if (curStation?.mile && nextStation?.mile && lastMs) {
-            // Get race start time
-            const startMs = window.RACE_START_TIMES?.[dist] || 0;
+            // Bridge RACE_START_TIMES to TVEMC_startByDistance so ETA works for any event
+            const startMs = (() => {
+              const t = window.RACE_START_TIMES?.[dist];
+              if (t) return t;
+              const iso = window.TVEMC_startByDistance?.get(dist);
+              if (iso) return new Date(iso).getTime();
+              return 0;
+            })();
             if (startMs) {
               const elapsedSec = (lastMs - startMs) / 1000;
               const mph = curStation.mile / (elapsedSec / 3600);
@@ -1629,6 +1646,7 @@ function stationNameFromCode(code) {
       // station selection and labels
       const effectiveStation = String(stationCode || ctx.station_code || "").trim();
       lastStationCode = effectiveStation;
+      window.__rs_lastStationCode = effectiveStation.toUpperCase(); // used by recomputeExpectedFromPrevForUI
       const stationUpper = effectiveStation.toUpperCase();
       const stationLabel = stationLabelFromDropdown(effectiveStation);
       const stationCodes = expandStationCodes(effectiveStation);
@@ -1914,7 +1932,7 @@ function stationNameFromCode(code) {
     
         // Card C - CHANGE THIS LINE:
         cLabel: `Card C — Expected From Previous`,
-        cVal: `${Math.max(0, (window.__rs_expectedPrevRows || expectedPrevRows || []).length - seenHereSet.size)}`,  // ✅ NEW
+        cVal: `${Math.max(0, (expectedPrevRows || []).length)}`,
         cSub: isPersonnelStation(stationUpper)
           ? `Personnel view (no station expectations)`
           : (stationUpper === "FINISH"
