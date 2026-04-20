@@ -25,10 +25,26 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $data = json_decode(file_get_contents('php://input'), true) ?: [];
 
+// Normalize human-readable distance labels to canonical codes so they match aid_stations.distance_code
+function canonicalDistanceCode($d) {
+  $x = strtoupper(preg_replace('/\s+/', ' ', trim((string)($d ?? ''))));
+  if (!$x) return (string)$d;
+  if (in_array($x, ['50 MILER','50MILER','50 MI','50M'])) return '50M';
+  if ($x === '50K') return '50K';
+  if ($x === '30K') return '30K';
+  if (in_array($x, ['26.2','MARATHON'])) return '26.2';
+  if ($x === '100K') return '100K';
+  if (in_array($x, ['100M','100 MI','100 MILE','100 MILES','100 MILER','100MILER'])) return '100M';
+  if (in_array($x, ['200M','200 MI','200 MILE','200 MILES'])) return '200M';
+  if (in_array($x, ['240M','240 MI','240 MILE','240 MILES'])) return '240M';
+  if (in_array($x, ['300M','300 MI','300 MILE','300 MILES'])) return '300M';
+  return (string)$d;
+}
+
 // required
 $event_code    = trim($data['event_code'] ?? 'AZM-300-2026-0004');
 $bib           = (int)($data['bib'] ?? 0);
-$distance_code = trim($data['distance_code'] ?? '');
+$distance_code = canonicalDistanceCode(trim($data['distance_code'] ?? ''));
 $pass_type     = strtoupper(trim($data['pass_type'] ?? 'IN'));
 $station_code  = trim($data['station_code'] ?? '');
 $operator      = trim($data['operator'] ?? '');
