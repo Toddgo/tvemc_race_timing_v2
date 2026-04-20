@@ -1224,12 +1224,6 @@ async function addEntry(action) {
         }
       }
     
-     // FINISH: if any old cached page still sends FINISH, block with a clear message
-    if (pass_type === "FINISH" && String(station_code).toUpperCase() === "FINISH") {
-      if (showAlerts) alert("FINISH blocked: update your page (finish dropdown must be AS12). Hard refresh this device.");
-      continue;
-    }
-
       // Force FINISH record (HQ/RD only)
      // if (pass_type === "FINISH") {
      //   station_code = "FINISH";
