@@ -972,7 +972,7 @@ async function loadPassesFromServer() {
       }
     
       // Distance & station order for computations
-      const distance_code = runner.distance || r.distance_code || "N/A";
+      const distance_code = canonicalDistanceCode(runner.distance || r.distance_code || "N/A");
     
       const station_order_num = (r.station_order !== null && r.station_order !== undefined)
         ? parseInt(r.station_order, 10)
