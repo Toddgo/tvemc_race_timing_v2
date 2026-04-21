@@ -1028,17 +1028,18 @@ async function loadPassesFromServer() {
     
         event_code: r.event_code ?? "",
     
-        // Strip any legacy mismatch prefix baked into the note by the old passes_submit.php.
-        // The mismatch flag (r.mismatch) is stored as a proper column and drives display.
-        const _rawNote = String(r.note || "");
-        const _operatorNote = _rawNote.replace(/^⚠️\s*RUNNER OFF COURSE\s*—[^.]*\.\s*/i, "").trim();
-        const _mismatchLabel = (r.mismatch == 1)
-          ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
-          : "";
-
-        comment: _mismatchLabel
-          ? (_operatorNote ? `${_mismatchLabel} ${_operatorNote}` : _mismatchLabel)
-          : _operatorNote,
+        comment: (() => {
+          // Strip any legacy mismatch prefix baked into the note by the old passes_submit.php.
+          // The mismatch flag (r.mismatch) is stored as a proper column and drives display.
+          const rawNote = String(r.note || "");
+          const operatorNote = rawNote.replace(/^⚠️\s*RUNNER OFF COURSE\s*—[^.]*\.\s*/i, "").trim();
+          const mismatchLabel = (r.mismatch == 1)
+            ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
+            : "";
+          return mismatchLabel
+            ? (operatorNote ? `${mismatchLabel} ${operatorNote}` : mismatchLabel)
+            : operatorNote;
+        })(),
     
         pass_ts: r.pass_ts || "",
         pass_ts_ms: isNaN(passDateUtc.getTime()) ? null : passDateUtc.getTime(),
