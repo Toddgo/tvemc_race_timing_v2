@@ -1,5 +1,5 @@
 <?php
-// aid_stations_import.php – import aid stations from a CSV file upload
+// aid_stations_import.php - import aid stations from a CSV file upload
 // Columns expected: event_id, distance_code, station_order, station_code, station_key, is_aid, is_finish
 // station_key maps to station_name in the aid_stations table.
 // mile defaults to 0.00 when not present in the CSV.
@@ -48,7 +48,10 @@ while (($line = fgetcsv($handle)) !== false) {
         $header = array_map('strtolower', array_map('trim', $line));
         continue;
     }
-    if (count($line) !== count($header)) continue;
+    if (count($line) !== count($header)) {
+        $errors[] = ["row" => count($rows) + 2, "error" => "Column count mismatch (expected " . count($header) . ", got " . count($line) . ")", "data" => $line];
+        continue;
+    }
     $rows[] = array_combine($header, $line);
 }
 fclose($handle);
@@ -106,7 +109,7 @@ try {
         $station_order = (int)safe_str($r['station_order']);
         $station_code  = strtoupper(safe_str($r['station_code']));
         $station_name  = safe_str($r['station_key']);   // station_key → station_name
-        $mile          = isset($r['mile']) ? (float)$r['mile'] : 0.00;
+        $mile          = isset($r['mile']) ? (float)$r['mile'] : 0.00;  // 0.00 when mile column absent; add a mile column to the CSV to populate distances
         $is_aid        = (int)safe_str($r['is_aid']);
         $is_finish     = (int)safe_str($r['is_finish']);
 
