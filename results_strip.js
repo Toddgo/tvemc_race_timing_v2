@@ -1820,7 +1820,10 @@ function stationNameFromCode(code) {
         expectedHereDB = entrantsDB;
       }
     
-      // Determine if this is the first real station in the distance (station_order === 1)
+      // Determine if this is the first real (non-START) aid station in any distance.
+      // Works for events where START occupies station_order=1 and the first staffed
+      // aid station has station_order=2 (e.g. Leona Divide), not just SOB-style where
+      // the first aid station itself is order=1.
       const isFirstStation =
         Array.isArray(stationCodes) &&
         stationCodes.length === 1 &&
@@ -1828,11 +1831,11 @@ function stationNameFromCode(code) {
         (AID_STATION_MAP && (() => {
           const sc = String(stationCodes[0]).toUpperCase();
           for (const d of Object.keys(AID_STATION_MAP || {})) {
-            const arr = AID_STATION_MAP[d] || [];
-            const hit = arr.find(x => String(x.station_code || "").toUpperCase() === sc);
-            // Only return true when this station is order=1 for some distance; keep
-            // checking other distances even if this one has it at a higher order.
-            if (hit && Number(hit.station_order) === 1) return true;
+            const arr = (AID_STATION_MAP[d] || []).slice()
+              .filter(x => String(x.station_code || "").toUpperCase() !== "START")
+              .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+            // True when this station is the FIRST non-START station in any distance path
+            if (arr.length > 0 && String(arr[0].station_code || "").toUpperCase() === sc) return true;
           }
           return false;
         })());
@@ -1865,7 +1868,7 @@ function stationNameFromCode(code) {
         }
     
         // First-station override: show all rostered runners expected from START.
-        // Uses isFirstStation so it works for any event (LDV AS6, SOB AS1, etc.),
+        // Uses isFirstStation so it works for any event (LDV AS1, SOB AS1, etc.),
         // not just the hardcoded SOB AS1 code.
         if (isFirstStation) {
           const seenAtFirstStation = new Set(
@@ -1884,13 +1887,17 @@ function stationNameFromCode(code) {
           const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
           const overrideRows = [];
 
-          // Only include runners whose registered distance path passes through this first station
+          // Only include runners whose distance path has this as the first non-START station.
           const aidMapLocal = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
           const distancesFirstHere = new Set();
           for (const [d, stations] of Object.entries(aidMapLocal)) {
             if (!Array.isArray(stations)) continue;
-            const hit = stations.find(s => String(s.station_code || "").toUpperCase() === stationUpper);
-            if (hit && Number(hit.station_order) === 1) distancesFirstHere.add(String(d).toUpperCase());
+            const sorted = stations.slice()
+              .filter(s => String(s.station_code || "").toUpperCase() !== "START")
+              .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+            if (sorted.length > 0 && String(sorted[0].station_code || "").toUpperCase() === stationUpper) {
+              distancesFirstHere.add(String(d).toUpperCase());
+            }
           }
 
           for (const r of roster) {

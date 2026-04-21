@@ -1063,6 +1063,37 @@ async function loadPassesFromServer() {
   // ----- PASS NUMBER DERIVATION (display only, chronological-safe) 01-07-2026-20:45-----
   // Work on a chronologically sorted copy (oldest -> newest)
   // ----- PASS NUMBER DERIVATION (IN increments; others inherit last IN) -----
+  // Group key is "DIST|BASE_STATION_NAME" (strips "#N" suffix) so stations like
+  // "Lake Hughes #1" and "Lake Hughes #2" in the same distance share the same group.
+  // This is AID_STATION_MAP-driven and works for any event without hardcoding.
+
+  // Pre-compute which (dist|base) groups are multi-pass (2+ station codes share the base name)
+  const multiPassGroups = new Set();
+  for (const [distCode, stations] of Object.entries(AID_STATION_MAP || {})) {
+    const groupCounts = {};
+    for (const st of stations) {
+      const name = String(st.station_name || '').trim();
+      const base = name.replace(/\s*#\d+\s*$/i, '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      if (!base) continue;
+      const key = `${distCode.toUpperCase()}|${base}`;
+      groupCounts[key] = (groupCounts[key] || 0) + 1;
+    }
+    for (const [key, count] of Object.entries(groupCounts)) {
+      if (count > 1) multiPassGroups.add(key);
+    }
+  }
+
+  function stationGroupFromEntry(entry) {
+    const distCode = String(entry.distance_code || '').toUpperCase();
+    const stCode = String(entry.station_code || '').toUpperCase();
+    const distStations = AID_STATION_MAP[distCode] || [];
+    const stObj = distStations.find(s => String(s.station_code || '').toUpperCase() === stCode);
+    const name = String(stObj?.station_name || entry.station_name || '').trim();
+    if (!name) return '';
+    const base = name.replace(/\s*#\d+\s*$/i, '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    return base ? `${distCode}|${base}` : '';
+  }
+
   const chron = [...entries].sort((a, b) => (a.pass_ts_ms || 0) - (b.pass_ts_ms || 0));
 
   const inCount = {};           // "bib|GROUP" -> number of INs
@@ -1071,9 +1102,7 @@ async function loadPassesFromServer() {
 
   for (const e of chron) {
     const bib = String(e.bib_number || "");
-    const group = stationGroupFromCode(e.station_code);
-              // const baseStation = stripPassSuffix(e.station);
-              // const group = stationGroupFromName(baseStation);
+    const group = stationGroupFromEntry(e);
     if (!bib || !group) continue;
 
     const k = `${bib}|${group}`;
@@ -1090,11 +1119,12 @@ async function loadPassesFromServer() {
   }
 
   for (const e of entries) {
-    const group = stationGroupFromCode(e.station_code);
+    const group = stationGroupFromEntry(e);
     if (!group) continue;
 
     const n = passLabelByPassId[e.pass_id];
-    e.pass_num = n ? String(n) : "";  // store pass number only
+    // Only store a pass number for multi-pass stations (so single-pass stations stay blank)
+    e.pass_num = (multiPassGroups.has(group) && n) ? String(n) : "";
   }
 
 
@@ -1417,9 +1447,18 @@ async function addEntry(action) {
         }
 
         // Restore Elapsed / Avg Pace / ETA Next for IN/OUT rows
-        const so = stationOrderFromCode(payload.station_code);
-        if (so != null && entry.pass_ts_utc && !entry.mismatch) {
-          const m = computeElapsedPaceEta(payload.distance_code, so, entry.pass_ts_utc);
+        // Look up the real station_order from AID_STATION_MAP (handles events like LD where
+        // START occupies order=1, so AS1 is order=2 — parsing the suffix would give wrong result).
+        const so = (() => {
+          const dc = String(payload.distance_code || '').toUpperCase();
+          const sc = String(payload.station_code || '').toUpperCase();
+          const distStations = AID_STATION_MAP[dc] || [];
+          const found = distStations.find(s => String(s.station_code || '').toUpperCase() === sc);
+          if (found && found.station_order != null) return Number(found.station_order);
+          return stationOrderFromCode(payload.station_code); // fallback
+        })();
+        if (so != null && (entry.pass_ts_utc || entry.pass_ts) && !entry.mismatch) {
+          const m = computeElapsedPaceEta(payload.distance_code, so, entry.pass_ts_utc || entry.pass_ts);
           entry.elapsed_total = m.elapsed;
           entry.avg_pace = m.pace;
           entry.eta = m.eta_next;
@@ -1672,18 +1711,17 @@ if (window.ResultsStrip?.update) {
   for (const e of list) {
   const tr = document.createElement("tr");
 
-    const stationLabelRaw = String(e.station_label || e.station || e.station_name || "");
-    const mPass = stationLabelRaw.match(/\(Pass\s+(\d+)\)/i);
-    const rawPassNum = mPass ? mPass[1] : "";
-    
-    // Only show Pass # for Corral/Kanan/Zuma rows
-    const showPass = !!stationGroupFromCode(e.station_code); // CORRAL/KANAN/ZUMA only
-    const passNum = showPass ? (e.pass_num || "") : "";
+    // Show Pass # only for stations that are part of a multi-pass group in AID_STATION_MAP.
+    // pass_num is already blank for single-pass stations (set during derivation above).
+    const passNum = e.pass_num || "";
 
-    // AUTO suffix: always for multi-pass station groups (stable, no dropdown dependency)
+    // AUTO suffix: only show for SOB events where CORRAL/KANAN/ZUMA auto groups are active.
+    // For non-SOB events (e.g. LD-100), no auto groups exist so never append "(AUTO)".
     const sc = safeString(e.station_code).toUpperCase();
-    const isAutoGroupStation = ["AS1","AS8","AS10","AS12","AS2","AS7","AS4","AS6"].includes(sc);
-    const autoSuffix = isAutoGroupStation ? " (AUTO)" : "";
+    const currentEventCode = String(typeof getEventCode === "function" ? getEventCode() : (localStorage.getItem("tvemc_eventName") || "")).toUpperCase();
+    const isSOBEvent = currentEventCode.includes("SOB") || currentEventCode.includes("KH_SOB");
+    const SOB_AUTO_STATIONS = new Set(["AS1","AS8","AS10","AS12","AS2","AS7","AS4","AS6"]);
+    const autoSuffix = (isSOBEvent && SOB_AUTO_STATIONS.has(sc)) ? " (AUTO)" : "";
 
 
     // Only show Pass # for Corral Canyon rows

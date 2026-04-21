@@ -246,12 +246,15 @@ th, td {
     white-space: nowrap; /* Prevent wrapping to keep data readable */
 }
 
-/* Override for comment column (7th column, "C" for comments) - moved outside media query */
-th:nth-child(7),
-td:nth-child(7) {
+/* Override for comment column (8th column) - moved outside media query */
+th:nth-child(8),
+td:nth-child(8) {
     white-space: normal; /* Allow wrapping */
     word-wrap: break-word; /* Break long words if needed */
-    max-width: 200px; /* Limit width to prevent over-expansion; adjust if too narrow/wide */
+    min-width: 120px;
+    max-width: 300px; /* Limit width to prevent over-expansion */
+    resize: horizontal;  /* Allow user to drag-resize the comment column */
+    overflow: auto;
 }
 
 @media (max-width: 600px) {
