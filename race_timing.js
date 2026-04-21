@@ -1748,7 +1748,7 @@ if (window.ResultsStrip?.update) {
       <td>${e.gender_place || ""}</td>
       <td>${e.age_group || ""}</td>
       <td>${e.ag_place || ""}</td>
-      <td>${e.eta ?? "N/A"}</td>
+      <td>${e.eta ?? e.eta_next ?? "N/A"}</td>
       <td>${e.date ?? ""}</td>
       <td>${e.first_name ?? "N/A"}</td>
       <td>${e.last_name ?? "N/A"}</td>
@@ -2971,16 +2971,29 @@ function parsePassTsUtcToDate(tsUtc) {
 /*----change 07012026-11:55 --*/
 function getStartTimeForDistance(distance_code) {
   const dc = String(distance_code || "").trim();
+  const canon = canonicalDistanceCode(dc);
+
+  // Helper: try a Map with both the raw key and canonical key
+  function mapGet(map, key) {
+    if (!map) return undefined;
+    if (map.has(key)) return map.get(key);
+    if (map.has(canon)) return map.get(canon);
+    // Also try every key through canonical lookup
+    for (const [k, v] of map.entries()) {
+      if (canonicalDistanceCode(k) === canon) return v;
+    }
+    return undefined;
+  }
 
   // Prefer ISO values loaded from results_config_load.php
-  const iso = window.TVEMC_startByDistance?.get(dc);
+  const iso = mapGet(window.TVEMC_startByDistance, dc);
   if (iso) {
     const d = new Date(iso);
     return isNaN(d.getTime()) ? null : d;
   }
 
   // Fallback: if we only have a raw DB string like "YYYY-MM-DD HH:MM:SS"
-  const raw = window.TVEMC_startByDistanceRaw?.get(dc);
+  const raw = mapGet(window.TVEMC_startByDistanceRaw, dc);
   if (raw) {
     const d2 = new Date(String(raw).replace(" ", "T") + "-08:00"); // Jan race = PST
     return isNaN(d2.getTime()) ? null : d2;
@@ -2998,13 +3011,24 @@ function stationOrderFromCode(code) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+function _aidStationList(distance_code) {
+  // Direct lookup
+  if (AID_STATION_MAP[distance_code]) return AID_STATION_MAP[distance_code];
+  // Canonical fallback: find map key that canonicalizes to the same code
+  const canon = canonicalDistanceCode(distance_code);
+  for (const k of Object.keys(AID_STATION_MAP)) {
+    if (canonicalDistanceCode(k) === canon) return AID_STATION_MAP[k];
+  }
+  return [];
+}
+
 function lookupStationByOrder(distance_code, station_order) {
-  const list = AID_STATION_MAP[distance_code] || [];
+  const list = _aidStationList(distance_code);
   return list.find(s => s.station_order === station_order) || null;
 }
 
 function lookupNextStation(distance_code, station_order) {
-  const list = AID_STATION_MAP[distance_code] || [];
+  const list = _aidStationList(distance_code);
   return list.find(s => s.station_order > station_order) || null;
 }
 
@@ -3368,20 +3392,20 @@ function canonicalDistanceCode(d) {
   const x = String(d || "").trim();
   if (!x) return "";
 
-  // Normalize common human labels
-  const u = x.toUpperCase().replace(/\s+/g, " ").trim();
+  // Strip ALL internal whitespace so "50 K" → "50K", "50 M" → "50M", etc.
+  const u = x.toUpperCase().replace(/\s+/g, "");
 
-  if (u === "50 MILER" || u === "50MILER" || u === "50 MI" || u === "50M") return "50M";
+  if (u === "50MILER" || u === "50MI" || u === "50M") return "50M";
   if (u === "50K") return "50K";
   if (u === "30K") return "30K";
   if (u === "26.2" || u === "MARATHON") return "26.2";
   if (u === "100K") return "100K";
-  if (new Set(["100M","100 MI","100 MILE","100 MILES","100 MILER","100MILER"]).has(u)) return "100M";
+  if (new Set(["100M","100MI","100MILE","100MILES","100MILER"]).has(u)) return "100M";
 
   // Optional future-proofing (AZM/Bigfoot/Moab style)
-  if (u === "200M" || u === "200 MI" || u === "200 MILE" || u === "200 MILES") return "200M";
-  if (u === "240M" || u === "240 MI" || u === "240 MILE" || u === "240 MILES") return "240M";
-  if (u === "300M" || u === "300 MI" || u === "300 MILE" || u === "300 MILES") return "300M";
+  if (u === "200M" || u === "200MI" || u === "200MILE" || u === "200MILES") return "200M";
+  if (u === "240M" || u === "240MI" || u === "240MILE" || u === "240MILES") return "240M";
+  if (u === "300M" || u === "300MI" || u === "300MILE" || u === "300MILES") return "300M";
 
   return x; // if already a code like "50M"
 }

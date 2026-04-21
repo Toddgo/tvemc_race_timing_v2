@@ -27,17 +27,18 @@ $data = json_decode(file_get_contents('php://input'), true) ?: [];
 
 // Normalize human-readable distance labels to canonical codes so they match aid_stations.distance_code
 function canonicalDistanceCode($d) {
-  $x = strtoupper(preg_replace('/\s+/', ' ', trim((string)($d ?? ''))));
+  // Strip ALL internal whitespace so "50 K" → "50K", "50 M" → "50M", etc.
+  $x = strtoupper(preg_replace('/\s+/', '', trim((string)($d ?? ''))));
   if (!$x) return (string)$d;
-  if (in_array($x, ['50 MILER','50MILER','50 MI','50M'])) return '50M';
+  if (in_array($x, ['50MILER','50MI','50M'])) return '50M';
   if ($x === '50K') return '50K';
   if ($x === '30K') return '30K';
   if (in_array($x, ['26.2','MARATHON'])) return '26.2';
   if ($x === '100K') return '100K';
-  if (in_array($x, ['100M','100 MI','100 MILE','100 MILES','100 MILER','100MILER'])) return '100M';
-  if (in_array($x, ['200M','200 MI','200 MILE','200 MILES'])) return '200M';
-  if (in_array($x, ['240M','240 MI','240 MILE','240 MILES'])) return '240M';
-  if (in_array($x, ['300M','300 MI','300 MILE','300 MILES'])) return '300M';
+  if (in_array($x, ['100M','100MI','100MILE','100MILES','100MILER'])) return '100M';
+  if (in_array($x, ['200M','200MI','200MILE','200MILES'])) return '200M';
+  if (in_array($x, ['240M','240MI','240MILE','240MILES'])) return '240M';
+  if (in_array($x, ['300M','300MI','300MILE','300MILES'])) return '300M';
   return (string)$d;
 }
 
@@ -131,35 +132,45 @@ if ($has_station_code) {
   $station_id_any = (int)($station_row['station_id'] ?? 0);
 
   // 2) Is it valid for this distance?
+  // Fetch ALL stations for this event sharing this station_code, then compare distances
+  // using canonicalDistanceCode() on both sides to tolerate format differences in the DB
+  // (e.g. "50 K" in aid_stations vs "50K" sent by the client).
   $q2 = $conn->prepare("
-    SELECT station_id
+    SELECT station_id, distance_code
     FROM aid_stations
     WHERE event_id = ?
-      AND distance_code = ?
       AND (
         ( ? = 'START'  AND station_order = 0 )
         OR ( ? = 'FINISH' AND is_finish = 1 )
         OR (station_code = ?)
       )
-    LIMIT 1
   ");
   if (!$q2) {
     http_response_code(500);
     echo json_encode(['success'=>false,'error'=>'Prepare failed (distance station lookup)','details'=>$conn->error]);
     exit;
   }
-  $q2->bind_param("issss", $event_id, $distance_code, $scode, $scode, $scode);
+  $q2->bind_param("isss", $event_id, $scode, $scode, $scode);
   $q2->execute();
-  $r = $q2->get_result()->fetch_assoc();
+  $q2_rows = $q2->get_result()->fetch_all(MYSQLI_ASSOC);
   $q2->close();
 
-  if (!$r) {
+  // Find the first row whose canonical distance matches the submitted canonical distance
+  $station_for_dist = null;
+  foreach ($q2_rows as $q2row) {
+    if (canonicalDistanceCode((string)($q2row['distance_code'] ?? '')) === $distance_code) {
+      $station_for_dist = $q2row;
+      break;
+    }
+  }
+
+  if (!$station_for_dist) {
     // mismatch: station exists for event, but not for this distance
     $is_mismatch = 1;
     $warning = 'RUNNER OFF COURSE';
     $station_id = $station_id_any;
   } else {
-    $station_id = (int)$r['station_id'];
+    $station_id = (int)$station_for_dist['station_id'];
   }
 
 } else {

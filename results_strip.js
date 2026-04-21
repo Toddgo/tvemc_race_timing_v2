@@ -131,13 +131,22 @@ function recomputeExpectedFromPrevForUI() {
       if (!prev || ts > (Date.parse(prev.pass_ts || prev.time) || 0)) latestByBib.set(bib, e);
     }
 
-    const norm = s => String(s || '').toUpperCase().trim();
+    const norm = s => {
+      if (typeof canonicalDistanceCode === 'function') return canonicalDistanceCode(s);
+      return String(s || '').toUpperCase().replace(/\s+/g, '').trim();
+    };
 
     const out = [];
     for (const [bib, e] of latestByBib.entries()) {
       // Resolve this bib's distance and get the matching aid-station path
       const dist = norm(e.distance_code || e.distance || '');
       let distStations = dist && aidMap[dist] ? (aidMap[dist] || []) : [];
+      if (!distStations.length && dist) {
+        // Try canonical match on aidMap keys (handles "50 K" stored in DB vs "50K" canonical)
+        for (const [k, v] of Object.entries(aidMap)) {
+          if (norm(k) === dist) { distStations = v || []; break; }
+        }
+      }
       if (!distStations.length) {
         // Fallback: first available distance in the map
         const firstKey = Object.keys(aidMap)[0];
@@ -1894,6 +1903,9 @@ function stationNameFromCode(code) {
 
           // Only include runners whose distance path has this as the first non-START station.
           const aidMapLocal = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+          const _distCanon = (typeof canonicalDistanceCode === 'function')
+            ? canonicalDistanceCode
+            : s => String(s || '').toUpperCase().replace(/\s+/g, '').trim();
           const distancesFirstHere = new Set();
           for (const [d, stations] of Object.entries(aidMapLocal)) {
             if (!Array.isArray(stations)) continue;
@@ -1901,7 +1913,7 @@ function stationNameFromCode(code) {
               .filter(s => String(s.station_code || "").toUpperCase() !== "START")
               .sort((a, b) => Number(a.station_order) - Number(b.station_order));
             if (sorted.length > 0 && String(sorted[0].station_code || "").toUpperCase() === stationUpper) {
-              distancesFirstHere.add(String(d).toUpperCase());
+              distancesFirstHere.add(_distCanon(d));
             }
           }
 
@@ -1910,7 +1922,7 @@ function stationNameFromCode(code) {
             if (!bib) continue;
             // Distance filter: only show bibs whose distance starts at this station
             if (distancesFirstHere.size) {
-              const bibDist = String(r?.distance || r?.distance_code || "").trim().toUpperCase();
+              const bibDist = _distCanon(r?.distance || r?.distance_code || "");
               if (!distancesFirstHere.has(bibDist)) continue;
             }
             if (seenAtFirstStation.has(bib)) continue;
