@@ -1430,19 +1430,38 @@ function stationNameFromCode(code) {
     
         const dist = normalizeDistance(e.distance_code || e.distance || "");
 
-        // Use hardcoded path if it covers the target station; otherwise fall back to dynamic AID_STATION_MAP path.
-        // This makes PATH mode work correctly for events (like LDV) whose course differs from the SOB defaults.
-        let path = DIST_PATHS[dist];
-        if (!path || !path.length || !path.some(c => toSet.has(String(c).toUpperCase()))) {
-          path = buildPathFromAidStationMap(dist).path || [];
+        // Prefer DB-driven path (event-specific, most accurate) over the hardcoded DIST_PATHS.
+        // Fall back to DIST_PATHS if the DB has no path covering the target station.
+        let path = buildPathFromAidStationMap(dist).path || [];
+        if (!path.length || !path.some(c => toSet.has(String(c).toUpperCase()))) {
+          path = DIST_PATHS[dist] || [];
         }
         if (!path || !path.length) continue;
     
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
-        const idx = path.indexOf(lastCode);
-        if (idx < 0) continue;
+        let idx = path.indexOf(lastCode);
+        // Runner's last station not in the primary path — try alternate path sources.
+        // This handles events (e.g. LDV 50K) where the runner's actual path diverges
+        // from the hardcoded DIST_PATHS defaults (SOB-centric).
+        if (idx < 0) {
+          const aidMapNow = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+          const tried = path;
+          const altPaths = [
+            DIST_PATHS[dist] || [],
+            buildPathFromAidStationMap(dist).path || [],
+            ...Object.keys(aidMapNow).map(k => buildPathFromAidStationMap(k).path || [])
+          ].filter(ap => ap.length && ap !== tried);
+          let found = false;
+          for (const ap of altPaths) {
+            const ai = ap.indexOf(lastCode);
+            if (ai >= 0 && ap[ai + 1] && toSet.has(String(ap[ai + 1]).toUpperCase())) {
+              path = ap; idx = ai; found = true; break;
+            }
+          }
+          if (!found) continue;
+        }
     
         const nextCode = path[idx + 1];
         if (!nextCode) continue;
@@ -1811,7 +1830,9 @@ function stationNameFromCode(code) {
           for (const d of Object.keys(AID_STATION_MAP || {})) {
             const arr = AID_STATION_MAP[d] || [];
             const hit = arr.find(x => String(x.station_code || "").toUpperCase() === sc);
-            if (hit) return Number(hit.station_order) === 1;
+            // Only return true when this station is order=1 for some distance; keep
+            // checking other distances even if this one has it at a higher order.
+            if (hit && Number(hit.station_order) === 1) return true;
           }
           return false;
         })());

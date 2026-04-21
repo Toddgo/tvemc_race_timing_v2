@@ -177,7 +177,15 @@ INSERT INTO `aid_stations` (`station_id`, `event_id`, `distance_code`, `station_
 (159, 5, '100M', 7, 'AS7', 'Aid Station 7', 70.00, 1, 0, '2026-04-17 00:00:00'),
 (160, 5, '100M', 8, 'AS8', 'Aid Station 8', 80.00, 1, 0, '2026-04-17 00:00:00'),
 (161, 5, '100M', 9, 'AS9', 'Aid Station 9', 90.00, 1, 0, '2026-04-17 00:00:00'),
-(162, 5, '100M', 999, 'FINISH', 'Finish Line', 100.00, 1, 1, '2026-04-17 00:00:00');
+(162, 5, '100M', 999, 'FINISH', 'Finish Line', 100.00, 1, 1, '2026-04-17 00:00:00'),
+-- LD-100-2026-0005 (event_id=5) 50K aid stations
+-- NOTE: Update mile values and official_start_ts to match the actual 50K course layout.
+--       Run ldv_50k_stations_fix.sql on the live DB to apply these entries.
+(163, 5, '50K', 0, 'START', 'Start', 0.00, 0, 0, '2026-04-19 00:00:00'),
+(164, 5, '50K', 1, 'AS6', 'Lake Hughes #1', 11.00, 1, 0, '2026-04-19 00:00:00'),
+(165, 5, '50K', 2, 'AS7', 'Sawmill Road', 19.50, 1, 0, '2026-04-19 00:00:00'),
+(166, 5, '50K', 3, 'AS8', 'Lake Hughes #2', 26.20, 1, 0, '2026-04-19 00:00:00'),
+(167, 5, '50K', 999, 'FINISH', 'Finish Line', 31.07, 1, 1, '2026-04-19 00:00:00');
 
 -- --------------------------------------------------------
 
@@ -244,7 +252,9 @@ INSERT INTO `event_distances` (`distance_id`, `event_id`, `distance_code`, `dist
 (22, 3, '100K', '100K', 62.14, '2026-01-31 05:00:00', NULL, '2026-01-30 08:01:51'),
 (23, 4, '300M', 'Arizona Monster 300', 304.30, '2026-03-27 12:00:00', NULL, '2026-02-07 01:06:00'),
 -- LD-100-2026-0005 event distances (event_id=5); update official_start_ts to actual start time
-(24, 5, '100M', '100 Mile', 100.00, '2026-04-19 06:00:00', 36.00, '2026-04-17 00:00:00');
+(24, 5, '100M', '100 Mile', 100.00, '2026-04-19 06:00:00', 36.00, '2026-04-17 00:00:00'),
+-- 50K distance for LD-100-2026-0005; update official_start_ts to actual 50K wave start
+(25, 5, '50K', '50K', 31.07, '2026-04-19 09:00:00', 12.00, '2026-04-19 00:00:00');
 
 -- --------------------------------------------------------
 
