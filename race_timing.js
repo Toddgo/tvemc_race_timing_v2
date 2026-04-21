@@ -1955,7 +1955,17 @@ function wireHeaderFieldPersistence() {
   // Keep legacy/global (optional, but fine)
   localStorage.setItem("tvemc_aidStation", sc);
 
+  // Update the cached station immediately so the results strip 5-second interval
+  // uses the new station rather than the previous one (fixes stale-FINISH Card C bug).
+  window.__rs_lastStationCode = sc;
+
   updateSubject();
+
+  // Re-render Card C immediately for the newly selected station without waiting
+  // for the 10-second auto-refresh cycle.
+  if (window.ResultsStrip?.update) {
+    window.ResultsStrip.update(window.__rs_lastList || entries, sc);
+  }
 });
 }
 

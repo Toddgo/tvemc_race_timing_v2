@@ -110,10 +110,12 @@ function buildPathFromAidStationMap(distance) {
 // Filters to only runners expected at the CURRENT station (per-bib distance path).
 function recomputeExpectedFromPrevForUI() {
   try {
-    // Current station code — needed to filter output to the right station
+    // Current station code — prefer the live dropdown/sessionStorage value so the 5-second
+    // interval stays correct even when the user changes the station without triggering a
+    // full computeAndRender cycle (e.g. before the 10-second auto-refresh fires).
     const currentStation = String(
-      window.__rs_lastStationCode ||
-      (typeof window.getStationCode === 'function' ? window.getStationCode() : '') || ''
+      (typeof window.getStationCode === 'function' ? window.getStationCode() : '') ||
+      window.__rs_lastStationCode || ''
     ).toUpperCase();
 
     const aidMap = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
