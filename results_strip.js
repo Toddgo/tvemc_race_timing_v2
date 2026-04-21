@@ -182,8 +182,13 @@ function recomputeExpectedFromPrevForUI() {
       const distancesFirstHere = new Set();
       for (const [d, stations] of Object.entries(aidMap)) {
         if (!Array.isArray(stations)) continue;
-        const hit = stations.find(s => String(s.station_code || '').toUpperCase() === currentStation);
-        if (hit && Number(hit.station_order) === 1) distancesFirstHere.add(norm(d));
+        // Find the first non-START station (handles events where START is order=1 explicitly)
+        const sorted = stations.slice()
+          .filter(s => String(s.station_code || '').toUpperCase() !== 'START')
+          .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+        if (sorted.length > 0 && String(sorted[0].station_code || '').toUpperCase() === currentStation) {
+          distancesFirstHere.add(norm(d));
+        }
       }
 
       if (distancesFirstHere.size > 0 && window.bibList && Array.isArray(window.bibList)) {
