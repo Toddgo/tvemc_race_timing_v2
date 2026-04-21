@@ -39,6 +39,8 @@ CREATE TABLE `aid_stations` (
   `is_finish` tinyint(1) NOT NULL DEFAULT 0,
   `is_multi_pass` tinyint(1) NOT NULL DEFAULT 0,
   `multi_pass_group` varchar(32) DEFAULT NULL,
+  `lat` decimal(10,6) DEFAULT NULL,
+  `lon` decimal(10,6) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 

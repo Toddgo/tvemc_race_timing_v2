@@ -2930,7 +2930,7 @@ async function loadStartTimesFromDBIntoUI() {
 }
 
 let AID_STATION_MAP = {}; 
-// shape: { "26.2": [{station_order, station_code, station_name, mile}, ...], "30K": [...] }
+// shape: { "26.2": [{station_order, station_code, station_name, mile, lat, lon}, ...], "30K": [...] }
 
 async function loadAidStationsFromServer() {
   const event_code = cleanEventCode(getEventCode());
@@ -2950,7 +2950,9 @@ async function loadAidStationsFromServer() {
       station_order: parseInt(r.station_order, 10),
       station_code: String(r.station_code || "").trim(),
       station_name: String(r.station_name || "").trim(),
-      mile: parseFloat(r.mile || "0")
+      mile: parseFloat(r.mile || "0"),
+      lat: r.lat != null ? parseFloat(r.lat) : null,
+      lon: r.lon != null ? parseFloat(r.lon) : null
     });
   }
 
