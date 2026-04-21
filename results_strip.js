@@ -175,6 +175,60 @@ function recomputeExpectedFromPrevForUI() {
 
     out.sort((a, b) => b.eta_utc_ms - a.eta_utc_ms);
 
+    // First-station supplement: runners coming straight from START (no pass in DB yet)
+    // are invisible to the path-based loop above. Detect first-station from AID_STATION_MAP
+    // and add any rostered bibs not yet seen at this station.
+    if (currentStation) {
+      const distancesFirstHere = new Set();
+      for (const [d, stations] of Object.entries(aidMap)) {
+        if (!Array.isArray(stations)) continue;
+        const hit = stations.find(s => String(s.station_code || '').toUpperCase() === currentStation);
+        if (hit && Number(hit.station_order) === 1) distancesFirstHere.add(norm(d));
+      }
+
+      if (distancesFirstHere.size > 0 && window.bibList && Array.isArray(window.bibList)) {
+        const seenHere = new Set(
+          (list || [])
+            .filter(e => String(e.station_code || '').toUpperCase() === currentStation)
+            .map(e => String(e.bib || e.bib_number || '').trim())
+            .filter(Boolean)
+        );
+        const dns = window.__rs_dnsSet || new Set();
+        const dnf = window.__rs_dnfSet || new Set();
+        const finished = window.__rs_finishSet || new Set();
+        const alreadyInOut = new Set(out.map(r => String(r.bib)));
+
+        for (const r of window.bibList) {
+          const bib = String(r.bib || '').trim();
+          if (!bib) continue;
+          const bibDist = norm(r.distance || r.distance_code || '');
+          if (!distancesFirstHere.has(bibDist)) continue;
+          if (seenHere.has(bib)) continue;
+          if (dns.has(bib) || dnf.has(bib) || finished.has(bib)) continue;
+          if (alreadyInOut.has(bib)) continue;
+          out.push({
+            bib,
+            last_station: 'START',
+            last_station_code: 'START',
+            last_time: '',
+            nextArriving_time: '',
+            eta_utc_ms: 0,
+            next_station: '(arriving here)',
+            next_station_code: currentStation,
+            distance: bibDist
+          });
+        }
+
+        // Re-sort: path-based rows (with real timestamps) first, then START rows by bib number
+        out.sort((a, b) => {
+          if (a.eta_utc_ms && b.eta_utc_ms) return b.eta_utc_ms - a.eta_utc_ms;
+          if (a.eta_utc_ms) return -1;
+          if (b.eta_utc_ms) return 1;
+          return Number(a.bib) - Number(b.bib);
+        });
+      }
+    }
+
     // authoritative write
     window.__rs_expectedPrevRows = out;
     return out;
@@ -1789,11 +1843,13 @@ function stationNameFromCode(code) {
           expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
         }
     
-        // CCAS1: Corral Pass-1 reconciliation (START → AS1) — event-specific override
-        if (stationUpper === "AS1") {
-          const seenAtAS1 = new Set(
+        // First-station override: show all rostered runners expected from START.
+        // Uses isFirstStation so it works for any event (LDV AS6, SOB AS1, etc.),
+        // not just the hardcoded SOB AS1 code.
+        if (isFirstStation) {
+          const seenAtFirstStation = new Set(
             (lastList || [])
-              .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
+              .filter(e => String(e?.station_code || "").toUpperCase() === stationUpper)
               .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
               .filter(Boolean)
           );
@@ -1804,62 +1860,43 @@ function stationNameFromCode(code) {
               .map(([bib]) => String(bib).trim())
           );
     
-        const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
-        const overrideRows = [];
-        
-        // ✅ ADD THESE DEBUG LINES:
-        console.log("🔍 AS1 Override Debug:");
-        console.log("  - stationUpper:", stationUpper);
-        console.log("  - bibList exists?", typeof bibList !== "undefined");
-        console.log("  - bibList is array?", Array.isArray(bibList));
-        console.log("  - roster length:", roster.length);
-        console.log("  - seenAtAS1 size:", seenAtAS1.size);
-        
-        for (const r of roster) {
-          const bib = String(r?.bib ?? "").trim();
-          if (!bib) {
-            console.log("  - SKIP: empty bib");
-            continue;
+          const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+          const overrideRows = [];
+
+          // Only include runners whose registered distance path passes through this first station
+          const aidMapLocal = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+          const distancesFirstHere = new Set();
+          for (const [d, stations] of Object.entries(aidMapLocal)) {
+            if (!Array.isArray(stations)) continue;
+            const hit = stations.find(s => String(s.station_code || "").toUpperCase() === stationUpper);
+            if (hit && Number(hit.station_order) === 1) distancesFirstHere.add(String(d).toUpperCase());
           }
-          if (seenAtAS1.has(bib)) {
-            console.log("  - SKIP bib", bib, ": already seen at AS1");
-            continue;
+
+          for (const r of roster) {
+            const bib = String(r?.bib ?? "").trim();
+            if (!bib) continue;
+            // Distance filter: only show bibs whose distance starts at this station
+            if (distancesFirstHere.size) {
+              const bibDist = String(r?.distance || r?.distance_code || "").trim().toUpperCase();
+              if (!distancesFirstHere.has(bibDist)) continue;
+            }
+            if (seenAtFirstStation.has(bib)) continue;
+            if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+            if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+            if (finishedBibs.has(bib)) continue;
+            overrideRows.push({
+              bib,
+              last_station: "START",
+              last_station_code: "START",
+              nextArriving_time: "",
+              next_station: "(arriving here)",
+              next_station_code: stationUpper,
+              distance: r?.distance || ""
+            });
           }
-          if (stickyStatusByBib?.dns?.has?.(bib)) {
-            console.log("  - SKIP bib", bib, ": DNS");
-            continue;
-          }
-          if (stickyStatusByBib?.dnf?.has?.(bib)) {
-            console.log("  - SKIP bib", bib, ": DNF");
-            continue;
-          }
-          if (finishedBibs.has(bib)) {
-            console.log("  - SKIP bib", bib, ": finished");
-            continue;
-          }
-        
-          console.log("  ✅ ADDING bib", bib, "to overrideRows");
-          overrideRows.push({
-            bib,
-            last_station: "START",
-            last_station_code: "START",
-            nextArriving_time: "",
-            next_station: "(arriving here)",
-            next_station_code: "AS1",
-            distance: r?.distance || ""
-          });
-        }
-        
-        overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
-        console.log("  - overrideRows created:", overrideRows.length);
-        // ✅ ADD THIS DEBUG:
-        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
-        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
-        
-        if (overrideRows.length) expectedPrevRows = overrideRows;
-        // ✅ ADD THIS DEBUG:
-        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
-        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
+
+          overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
+          if (overrideRows.length) expectedPrevRows = overrideRows;
         }
       } // end if not personnel station
     
