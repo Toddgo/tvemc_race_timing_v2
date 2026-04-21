@@ -933,7 +933,12 @@ async function loadPassesFromServer() {
       for (const r of rows) {
         const dc = String(r.distance_code || "").trim();
         if (!dc || dc === "N/A") continue;
-        if (window.TVEMC_startByDistance.has(dc)) continue; // explicit start already set
+        // Check for a saved start time using canonical key comparison so "50K" and "50 K" match
+        const dcCanon = canonicalDistanceCode(dc);
+        const hasExplicit = [...window.TVEMC_startByDistance.keys()].some(
+          k => canonicalDistanceCode(k) === dcCanon
+        );
+        if (hasExplicit) continue; // explicit start already set — skip auto-derive
         const isStartStation = (r.station_order === 0) ||
           String(r.station_code || "").toUpperCase() === "START";
         const isIn = String(r.pass_type || "").toUpperCase() === "IN";
@@ -1748,7 +1753,7 @@ if (window.ResultsStrip?.update) {
       <td>${e.gender_place || ""}</td>
       <td>${e.age_group || ""}</td>
       <td>${e.ag_place || ""}</td>
-      <td>${e.eta ?? e.eta_next ?? "N/A"}</td>
+      <td>${e.eta_next != null ? e.eta_next : (e.eta ?? "N/A")}</td>
       <td>${e.date ?? ""}</td>
       <td>${e.first_name ?? "N/A"}</td>
       <td>${e.last_name ?? "N/A"}</td>
