@@ -917,7 +917,7 @@ function stationNameFromCode(code) {
             <option value="finished">Finished</option>
             <option value="not_finished">Not Finished</option>
             <option value="not_seen">Not Seen (this station)</option>
-            <option value="last10_here">Last 10 Seen Here</option>
+            <option value="last10_here">Last Seen Here</option>
             <option value="expected_prev">Expected From Previous</option>
             <option value="corral_nonstart">Corral Reconciliation (Non-Start)</option>
           </select>
@@ -1363,7 +1363,7 @@ function stationNameFromCode(code) {
           };
         })
         .sort((a, b) => parseTsToMs(b._ts) - parseTsToMs(a._ts))
-        .slice(0, 10);
+        .slice(0, 50);
     
       // Remove internal sort key so it doesn't show as a popup column
       rows.forEach(r => delete r._ts);
@@ -2017,7 +2017,7 @@ function stationNameFromCode(code) {
         // Card B
         bLabel: `Card B — Seen at ${stationLabel}`,
         bVal: `${seenHereSet.size}`,
-        bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast 10 seen here: (Open List)`,
+        bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast seen here: (Open List)`,
     
         // Card C - CHANGE THIS LINE:
         cLabel: `Card C — Expected From Previous`,
@@ -2211,7 +2211,7 @@ function stationNameFromCode(code) {
           }
         
           return openListWindow(
-            `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
+            `Last Seen Here — ${stationLabel || sc || "Station"}`,
             () => (window.__rs_last10HereRows || []).filter(r => {
               const a = String(r?.pass_type || r?.action || "").toUpperCase();
               return a !== "DNS" && a !== "DNF";

@@ -1000,8 +1000,9 @@ async function loadPassesFromServer() {
           : passDateUtc.toLocaleDateString("en-US", { timeZone: tz })
         );
     
-      // Results computations
-      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts);
+      // Results computations — pass r.mile as fallback so pace/ETA work even when the
+      // AID_STATION_MAP lookup fails (e.g. mile not yet entered in station config).
+      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts, r.mile);
     
       const distCode = canonicalDistanceCode(safeString(r.distance_code || r.distance || ""));
       let sc = String(r.station_code ?? "").trim().toUpperCase();
@@ -3085,7 +3086,7 @@ function formatHMS(seconds) {
   return `${pad(hh)}:${pad(mm)}:${pad(ss)}`;
 }
 
-function computeElapsedPaceEta(distance_code, station_order, pass_ts_utc) {
+function computeElapsedPaceEta(distance_code, station_order, pass_ts_utc, fallback_mile) {
   const start = getStartTimeForDistance(distance_code);
   if (!start) return { elapsed: "N/A", pace: "N/A", eta_next: "N/A" };
 
@@ -3094,18 +3095,23 @@ function computeElapsedPaceEta(distance_code, station_order, pass_ts_utc) {
   if (!isFinite(elapsedSec) || elapsedSec <= 0) return { elapsed: "N/A", pace: "N/A", eta_next: "N/A" };
 
   const cur = lookupStationByOrder(distance_code, station_order);
-  if (!cur || !isFinite(cur.mile) || cur.mile <= 0) {
+  // Use the station's configured mile; fall back to the mile carried on the pass row itself
+  // (which comes from the passes_load.php JOIN with aid_stations).
+  const curMile = (cur && isFinite(cur.mile) && cur.mile > 0)
+    ? cur.mile
+    : (isFinite(Number(fallback_mile)) && Number(fallback_mile) > 0 ? Number(fallback_mile) : 0);
+  if (curMile <= 0) {
     return { elapsed: formatHMS(elapsedSec), pace: "N/A", eta_next: "N/A" };
   }
 
   const elapsedHours = elapsedSec / 3600;
-  const mph = cur.mile / elapsedHours;
+  const mph = curMile / elapsedHours;
   const paceMinPerMile = mph > 0 ? (60 / mph) : null;
 
   const next = lookupNextStation(distance_code, station_order);
   let etaNext = "N/A";
-  if (next && isFinite(next.mile) && next.mile > cur.mile && mph > 0) {
-    const hrsToNext = (next.mile - cur.mile) / mph;
+  if (next && isFinite(next.mile) && next.mile > curMile && mph > 0) {
+    const hrsToNext = (next.mile - curMile) / mph;
     const etaDate = new Date(passDate.getTime() + hrsToNext * 3600 * 1000);
 
     // show local time HH:MM:SS
