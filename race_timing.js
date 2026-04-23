@@ -2932,6 +2932,18 @@ async function loadStartTimesFromDBIntoUI() {
 let AID_STATION_MAP = {}; 
 // shape: { "26.2": [{station_order, station_code, station_name, mile, lat, lon}, ...], "30K": [...] }
 
+// Haversine straight-line distance in miles between two lat/lon points.
+// Used as a fallback when aid stations have coordinates but no mile markers.
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 async function loadAidStationsFromServer() {
   const event_code = cleanEventCode(getEventCode());
   const res = await fetch(`aid_stations_load.php?event_code=${encodeURIComponent(event_code)}`, { cache: "no-store" });
@@ -2959,6 +2971,27 @@ async function loadAidStationsFromServer() {
   // sort
   for (const d of Object.keys(map)) {
     map[d].sort((a, b) => a.station_order - b.station_order);
+  }
+
+  // Haversine fallback: if a distance group has lat/lon for every station but
+  // no mile values on any non-START station, compute cumulative straight-line
+  // distances so the ETA formula has something to work with.
+  for (const d of Object.keys(map)) {
+    const stations = map[d];
+    const nonStart = stations.filter(s => s.station_order > 0);
+    const allMilesMissing = nonStart.length > 0 && nonStart.every(s => !s.mile);
+    const allHaveLatLon = stations.every(s => s.lat !== null && s.lon !== null);
+    if (allMilesMissing && allHaveLatLon) {
+      let cumMile = 0;
+      for (let i = 1; i < stations.length; i++) {
+        const prev = stations[i - 1];
+        const cur  = stations[i];
+        cumMile += haversineMiles(prev.lat, prev.lon, cur.lat, cur.lon);
+        cur.mile = parseFloat(cumMile.toFixed(3));
+      }
+      console.log(`[haversine-miles] No mile data for "${d}"; computed from lat/lon:`,
+        stations.map(s => `${s.station_code}=${s.mile}mi`).join(', '));
+    }
   }
 
   AID_STATION_MAP = map;
