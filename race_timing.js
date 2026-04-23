@@ -1611,7 +1611,7 @@ document.addEventListener("change", (e) => {
       ...autoOpts,
       ...(hasFinish ? [] : [{ value: "FINISH", label: "🏁 FINISH" }]),
     ],
-    append: hqExtras
+    append: []
   });
 
   // hqTarget (message target)
@@ -2815,6 +2815,7 @@ async function saveStartTimes() {
     const set_by = safeString(document.getElementById("operatorName")?.value || "HQ");
 
     const times = {
+      "20M":  localInputToDb(document.getElementById("start_20M")?.value),
       "30K":  localInputToDb(document.getElementById("start_30K")?.value),
       "26.2": localInputToDb(document.getElementById("start_26_2")?.value),
       "50K":  localInputToDb(document.getElementById("start_50K")?.value),
@@ -2876,6 +2877,7 @@ function loadStartTimesIntoUI() {
 
   const times = getStartTimes();
   const setVal = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+  setVal("start_20M",  times["20M"]);
   setVal("start_30K",  times["30K"]);
   setVal("start_26_2", times["26.2"]);
   setVal("start_50K",  times["50K"]);
@@ -2914,6 +2916,7 @@ async function loadStartTimesFromDBIntoUI() {
       if (el && v) el.value = v;
     };
 
+    setVal("start_20M",  toLocalInput(map["20M"]));
     setVal("start_30K",  toLocalInput(map["30K"]));
     setVal("start_26_2", toLocalInput(map["26.2"]));
     setVal("start_50K",  toLocalInput(map["50K"]));
