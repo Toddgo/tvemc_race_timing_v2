@@ -3435,6 +3435,7 @@ function canonicalDistanceCode(d) {
   // Strip ALL internal whitespace so "50 K" → "50K", "50 M" → "50M", etc.
   const u = x.toUpperCase().replace(/\s+/g, "");
 
+  if (u === "20M" || u === "20MI" || u === "20MILE" || u === "20MILES") return "20M";
   if (u === "50MILER" || u === "50MI" || u === "50M") return "50M";
   if (u === "50K") return "50K";
   if (u === "30K") return "30K";

@@ -23,6 +23,10 @@ console.log("✅ results_strip.js START");
     'LDV-100-2026-0001': {
       use_out_for_expected: false,
       name: 'Leona Divide 100'
+    },
+    'BU-ULTRA-2026-0006': {
+      use_out_for_expected: false,
+      name: 'Bishop Ultra 2026'
     }
     // Add more events here as needed
   };
@@ -477,6 +481,7 @@ window.getCurrentStationContext = function () {
     if (u === "26.2" || u.includes("MARATHON")) return "26.2";
 
   // ✅ New ultra-mile mappings
+    if (u === "20M" || u === "20 MI" || u === "20 MILE" || u === "20 MILES") return "20M";
     if (u === "100M" || u === "100 MI" || u === "100 MILE" || u === "100 MILES" || u === "100MILE") return "100M";
     if (u === "200M" || u === "200 MI" || u === "200 MILE" || u === "200 MILES" || u === "200MILE") return "200M";
     if (u === "240M" || u === "240 MI" || u === "240 MILE" || u === "240 MILES" || u === "240MILE") return "240M";
