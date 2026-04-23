@@ -30,6 +30,7 @@ function canonicalDistanceCode($d) {
   // Strip ALL internal whitespace so "50 K" → "50K", "50 M" → "50M", etc.
   $x = strtoupper(preg_replace('/\s+/', '', trim((string)($d ?? ''))));
   if (!$x) return (string)$d;
+  if (in_array($x, ['20M','20MI','20MILE','20MILES'])) return '20M';
   if (in_array($x, ['50MILER','50MI','50M'])) return '50M';
   if ($x === '50K') return '50K';
   if ($x === '30K') return '30K';
