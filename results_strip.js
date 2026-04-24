@@ -977,7 +977,7 @@ function stationNameFromCode(code) {
       const REFRESH_MS = Number(opts.refreshMs || 5000); // 5s default
     
       const safe = (v) =>
-        String(v ?? "").replace(/[<>&]/g, s => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[s]));
+        String(v ?? "").replace(/[<>&"]/g, s => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;", '"':"&quot;" }[s]));
     
       // Allow passing either an array OR a function that returns the latest rows
       const getRows = () => {
