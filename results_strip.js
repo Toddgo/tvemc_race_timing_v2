@@ -931,6 +931,7 @@ function stationNameFromCode(code) {
             <option value="last10_here">Last Seen Here</option>
             <option value="expected_prev">Expected From Previous</option>
             <option value="corral_nonstart">Corral Reconciliation (Non-Start)</option>
+            <option value="all_runners">All Runners (Roster)</option>
           </select>
         </label>
 
@@ -989,6 +990,7 @@ function stationNameFromCode(code) {
       };
     
       // Build the skeleton once
+      const _wrapMaxHeight = opts.searchable ? "calc(100vh - 160px)" : "calc(100vh - 120px)";
       w.document.write(`
         <html>
         <head>
@@ -997,8 +999,14 @@ function stationNameFromCode(code) {
         </head>
         <body style="font-family:Arial, sans-serif; padding:14px;">
           <h2 style="margin:0 0 6px 0;">${safe(title)}</h2>
+          ${opts.searchable ? `
+          <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px;">
+            <input id="srch" type="search" placeholder="Search bib, name, distance\u2026"
+              style="padding:6px 10px;border:1px solid #bbb;border-radius:6px;width:280px;font-size:13px;" />
+            <span id="srch-count" style="opacity:.7;font-size:12px;"></span>
+          </div>` : ""}
           <div id="meta" style="margin-bottom:10px;opacity:.75;"></div>
-          <div id="wrap" style="border:1px solid #ddd;border-radius:8px;overflow:auto;max-height: calc(100vh - 120px);">
+          <div id="wrap" style="border:1px solid #ddd;border-radius:8px;overflow:auto;max-height: ${_wrapMaxHeight};">
             <table style="border-collapse:collapse;width:100%;font-size:13px;">
               <thead id="thead"></thead>
               <tbody id="tbody"></tbody>
@@ -1091,11 +1099,45 @@ function stationNameFromCode(code) {
           }
         };
 
+      // Sort state (used when opts.sortable is true)
+      let __sortCol = opts.defaultSort || null;
+      let __sortDir = "asc";
+
       function render() {
         if (w.closed) return;
     
         const allRows = getRows();
-        const shown = allRows.slice(0, MAX_ROWS);
+
+        // --- Search filter (searchable mode) ---
+        let filteredRows = allRows;
+        if (opts.searchable) {
+          const srchEl = w.document.getElementById("srch");
+          const term = (srchEl ? srchEl.value : "").toLowerCase().trim();
+          if (term) {
+            filteredRows = allRows.filter(r =>
+              Object.values(r).some(v => String(v ?? "").toLowerCase().includes(term))
+            );
+          }
+          const countEl = w.document.getElementById("srch-count");
+          if (countEl) {
+            countEl.textContent = term
+              ? `Showing ${filteredRows.length} of ${allRows.length}`
+              : `${allRows.length} total`;
+          }
+        }
+
+        // --- Column sort (sortable mode) ---
+        if (opts.sortable && __sortCol) {
+          filteredRows = filteredRows.slice().sort((a, b) => {
+            const av = String(a[__sortCol] ?? "");
+            const bv = String(b[__sortCol] ?? "");
+            const an = Number(av), bn = Number(bv);
+            const cmp = (!isNaN(an) && !isNaN(bn)) ? (an - bn) : av.localeCompare(bv);
+            return __sortDir === "asc" ? cmp : -cmp;
+          });
+        }
+
+        const shown = filteredRows.slice(0, MAX_ROWS);
         
         // ---- Overdue highlighting (display-only) ----
         const OVERDUE_YELLOW_MIN = 15;
@@ -1152,9 +1194,14 @@ function stationNameFromCode(code) {
           ? Object.keys(shown[0]).filter(k => !HIDE_COLS.has(String(k)))
           : ["bib"];
 
-        const headHtml = `<tr>` + cols.map(c =>
-          `<th style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;">${safe(c)}</th>`
-        ).join("") + `</tr>`;
+        // Sortable header when opts.sortable is true; plain header otherwise
+        const headHtml = `<tr>` + cols.map(c => {
+          if (opts.sortable) {
+            const arrow = (__sortCol === c) ? (__sortDir === "asc" ? " ▲" : " ▼") : "";
+            return `<th data-col="${safe(c)}" style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;cursor:pointer;user-select:none;">${safe(c)}${arrow}</th>`;
+          }
+          return `<th style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;">${safe(c)}</th>`;
+        }).join("") + `</tr>`;
     
        const bodyHtml = shown.map(r => {
          const bibVal = String(r?.bib ?? "").trim();
@@ -1210,7 +1257,7 @@ function stationNameFromCode(code) {
         // Preserve scroll position
         const scrollTop = wrapEl.scrollTop;
     
-        metaEl.textContent = `Showing ${shown.length} of ${allRows.length} rows (refreshes every ${Math.round(REFRESH_MS/1000)}s)`;
+        metaEl.textContent = `Showing ${shown.length} of ${filteredRows.length} rows (refreshes every ${Math.round(REFRESH_MS/1000)}s)`;
         theadEl.innerHTML = headHtml;
         tbodyEl.innerHTML = bodyHtml;
     
@@ -1219,6 +1266,34 @@ function stationNameFromCode(code) {
     
       // Initial render + interval
       render();
+
+      // Wire sort click handler on thead (event delegation — survives innerHTML resets)
+      if (opts.sortable) {
+        const theadForSort = w.document.getElementById("thead");
+        if (theadForSort) {
+          theadForSort.addEventListener("click", (ev) => {
+            const th = ev.target && ev.target.closest("th[data-col]");
+            if (!th) return;
+            const col = th.getAttribute("data-col");
+            if (__sortCol === col) {
+              __sortDir = (__sortDir === "asc") ? "desc" : "asc";
+            } else {
+              __sortCol = col;
+              __sortDir = "asc";
+            }
+            render();
+          });
+        }
+      }
+
+      // Wire search input for live filtering (input event fires on every keystroke)
+      if (opts.searchable) {
+        const srchForFilter = w.document.getElementById("srch");
+        if (srchForFilter) {
+          srchForFilter.addEventListener("input", () => render());
+        }
+      }
+
       const timer = w.setInterval(() => {
         if (w.closed) {
           try { w.clearInterval(timer); } catch {}
@@ -2270,6 +2345,26 @@ function stationNameFromCode(code) {
                 return rows;
               },
               { refreshMs: 5000 }
+            );
+          }
+
+          if (v === "all_runners") {
+            return openListWindow(
+              "All Runners — Roster",
+              () => {
+                const roster = Array.isArray(window.bibList) ? window.bibList : [];
+                return roster
+                  .filter(r => r && r.bib)
+                  .map(r => ({
+                    bib:        String(r.bib || ""),
+                    first_name: String(r.firstName || r.first_name || ""),
+                    last_name:  String(r.lastName  || r.last_name  || ""),
+                    distance:   String(r.distance  || r.distance_code || ""),
+                    gender:     String(r.gender    || r.Gender       || "")
+                  }))
+                  .sort((a, b) => Number(a.bib) - Number(b.bib));
+              },
+              { refreshMs: 5000, searchable: true, sortable: true, maxRows: 2000, defaultSort: "bib" }
             );
           }
     
