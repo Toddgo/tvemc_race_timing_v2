@@ -979,10 +979,30 @@ async function loadPassesFromServer() {
       // Distance & station order for computations
       const distance_code = canonicalDistanceCode(runner.distance || r.distance_code || "N/A");
     
-      const station_order_num = (r.station_order !== null && r.station_order !== undefined)
+      let station_order_num = (r.station_order !== null && r.station_order !== undefined)
         ? parseInt(r.station_order, 10)
         : stationOrderFromCode(r.station_code);
-    
+
+      // Mismatch correction: when the pass was flagged as a mismatch the stored
+      // station_id belongs to a different distance (e.g. a 50K runner scanned at
+      // the 100K "AS6" checkpoint).  The JOIN therefore returns the wrong
+      // station_order and mile.  If that station_order doesn't exist in the
+      // runner's own distance map, try to resolve the correct station by name so
+      // that pace and ETA math uses the right mileage.
+      let correctedMile = r.mile;
+      if (distance_code && distance_code !== "N/A") {
+        const inDistMap = (station_order_num !== null)
+          ? lookupStationByOrder(distance_code, station_order_num)
+          : null;
+        if (!inDistMap) {
+          const byName = lookupStationByName(distance_code, r.station_name);
+          if (byName) {
+            station_order_num = byName.station_order;
+            correctedMile = byName.mile;
+          }
+        }
+      }
+
       // Time parsing
       const passDateUtc = r.pass_ts ? parsePassTsUtcToDate(r.pass_ts) : new Date(NaN);
       const mode = TVEMC_timeMode();
@@ -1000,9 +1020,10 @@ async function loadPassesFromServer() {
           : passDateUtc.toLocaleDateString("en-US", { timeZone: tz })
         );
     
-      // Results computations — pass r.mile as fallback so pace/ETA work even when the
+      // Results computations — pass correctedMile as fallback so pace/ETA work even when the
       // AID_STATION_MAP lookup fails (e.g. mile not yet entered in station config).
-      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts, r.mile);
+      // correctedMile falls back to r.mile when no name-based station correction was found.
+      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts, correctedMile);
     
       const distCode = canonicalDistanceCode(safeString(r.distance_code || r.distance || ""));
       let sc = String(r.station_code ?? "").trim().toUpperCase();
@@ -1030,7 +1051,9 @@ async function loadPassesFromServer() {
         station_code: sc,
         station_name: r.station_name ?? r.station_display ?? r.station ?? "",
         station_order: (r.station_order != null ? Number(r.station_order) : null),
-        mile: (r.mile != null ? Number(r.mile) : null),
+        // Use correctedMile (resolved via station-name lookup for mismatch passes) so
+        // that results_engine computes avg_pace from the runner's actual distance mileage.
+        mile: (correctedMile != null ? Number(correctedMile) : null),
     
         event_code: r.event_code ?? "",
     
@@ -3074,6 +3097,18 @@ function lookupStationByOrder(distance_code, station_order) {
 function lookupNextStation(distance_code, station_order) {
   const list = _aidStationList(distance_code);
   return list.find(s => s.station_order > station_order) || null;
+}
+
+// Look up a station within a distance by exact station_name (case-insensitive).
+// Used as a fallback when a mismatch pass stores a station_id from a different
+// distance, so station_order from the DB JOIN doesn't exist in the runner's
+// distance map.  Returns null when no match is found.
+function lookupStationByName(distance_code, station_name) {
+  const list = _aidStationList(distance_code);
+  if (!list || !list.length) return null;
+  const name = String(station_name || "").trim().toLowerCase();
+  if (!name) return null;
+  return list.find(s => String(s.station_name || "").trim().toLowerCase() === name) || null;
 }
 
 function formatHMS(seconds) {
