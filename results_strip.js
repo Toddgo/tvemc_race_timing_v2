@@ -1238,10 +1238,12 @@ function stationNameFromCode(code) {
          return `<td style="padding:6px;border-bottom:1px solid #eee;${bibCellStyle}">${safe(val)}</td>`;
        }).join("");
         
-      // Row tint (subtle)
+      // Row tint (subtle); changed-distance rows get amber when not overdue
+       const hasDistChange = !!(r?.prev_distance);
        const rowStyle =
          rowClass === "overdue-red"    ? "background:#fff0f0;" :
          rowClass === "overdue-yellow" ? "background:#fffbe6;" :
+         hasDistChange                 ? "background:#fff3e0;" :
             "";
         
       return `<tr style="${rowStyle}">${tds}</tr>`;
@@ -2355,13 +2357,18 @@ function stationNameFromCode(code) {
                 const roster = Array.isArray(window.bibList) ? window.bibList : [];
                 return roster
                   .filter(r => r && r.bib)
-                  .map(r => ({
-                    bib:        String(r.bib || ""),
-                    first_name: String(r.firstName || r.first_name || ""),
-                    last_name:  String(r.lastName  || r.last_name  || ""),
-                    distance:   String(r.distance  || r.distance_code || ""),
-                    gender:     String(r.gender    || r.Gender       || "")
-                  }))
+                  .map(r => {
+                    const curDist = String(r.distance || r.distance_code || "");
+                    const prevDist = String(r.previousDistance || r.previous_distance || "");
+                    return {
+                      bib:           String(r.bib || ""),
+                      first_name:    String(r.firstName || r.first_name || ""),
+                      last_name:     String(r.lastName  || r.last_name  || ""),
+                      distance:      curDist,
+                      prev_distance: (prevDist && prevDist !== curDist) ? prevDist : "",
+                      gender:        String(r.gender || r.Gender || "")
+                    };
+                  })
                   .sort((a, b) => Number(a.bib) - Number(b.bib));
               },
               { refreshMs: 5000, searchable: true, sortable: true, maxRows: 2000, defaultSort: "bib" }
