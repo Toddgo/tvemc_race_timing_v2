@@ -355,13 +355,23 @@
       placeholder="Your message to HQ..."
       style="flex: 1; min-width: 180px; padding: 7px 10px; border-radius: 5px; border: none; font-size: 14px;"
     />
+  </div>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+    <button
+      type="button"
+      id="stationToHqRadioBtn"
+      onclick="sendStationToHQViaRadio()"
+      style="background: #ffff00; color: black; font-weight: bold; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; white-space: nowrap;"
+    >
+      📡 SEND RADIO TO HQ
+    </button>
     <button
       type="button"
       id="stationToHqSendBtn"
       onclick="sendStationToHQ()"
       style="background: #ffff00; color: black; font-weight: bold; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; white-space: nowrap;"
     >
-      SEND TO HQ
+      🌐 SEND INTERNET TO HQ
     </button>
   </div>
   <div id="stationToHqStatus" style="font-size: 12px; margin-top: 6px; color: #ccc;">

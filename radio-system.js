@@ -254,6 +254,57 @@ window.sendGeneralMessageViaRadio = async function () {
   );
 };
 
+// Aid station → HQ: send a text message via radio/TNC
+window.sendStationToHQViaRadio = async function () {
+  if (window.__sendingStationToHQRadio) return;
+  window.__sendingStationToHQRadio = true;
+  setTimeout(() => (window.__sendingStationToHQRadio = false), 1500);
+
+  const radioBtn   = document.getElementById("stationToHqRadioBtn");
+  const textEl     = document.getElementById("stationToHqText");
+  const statusEl   = document.getElementById("stationToHqStatus");
+
+  if (radioBtn) {
+    radioBtn.disabled = true;
+    setTimeout(() => (radioBtn.disabled = false), 1500);
+  }
+
+  const text = (textEl ? textEl.value : "").trim();
+  if (!text) { alert("Type a message first"); return; }
+
+  if (!radioConnection) await autoConnectRadio();
+  if (!radioConnection) {
+    alert("Connect radio first (Direwolf or TNC4)");
+    return;
+  }
+
+  const stationId  = (window.TVEMC_STATION_ID  || "").trim() ||
+                     (document.getElementById("aidStation")?.value || "STATION");
+  const stationLabel = (window.TVEMC_STATION_LABEL || stationId).trim();
+
+  currentRadioMessageNum++;
+  saveRadioMessageNum();
+  const msgNum = String(currentRadioMessageNum - 1).padStart(3, "0");
+
+  const message = `MSG:${msgNum} TVEMC ${stationLabel} TO HQ: ${text}\nEND`;
+
+  if (statusEl) statusEl.textContent = "Sending via Radio...";
+
+  try {
+    await sendRadioMessage(message);
+    if (textEl) textEl.value = "";
+    if (statusEl) {
+      statusEl.textContent = `Sent via Radio ✓ (Msg #${msgNum})`;
+      setTimeout(() => (statusEl.textContent = "Status: Ready"), 4000);
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.textContent = "Radio TX failed: " + err.message;
+      setTimeout(() => (statusEl.textContent = "Status: Ready"), 4000);
+    }
+  }
+};
+
 window.sendHqMessage = async function () {
   if (!radioConnection) await autoConnectRadio();
   if (!radioConnection) return alert("Connect radio first (Direwolf or TNC4)");
