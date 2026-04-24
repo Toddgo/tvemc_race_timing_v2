@@ -2300,18 +2300,6 @@ async function updateDistance(e) {
 }
 
 
-let bibLogRefreshTimer = null;
-
-function startBibLogAutoRefresh() {
-  if (bibLogRefreshTimer) return; // prevents duplicates
-  bibLogRefreshTimer = setInterval(() => {
-    const table = document.getElementById("bibLogTable");
-    if (table && table.style.display !== "none") {
-      loadPassesFromServer().catch(() => {});
-    }
-  }, 15000);
-}
-
 async function exportBibCSV_v2() {
   try {
     const event_code = cleanEventCode(getEventCode());
@@ -3663,13 +3651,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("Initial passes load skipped:", e.message);
   }
 
-  // Refresh Bib Log periodically ONLY when it is visible (single timer)
+  // Refresh Bib Log periodically — only when the table is open (saves bandwidth when hidden)
   setInterval(() => {
-//    const table = document.getElementById("bibLogTable");
-//    if (table && table.style.display !== "none") {
+    const table = document.getElementById("bibLogTable");
+    if (table && table.style.display !== "none") {
       loadPassesFromServer().catch(() => {});
-//    }
-  }, 10000);
+    }
+  }, 15000);
 
   // Periodic offline sync
   setInterval(syncOfflineEntries, 30000);
