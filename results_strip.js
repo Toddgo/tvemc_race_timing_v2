@@ -247,8 +247,19 @@ function recomputeExpectedFromPrevForUI() {
       }
     }
 
-    // authoritative write
+    // authoritative write — keep window global AND localStorage in sync so the
+    // Expected From Previous popup always reads the current-station list regardless
+    // of whether it reads the window global (5s) or localStorage (10s).
     window.__rs_expectedPrevRows = out;
+    try {
+      localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
+        rows: out,
+        stationCode: currentStation,
+        ts: Date.now()
+      }));
+    } catch (lsErr) {
+      console.warn('recomputeExpectedFromPrevForUI: localStorage write failed', lsErr);
+    }
     return out;
   } catch (err) {
     console.warn('recomputeExpectedFromPrevForUI error', err);
@@ -2267,24 +2278,34 @@ function stationNameFromCode(code) {
           return openListWindow(
             `Expected From Previous — ${stationLabel}`,
             () => {
-              // Rows are already station-specific: written to localStorage by update() for
-              // the current station on every bib-log refresh.  No station re-filtering is
-              // needed here — the previous filter was broken for FLOW rows because those
-              // rows set next_station to "(arriving here)" which never matched the label.
-              let parsed = null;
-              try {
-                const json = localStorage.getItem('__rs_expectedPrevRows_payload');
-                parsed = json ? JSON.parse(json) : null;
-              } catch(e){ /* ignore */ }
-
-              const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
+              // Prefer window.__rs_expectedPrevRows: updated every 5s by
+              // recomputeExpectedFromPrevForUI() and already filtered to the
+              // CURRENT station.  Fall back to localStorage only when the global
+              // hasn't been set yet (e.g. very first load before the interval fires).
+              let rows = window.__rs_expectedPrevRows;
+              if (!rows || !rows.length) {
+                // Try to recompute live — this re-reads the current station from
+                // the dropdown so it is always correct, even after station change.
+                rows = (typeof recomputeExpectedFromPrevForUI === 'function')
+                  ? (recomputeExpectedFromPrevForUI() || [])
+                  : [];
+              }
+              if (!rows || !rows.length) {
+                // Last resort: localStorage (may lag up to 10s behind station change)
+                try {
+                  const json = localStorage.getItem('__rs_expectedPrevRows_payload');
+                  const parsed = json ? JSON.parse(json) : null;
+                  rows = (parsed && Array.isArray(parsed.rows)) ? parsed.rows : [];
+                } catch(e){ rows = []; }
+              }
               const out = [];
-              for (const r of rows) {
+              for (const r of (rows || [])) {
                 const bib = String(r?.bib ?? "").trim();
                 if (!bib) continue;
                 // Remove internal code-only fields before display
-                try { delete r.last_station_code; delete r.next_station_code; } catch(e) {}
-                out.push(r);
+                const display = Object.assign({}, r);
+                try { delete display.last_station_code; delete display.next_station_code; } catch(e) {}
+                out.push(display);
               }
               return out;
             },
