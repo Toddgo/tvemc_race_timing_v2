@@ -38,8 +38,11 @@ if (!$er) {
 }
 $event_id = (int)$er['event_id'];
 
-// Build query.  When a station_code is provided, restrict to that station only.
-// Use a LEFT JOIN so that pass rows with a missing aid_stations record still appear.
+// Build query.  When a station_code is provided, look up the station_name for that
+// code in this event, then return ALL passes whose station shares that name (across
+// all distances).  This ensures multi-distance events (e.g. Leona Divide where
+// "Sawmill Road" exists as both 100K AS7 and 100M AS11) show every runner who
+// physically passed through that checkpoint.
 if ($station_code !== '') {
   $sql = "
     SELECT
@@ -55,13 +58,17 @@ if ($station_code !== '') {
     FROM passes p
     LEFT JOIN aid_stations a ON a.station_id = p.station_id
     WHERE p.event_id = ?
-      AND a.station_code = ?
+      AND a.station_name = (
+            SELECT station_name FROM aid_stations
+            WHERE event_id = ? AND station_code = ?
+            LIMIT 1
+          )
       AND p.pass_type NOT IN ('DNS', 'DNF')
     ORDER BY p.pass_ts DESC, p.pass_id DESC
     LIMIT ?
   ";
   $q = $conn->prepare($sql);
-  $q->bind_param("isi", $event_id, $station_code, $limit);
+  $q->bind_param("iisi", $event_id, $event_id, $station_code, $limit);
 } else {
   // No station filter — return most-recent passes for the event
   $sql = "

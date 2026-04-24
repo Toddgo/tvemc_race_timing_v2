@@ -2158,19 +2158,22 @@ function stationNameFromCode(code) {
           // Normalize to explicit codes array using known helper if present
           const codes = (typeof expandStationCodes === 'function' && sc) ? (expandStationCodes(sc) || []) : (sc ? [sc] : []);
         
-          // Helper to fetch last10 rows from server and cache in window.__rs_last10HereRows
+          // Helper to fetch last10 rows from server and cache in a per-station key.
+          // Using window["__rs_last10HereRows_<code>"] prevents multiple station intervals
+          // from overwriting each other when the operator switches between stations.
           async function fetchLast10HereFromServer(eventCodeLocal, stationCodeLocal) {
+            const cacheKey = "__rs_last10HereRows_" + stationCodeLocal;
             try {
               if (!eventCodeLocal || !stationCodeLocal) {
-                window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+                window[cacheKey] = window[cacheKey] || [];
                 return;
               }
               const url = `/tvemc_race_timing_v2/passes_last_seen.php?event_code=${encodeURIComponent(eventCodeLocal)}&station=${encodeURIComponent(stationCodeLocal)}`;
               const resp = await fetch(url, { credentials: 'same-origin' });
               const json = await resp.json();
               if (json && json.success && Array.isArray(json.rows)) {
-                // store rows for THIS station only
-                window.__rs_last10HereRows = json.rows.map(r => {
+                // store rows keyed by THIS station so other station intervals cannot overwrite
+                window[cacheKey] = json.rows.map(r => {
                   const out = Object.assign({}, r);
                   out.bib = out.bib || out.bib_number || out.BIB || out.bib_no;
                   out.pass_ts = out.pass_ts || out.time || out.pass_ts;
@@ -2178,13 +2181,17 @@ function stationNameFromCode(code) {
                   return out;
                 });
               } else {
-                window.__rs_last10HereRows = [];
+                window[cacheKey] = [];
               }
             } catch (err) {
               console.warn('fetchLast10HereFromServer error', err);
-              window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+              window[cacheKey] = window[cacheKey] || [];
             }
           }
+
+          // Determine the cache key for the openListWindow callback (captured in closure).
+          const stationCodeForCache = (codes && codes.length) ? String(codes[0]).trim() : "";
+          const last10CacheKey = stationCodeForCache ? "__rs_last10HereRows_" + stationCodeForCache : null;
         
           // if we have a code, start/ensure a per-station interval
           if (codes && codes.length) {
@@ -2198,21 +2205,18 @@ function stationNameFromCode(code) {
             window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || {};
             if (!window.__rs_last10_fetch_intervals[stationCodeLocal]) {
               window.__rs_last10_fetch_intervals[stationCodeLocal] = setInterval(() => {
-                // recompute event and station each tick (defensive)
+                // recompute event each tick (defensive); station stays tied to the one that created this interval
                 const ctxTick = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: (window._EVENT_META && window._EVENT_META.event_code) || '' });
                 const ev = ctxTick?.event_code || (window._EVENT_META && window._EVENT_META.event_code) || '';
-                const st = stationCodeLocal; // keep the interval tied to the station that created it
+                const st = stationCodeLocal;
                 if (ev && st) fetchLast10HereFromServer(ev, st);
               }, 5000);
             }
-          } else {
-            // no station codes: clear any global rows
-            window.__rs_last10HereRows = window.__rs_last10HereRows || [];
           }
         
           return openListWindow(
             `Last Seen Here — ${stationLabel || sc || "Station"}`,
-            () => (window.__rs_last10HereRows || []).filter(r => {
+            () => (last10CacheKey ? (window[last10CacheKey] || []) : []).filter(r => {
               const a = String(r?.pass_type || r?.action || "").toUpperCase();
               return a !== "DNS" && a !== "DNF";
             }),
