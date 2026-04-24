@@ -99,7 +99,7 @@
     if (!messages.length) {
       const row = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 7;
+      cell.colSpan = 8;
       cell.style.padding = "6px";
       cell.style.textAlign = "center";
       cell.style.fontStyle = "italic";
@@ -113,6 +113,12 @@
     messages.forEach(function (msg) {
       const row = document.createElement("tr");
 
+      // Highlight rows where a station replied to HQ
+      const isFromStation = (msg.station_target || "").toUpperCase() === "HQ";
+      if (isFromStation) {
+        row.style.background = "#fffbe6";
+      }
+
       function td(text) {
         const c = document.createElement("td");
         c.style.borderBottom = "1px solid #eee";
@@ -122,7 +128,14 @@
       }
 
       const timeText = safeFormatTimestamp(msg.created_at);
-      const stationText = prettyStationLabel(msg.station_target || "");
+      // For station→HQ rows show "→ HQ"; for HQ→station rows show destination
+      const stationText = isFromStation
+        ? "→ HQ"
+        : prettyStationLabel(msg.station_target || "");
+      // "From" column: sender_station if present
+      const fromText = isFromStation
+        ? prettyStationLabel(msg.sender_station || "")
+        : "";
       const channelText = (msg.channel || "").toUpperCase();
       const messageText = msg.message_text || "";
       const operatorText = msg.operator || "";
@@ -133,6 +146,7 @@
 
       row.appendChild(td(timeText));
       row.appendChild(td(stationText));
+      row.appendChild(td(fromText));
       row.appendChild(td(channelText));
       row.appendChild(td(messageText));
       row.appendChild(td(operatorText));
@@ -181,6 +195,50 @@
     // Auto-refresh every 30 seconds
     setTimeout(loadHqLog, 200);
     setInterval(loadHqLog, 20000);
+
+    // Poll for new station→HQ reply messages and flash the log box
+    let lastSeenReplyId = 0;
+
+    async function pollStationReplies() {
+      const event_code = (typeof getEventCode === "function") ? getEventCode() : "";
+      if (!event_code) return;
+
+      try {
+        const urlObj = new URL("fetch_hq_messages.php", window.location.href);
+        urlObj.searchParams.set("event_code", event_code);
+        urlObj.searchParams.set("station", "HQ");
+        if (lastSeenReplyId > 0) urlObj.searchParams.set("since_id", String(lastSeenReplyId));
+
+        const res = await fetch(urlObj.toString(), {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store"
+        });
+        if (!res.ok) return;
+
+        const data = await res.json().catch(() => null);
+        if (!data || !data.success) return;
+
+        const replies = data.messages || [];
+        if (!replies.length) return;
+
+        replies.forEach(function (msg) {
+          if (msg.id && msg.id > lastSeenReplyId) lastSeenReplyId = msg.id;
+        });
+
+        // Flash the HQ log box and reload to show new messages
+        const logBox = document.getElementById("hqLogBox");
+        if (logBox) {
+          logBox.classList.add("hq-inbox-new");
+          setTimeout(function () { logBox.classList.remove("hq-inbox-new"); }, 6000);
+        }
+        loadHqLog();
+      } catch (e) {
+        // Silently ignore poll errors
+      }
+    }
+
+    setInterval(pollStationReplies, 30000);
 
   });
 })();

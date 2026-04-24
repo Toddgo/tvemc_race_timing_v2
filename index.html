@@ -247,6 +247,7 @@
       Station:
       <select id="hqLogStationFilter">
     <option value="">All</option>
+    <option value="HQ">📥 FROM STATIONS (→ HQ)</option>
     <option value="START">🏁START</option>
     <option value="CORRAL_AUTO">📍 CORRAL CANYON (AUTO)</option>
     <option value="KANAN_AUTO">📍 KANAN ROAD (AUTO)</option>
@@ -292,6 +293,7 @@
         <tr>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Time</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Station</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">From</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Channel</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Message</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Operator</th>
@@ -301,7 +303,7 @@
       </thead>
       <tbody>
         <tr>
-          <td colspan="7" style="padding: 6px; text-align: center; font-style: italic;">
+          <td colspan="8" style="padding: 6px; text-align: center; font-style: italic;">
             Loading...
           </td>
         </tr>
@@ -333,6 +335,39 @@
   <div id="hqStatus" style="font-size: 14px; margin-top: 10px;">Status: Ready</div>
 
 
+
+  <!-- Aid Station: Send Message to HQ (hidden in ?hq=1 mode) -->
+<div id="stationSendToHQ"
+     style="display: none;
+            background: #000080;
+            color: white;
+            padding: 12px 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 2px solid #ffff00;">
+  <h4 style="margin: 0 0 8px 0; color: #ffff00; font-size: 16px;">
+    📡 Send Message to HQ
+  </h4>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+    <input
+      type="text"
+      id="stationToHqText"
+      placeholder="Your message to HQ..."
+      style="flex: 1; min-width: 180px; padding: 7px 10px; border-radius: 5px; border: none; font-size: 14px;"
+    />
+    <button
+      type="button"
+      id="stationToHqSendBtn"
+      onclick="sendStationToHQ()"
+      style="background: #ffff00; color: black; font-weight: bold; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; white-space: nowrap;"
+    >
+      SEND TO HQ
+    </button>
+  </div>
+  <div id="stationToHqStatus" style="font-size: 12px; margin-top: 6px; color: #ccc;">
+    Status: Ready
+  </div>
+</div>
 
   <!-- Aid Station: HQ Message History -->
 <div id="stationHistory"

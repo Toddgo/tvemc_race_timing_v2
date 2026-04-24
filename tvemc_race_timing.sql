@@ -381,7 +381,8 @@ CREATE TABLE `hq_messages` (
   `msg_number` int(11) DEFAULT NULL,
   `acknowledged` tinyint(1) NOT NULL DEFAULT 0,
   `ack_time` datetime DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `sender_station` varchar(32) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
 --

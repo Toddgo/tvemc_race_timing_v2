@@ -36,7 +36,87 @@ async function logHqMessageToServer(payload) {
   }
 }
 
-   // The function your "Send Internet" button calls
+   // Aid station → HQ: send a message from the station compose box to HQ
+window.sendStationToHQ = async function () {
+  if (window.__sendingStationToHQ) return;
+  window.__sendingStationToHQ = true;
+  setTimeout(() => (window.__sendingStationToHQ = false), 1500);
+
+  const btn = document.getElementById("stationToHqSendBtn");
+  if (btn) {
+    btn.disabled = true;
+    setTimeout(() => (btn.disabled = false), 1500);
+  }
+
+  const textEl   = document.getElementById("stationToHqText");
+  const statusEl = document.getElementById("stationToHqStatus");
+  const text     = (textEl ? textEl.value : "").trim();
+
+  if (!text) {
+    alert("Type a message first");
+    return;
+  }
+
+  const eventCode =
+    (typeof getEventCode === "function" ? getEventCode() : "") ||
+    (window.TVEMC_EVENT_CODE || "");
+
+  if (!eventCode) {
+    alert("Missing Event Code — cannot send.");
+    return;
+  }
+
+  // Determine sender station id
+  const senderStation = (window.TVEMC_STATION_ID || "").trim();
+  if (!senderStation) {
+    alert("Station ID not set — cannot send to HQ.");
+    return;
+  }
+
+  const operator = (document.getElementById("operatorName")?.value || "").trim();
+
+  if (statusEl) statusEl.textContent = "Sending...";
+
+  try {
+    const res = await fetch("station_reply.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_code:     eventCode,
+        sender_station: senderStation,
+        message_text:   text,
+        operator:       operator
+      })
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* ignore */ }
+
+    if (!res.ok || (data && data.success === false)) {
+      const errMsg = (data && data.error) ? data.error : ("HTTP " + res.status);
+      if (statusEl) {
+        statusEl.textContent = "Error: " + errMsg;
+        setTimeout(() => (statusEl.textContent = "Status: Ready"), 4000);
+      }
+      alert("Could not send message to HQ: " + errMsg);
+      return;
+    }
+
+    if (textEl) textEl.value = "";
+    if (statusEl) {
+      statusEl.textContent = "Sent to HQ ✓";
+      setTimeout(() => (statusEl.textContent = "Status: Ready"), 3000);
+    }
+    console.log("Station→HQ message sent:", data);
+  } catch (err) {
+    if (statusEl) {
+      statusEl.textContent = "Error: " + (err.message || "Fetch error");
+      setTimeout(() => (statusEl.textContent = "Status: Ready"), 4000);
+    }
+    alert("Could not send message to HQ: " + (err.message || "Fetch error"));
+  }
+};
+
    window.sendInternetToSelected = async function () {
      if (window.__sendingInternetSelected) return;  // added Jan 20 0001
        window.__sendingInternetSelected = true;

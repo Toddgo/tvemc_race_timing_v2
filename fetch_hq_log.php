@@ -60,7 +60,7 @@ if ($ack === "0" || $ack === "1") {
 }
 
 $sql = "
-  SELECT id, event_id, station_target, channel, message_text, operator, msg_number,
+  SELECT id, event_id, station_target, sender_station, channel, message_text, operator, msg_number,
          acknowledged, ack_time, created_at
   FROM hq_messages
   $where

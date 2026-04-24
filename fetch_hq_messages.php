@@ -73,12 +73,18 @@ $AUTO_INBOX_EXPAND = [
     'ZUMA_AUTO'   => ['AS4', 'AS6'],
 ];
 
-// Build list of acceptable station_target values for this inbox
-$targets = [$station, 'ALL'];
-if (isset($AUTO_INBOX_EXPAND[$station])) {
-    // Also accept messages targeted to the physical instances
-    foreach ($AUTO_INBOX_EXPAND[$station] as $t) {
-        $targets[] = $t;
+// Build list of acceptable station_target values for this inbox.
+// Special case: 'HQ' is the HQ-side inbox — it sees only rows where station_target='HQ'
+// (i.e., messages sent by aid stations back to HQ).
+if (strtoupper($station) === 'HQ') {
+    $targets = ['HQ'];
+} else {
+    $targets = [$station, 'ALL'];
+    if (isset($AUTO_INBOX_EXPAND[$station])) {
+        // Also accept messages targeted to the physical instances
+        foreach ($AUTO_INBOX_EXPAND[$station] as $t) {
+            $targets[] = $t;
+        }
     }
 }
 
@@ -97,6 +103,7 @@ $sql = "
     id,
     event_id,
     station_target,
+    sender_station,
     channel,
     message_text,
     operator,

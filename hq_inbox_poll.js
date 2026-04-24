@@ -428,8 +428,20 @@ window.addEventListener("load", function () {
     const stored = localStorage.getItem("TVEMC_lastHqMessageId_" + stationId);
     if (stored) lastHqMessageId = parseInt(stored, 10) || 0;
 
+    // Show the "Send to HQ" compose panel now that we know the station id
+    const sendToHqBox = document.getElementById("stationSendToHQ");
+    if (sendToHqBox) {
+      sendToHqBox.style.display = "block";
+    }
+
     pollHqMessagesForStation();
     loadStationHistory();
+
+    // Wire up the "Refresh History" button on the station history box
+    const reloadBtn = document.getElementById("stationHistoryReload");
+    if (reloadBtn) {
+      reloadBtn.addEventListener("click", loadStationHistory);
+    }
 
     setInterval(pollHqMessagesForStation, 30000);
     setInterval(loadStationHistory, 30000);
