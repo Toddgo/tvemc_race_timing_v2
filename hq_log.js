@@ -141,7 +141,6 @@
       const operatorText = msg.operator || "";
 
       const acked = Number(msg.acknowledged || 0) === 1;
-      const ackText = acked ? "✅" : "⏳";
       const ackTimeText = acked && msg.ack_time ? safeFormatTimestamp(msg.ack_time) : "";
 
       row.appendChild(td(timeText));
@@ -150,8 +149,73 @@
       row.appendChild(td(channelText));
       row.appendChild(td(messageText));
       row.appendChild(td(operatorText));
-      row.appendChild(td(ackText));
-      row.appendChild(td(ackTimeText));
+
+      // ACK cell — station→HQ rows get a clickable ACK button when unacknowledged
+      const ackCell = document.createElement("td");
+      ackCell.style.borderBottom = "1px solid #eee";
+      ackCell.style.padding = "4px";
+      ackCell.style.textAlign = "center";
+
+      if (acked) {
+        ackCell.textContent = "✅";
+      } else if (isFromStation && msg.id) {
+        // HQ needs to acknowledge this incoming station message
+        const ackBtn = document.createElement("button");
+        ackBtn.textContent = "⏳ ACK";
+        ackBtn.title = "Click to confirm HQ received this message";
+        ackBtn.style.cssText =
+          "cursor:pointer;padding:2px 8px;font-size:12px;background:#fffbe6;" +
+          "border:1px solid #ccc;border-radius:4px;";
+
+        const ackTimeCell = document.createElement("td");
+        ackTimeCell.style.borderBottom = "1px solid #eee";
+        ackTimeCell.style.padding = "4px";
+
+        ackBtn.addEventListener("click", async function () {
+          ackBtn.disabled = true;
+          ackBtn.textContent = "Saving…";
+          try {
+            const res = await fetch("hq_ack_message.php", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: msg.id })
+            });
+            const result = await res.json().catch(() => null);
+            if (result && result.success) {
+              ackCell.textContent = "✅";
+              ackTimeCell.textContent = safeFormatTimestamp(
+                new Date().toISOString().replace("T", " ").substring(0, 19)
+              );
+              row.style.background = "";
+            } else {
+              ackBtn.disabled = false;
+              ackBtn.textContent = "⏳ ACK";
+              alert("ACK failed: " + ((result && result.error) || "Unknown error"));
+            }
+          } catch (err) {
+            ackBtn.disabled = false;
+            ackBtn.textContent = "⏳ ACK";
+            alert("ACK error: " + err.message);
+          }
+        });
+
+        ackCell.appendChild(ackBtn);
+        row.appendChild(ackCell);
+        ackTimeCell.textContent = ackTimeText;
+        row.appendChild(ackTimeCell);
+        tbody.appendChild(row);
+        return; // row already appended — skip the two appends below
+      } else {
+        ackCell.textContent = "⏳";
+      }
+
+      row.appendChild(ackCell);
+
+      const ackTimeCellPlain = document.createElement("td");
+      ackTimeCellPlain.style.borderBottom = "1px solid #eee";
+      ackTimeCellPlain.style.padding = "4px";
+      ackTimeCellPlain.textContent = ackTimeText;
+      row.appendChild(ackTimeCellPlain);
 
       tbody.appendChild(row);
     });
