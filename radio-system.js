@@ -218,7 +218,7 @@ function _importRadioRunnerData(lines) {
   }
 
   // On HQ page: persist each entry to the DB via passes_submit.php
-  if (new URLSearchParams(window.location.search).get("hq") === "1") {
+  if (sessionStorage.getItem("hq_mode") === "1") {
     const eventCode =
       (typeof getEventCode === "function" && getEventCode()) || "";
     newEntries.forEach((entry) => {
@@ -280,7 +280,7 @@ async function parseAndRouteRadioMessage(text) {
 
   // Station → HQ: "MSG:NNN TVEMC {station} TO HQ: {text}"
   const stationToHq = firstLine.match(/^MSG:\d+ TVEMC (.+?) TO HQ:\s*(.*)/);
-  if (stationToHq && new URLSearchParams(window.location.search).get("hq") === "1") {
+  if (stationToHq && sessionStorage.getItem("hq_mode") === "1") {
     const senderStation = stationToHq[1].trim();
     const msgText       = stationToHq[2].trim();
     const eventCode =
@@ -681,7 +681,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Show HQ box if ?hq=1
-if (new URLSearchParams(window.location.search).get("hq") === "1") {
+if (sessionStorage.getItem("hq_mode") === "1") {
   const hqBox = document.getElementById("hqRadioBox");
   if (hqBox) hqBox.style.display = "block";
 }
