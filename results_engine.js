@@ -180,8 +180,12 @@ export function computeResultsForRows({
 
       out.finish_ts_ms  = st.finishedTs;
       out.elapsed_total = st.elapsedHMS;
-      out.avg_pace = st.avgPace;
       const act = safeUpper(out.action || st.action || "");
+      // Only stamp the overall race avg_pace on the FINISH row; IN/OUT rows keep
+      // their per-station pace that was computed by computeElapsedPaceEta on load.
+      if (act === "FINISH") {
+        out.avg_pace = st.avgPace;
+      }
       out.gender_place = (act === "FINISH") ? (genderPlace.get(bib) ?? "") : "";
       out.age_group = st.ageGroup;
       out.ag_place = agPlace.get(bib) ?? "";

@@ -162,7 +162,15 @@ function recomputeExpectedFromPrevForUI() {
       const path = sorted.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
 
       const rawLast = norm(e.station_code || e.station || e.station_name || '');
-      const idx = path.indexOf(rawLast);
+      // Use station_order from the runner's latest entry to find the correct path index.
+      // This handles courses where the same station is visited more than once (same
+      // station_code at different station_orders, e.g. Junction in the 20M course).
+      // path[i] corresponds to sorted[i], both ordered by station_order.
+      const runnerOrder = Number(e?.station_order || 0);
+      let idx = runnerOrder > 0
+        ? sorted.findIndex(s => Number(s.station_order) === runnerOrder)
+        : -1;
+      if (idx < 0) idx = path.indexOf(rawLast);
       if (idx < 0) continue;
 
       const nextCode = path[idx + 1];
@@ -1561,16 +1569,28 @@ function stationNameFromCode(code) {
 
         // Prefer DB-driven path (event-specific, most accurate) over the hardcoded DIST_PATHS.
         // Fall back to DIST_PATHS if the DB has no path covering the target station.
-        let path = buildPathFromAidStationMap(dist).path || [];
+        let { path: rawPath, stations: pathStations } = buildPathFromAidStationMap(dist);
+        let path = rawPath || [];
         if (!path.length || !path.some(c => toSet.has(String(c).toUpperCase()))) {
           path = DIST_PATHS[dist] || [];
+          pathStations = null; // DIST_PATHS has no station_order metadata
         }
         if (!path || !path.length) continue;
     
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
-        let idx = path.indexOf(lastCode);
+        // Use station_order from the runner's latest entry to find the correct path index.
+        // This handles courses where the same station code appears more than once in the path
+        // (e.g. Junction visited twice in the 20M course). path[i] aligns with pathStations[i]
+        // since both are sorted by station_order from buildPathFromAidStationMap.
+        const runnerOrder = Number(e?.station_order || 0);
+        let idx = -1;
+        if (runnerOrder > 0 && pathStations && pathStations.length > 0) {
+          const matchIdx = pathStations.findIndex(s => Number(s.station_order) === runnerOrder);
+          if (matchIdx >= 0) idx = matchIdx;
+        }
+        if (idx < 0) idx = path.indexOf(lastCode);
         // Runner's last station not in the primary path — try alternate path sources.
         // This handles events (e.g. LDV 50K) where the runner's actual path diverges
         // from the hardcoded DIST_PATHS defaults (SOB-centric).
