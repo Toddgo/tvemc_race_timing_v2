@@ -169,78 +169,80 @@ VALUES
 -- 20M  (8 checkpoints, finish at 20.9 mi)
 -- =========================================================================
 ((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  1, 'START',  'Start',          0.00,  0, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  2, 'AS1',    'CDF',             2.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  3, 'AS2',    'Junction #1',     4.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  4, 'AS3',    'Buttermilk',      7.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  5, 'AS4',    'Junction #2',    10.00,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  6, 'AS5',    'Hwy 168',        12.80,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  7, 'AS6',    'Tungsten City',  15.80,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M', 99, 'FINISH', 'Finish Line',    20.90,  0, 1, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  2, 'AS1',    'CDF',            2.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  3, 'AS2',    'Junction',       4.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  4, 'AS3',    'Buttermilk',     7.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  5, 'AS4',    'Junction',      10.00,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  6, 'AS5',    'Hwy 168',       12.80,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M',  7, 'AS6',    'Tungsten City', 15.80,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '20M', 99, 'FINISH', 'Finish Line',   20.90,  0, 1, NULL, NULL),
 
 -- =========================================================================
 -- 50K  (12 checkpoints, finish at 31.3 mi)
 -- =========================================================================
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  1, 'START',  'Start',           0.00,  0, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  2, 'AS1',    'CDF',             2.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  3, 'AS2',    'Junction #1',     4.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  4, 'AS3',    'Buttermilk #1',   7.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  5, 'AS4',    'McGee #1',       10.00,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  6, 'AS5',    'Edison Loop',    12.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  7, 'AS6',    'McGee #2',       15.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  8, 'AS7',    'Buttermilk #2',  17.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  9, 'AS8',    'Junction #2',    20.00,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K', 10, 'AS9',    'Hwy 168',        22.80,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K', 11, 'AS10',   'Tungsten City',  25.80,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K', 99, 'FINISH', 'Finish Line',    31.30,  0, 1, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  1, 'START',  'Start',          0.00,  0, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  2, 'AS1',    'CDF',            2.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  3, 'AS2',    'Junction',       4.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  4, 'AS3',    'Buttermilk',     7.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  5, 'AS4',    'McGee',         10.00,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  6, 'AS5',    'Edison Loop',   12.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  7, 'AS6',    'McGee',         15.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  8, 'AS7',    'Buttermilk',    17.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K',  9, 'AS8',    'Junction',      20.00,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K', 10, 'AS9',    'Hwy 168',       22.80,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K', 11, 'AS10',   'Tungsten City', 25.80,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50K', 99, 'FINISH', 'Finish Line',   31.30,  0, 1, NULL, NULL),
 
 -- =========================================================================
 -- 50M  (18 checkpoints, finish at 51.3 mi)
 -- =========================================================================
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  1, 'START',  'Start',           0.00,  0, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  2, 'AS1',    'CDF',             2.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  3, 'AS2',    'Junction #1',     4.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  4, 'AS3',    'Buttermilk #1',   7.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  5, 'AS4',    'McGee #1',       10.00,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  6, 'AS5',    'Edison Loop #1', 12.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  7, 'AS6',    'Overlook',       15.20,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  8, 'AS7',    'Edison Loop #2', 17.50,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  9, 'AS8',    'Intake Two #1',  19.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 10, 'AS9',    'Bishop Creek',   21.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 11, 'AS10',   'Intake Two #2',  23.20,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 12, 'AS11',   'Edison Loop #3', 25.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 13, 'AS12',   'McGee #2',       27.90,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 14, 'AS13',   'Buttermilk #2',  30.20,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 15, 'AS14',   'Junction #2',    32.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 16, 'AS15',   'Hwy 168',        35.40,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 17, 'AS16',   'Tungsten City',  38.40,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 99, 'FINISH', 'Finish Line',    51.30,  0, 1, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  1, 'START',  'Start',          0.00,  0, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  2, 'AS1',    'CDF',            2.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  3, 'AS2',    'Junction',       4.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  4, 'AS3',    'Buttermilk',     7.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  5, 'AS4',    'McGee',         10.00,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  6, 'AS5',    'Edison Loop',   12.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  7, 'AS6',    'Overlook',      15.20,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  8, 'AS7',    'Edison Loop',   17.50,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M',  9, 'AS8',    'Intake Two',    19.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 10, 'AS9',    'Bishop Creek',  21.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 11, 'AS10',   'Intake Two',    23.20,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 12, 'AS11',   'Edison Loop',   25.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 13, 'AS12',   'McGee',         27.90,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 14, 'AS13',   'Buttermilk',    30.20,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 15, 'AS14',   'Junction',      32.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 16, 'AS15',   'Hwy 168',       35.40,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 17, 'AS16',   'Tungsten City', 38.40,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '50M', 99, 'FINISH', 'Finish Line',   51.30,  0, 1, NULL, NULL),
 
 -- =========================================================================
 -- 100K  (21 checkpoints, finish at 63.2 mi)
 -- Same route as 50M through Tungsten City (mile 38.4), then continues:
--- CDF #2 → Aid Station → Tungsten City #2 → Finish
+-- CDF (2nd pass) → Aid Station → Tungsten City (2nd pass) → Finish.
+-- The Pass # column in results distinguishes repeated visits to the same
+-- physical checkpoint (e.g. "CDF Pass 1" at AS1 and "CDF Pass 2" at AS17).
 -- =========================================================================
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  1, 'START',  'Start',              0.00,  0, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  2, 'AS1',    'CDF #1',             2.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  3, 'AS2',    'Junction #1',        4.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  4, 'AS3',    'Buttermilk #1',      7.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  5, 'AS4',    'McGee #1',          10.00,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  6, 'AS5',    'Edison Loop #1',    12.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  7, 'AS6',    'Overlook',          15.20,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  8, 'AS7',    'Edison Loop #2',    17.50,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  9, 'AS8',    'Intake Two #1',     19.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 10, 'AS9',    'Bishop Creek',      21.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 11, 'AS10',   'Intake Two #2',     23.20,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 12, 'AS11',   'Edison Loop #3',    25.30,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 13, 'AS12',   'McGee #2',          27.90,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 14, 'AS13',   'Buttermilk #2',     30.20,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 15, 'AS14',   'Junction #2',       32.60,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 16, 'AS15',   'Hwy 168',           35.40,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 17, 'AS16',   'Tungsten City #1',  38.40,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 18, 'AS17',   'CDF #2',            40.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 19, 'AS18',   'Aid Station',       42.70,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 20, 'AS19',   'Tungsten City #2',  44.40,  1, 0, NULL, NULL),
-((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 99, 'FINISH', 'Finish Line',       63.20,  0, 1, NULL, NULL);
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  1, 'START',  'Start',          0.00,  0, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  2, 'AS1',    'CDF',            2.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  3, 'AS2',    'Junction',       4.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  4, 'AS3',    'Buttermilk',     7.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  5, 'AS4',    'McGee',         10.00,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  6, 'AS5',    'Edison Loop',   12.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  7, 'AS6',    'Overlook',      15.20,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  8, 'AS7',    'Edison Loop',   17.50,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K',  9, 'AS8',    'Intake Two',    19.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 10, 'AS9',    'Bishop Creek',  21.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 11, 'AS10',   'Intake Two',    23.20,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 12, 'AS11',   'Edison Loop',   25.30,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 13, 'AS12',   'McGee',         27.90,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 14, 'AS13',   'Buttermilk',    30.20,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 15, 'AS14',   'Junction',      32.60,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 16, 'AS15',   'Hwy 168',       35.40,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 17, 'AS16',   'Tungsten City', 38.40,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 18, 'AS17',   'CDF',           40.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 19, 'AS18',   'Aid Station',   42.70,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 20, 'AS19',   'Tungsten City', 44.40,  1, 0, NULL, NULL),
+((SELECT `event_id` FROM `events` WHERE `event_code`='BU-ULTRA-2026-0006' LIMIT 1), '100K', 99, 'FINISH', 'Finish Line',   63.20,  0, 1, NULL, NULL);
 
 
 -- =============================================================================
@@ -271,6 +273,10 @@ VALUES
 -- ALTERNATE UPDATE-ONLY APPROACH (if real pass data already exists and you
 -- MUST NOT delete/re-insert aid_stations rows):
 -- ---------------------------------------------------------------------------
+-- To rename stations only (no mile changes), run bishop_ultra_stations_rename.sql
+-- instead of re-running this full setup script.
+--
+-- To update miles only (no station-name changes):
 --   UPDATE aid_stations
 --   SET mile = CASE
 --     WHEN distance_code = '20M' AND station_order = 2  THEN 2.60
