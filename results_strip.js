@@ -383,6 +383,7 @@ window.getCurrentStationContext = function () {
 
   // Distance paths (station_code order). Used for PATH mode Card C.
   const DIST_PATHS = {
+    "20M":  ["AS1", "AS2", "AS3", "AS4", "AS5", "AS6", "FINISH"],   // Bishop Ultra 20M fallback
     "30K":  ["AS1", "AS8", "FINISH"],   // "AS3",
     "26.2": ["AS1", "AS2", "AS8", "FINISH"],
     "50K":  ["AS1", "AS2", "AS7", "AS8", "FINISH"],
@@ -446,7 +447,28 @@ window.getCurrentStationContext = function () {
      return null; // force PATH
    }
 
-    return FLOW_PREV_MAP[c] || null;
+    const flowPreds = FLOW_PREV_MAP[c] || null;
+    if (!flowPreds) return null;
+
+    // Verify that at least one predecessor code exists in the current event's AID_STATION_MAP.
+    // FLOW_PREV_MAP entries (e.g. FINISH→["AS8","AS10"]) are SOB-event-specific. For other
+    // events (e.g. Bishop Ultra where FINISH is preceded by AS6), fall back to PATH mode so
+    // the DB-driven path is used instead of the wrong hardcoded predecessors.
+    const aidMap = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+    const allEventStationCodes = new Set();
+    for (const stations of Object.values(aidMap)) {
+      if (Array.isArray(stations)) {
+        for (const s of stations) {
+          allEventStationCodes.add(String(s.station_code || "").toUpperCase());
+        }
+      }
+    }
+    // Only use FLOW if at least one predecessor code actually exists in this event
+    if (allEventStationCodes.size > 0 && !flowPreds.some(code => allEventStationCodes.has(String(code).toUpperCase()))) {
+      return null; // force PATH — predecessors are not part of this event's station map
+    }
+
+    return flowPreds;
  }
  
   function physicalCodeForPath(e) {
