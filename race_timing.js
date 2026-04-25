@@ -415,6 +415,54 @@ async function loadEventListIntoDropdown() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// loadEventDocs — fetches event-specific PDFs/CSVs from event_docs.php and
+// renders them in #eventDocsSection.  Called on page load and whenever the
+// event changes (the existing event-dropdown change handler reloads the page,
+// so a single call on DOMContentLoaded is sufficient).
+// ---------------------------------------------------------------------------
+async function loadEventDocs(eventCode) {
+  const section  = document.getElementById("eventDocsSection");
+  const listEl   = document.getElementById("eventDocsList");
+  if (!section || !listEl) return;
+
+  const ec = cleanEventCode(eventCode || (typeof getEventCode === "function" ? getEventCode() : ""));
+  if (!ec) {
+    section.style.display = "none";
+    return;
+  }
+
+  try {
+    const res   = await fetch(`event_docs.php?event_code=${encodeURIComponent(ec)}`, { cache: "no-store" });
+    const files = await res.json();
+
+    if (!Array.isArray(files) || files.length === 0) {
+      section.style.display = "none";
+      return;
+    }
+
+    listEl.innerHTML = "";
+    for (const f of files) {
+      const icon = f.ext === "csv" ? "📊" : "📄";
+      const div  = document.createElement("div");
+      div.style.marginBottom = "10px";
+      const a = document.createElement("a");
+      a.className   = "help-link";
+      a.href        = f.url;
+      a.target      = "_blank";
+      a.rel         = "noopener";
+      a.textContent = `${icon} ${f.name}`;
+      div.appendChild(a);
+      listEl.appendChild(div);
+    }
+
+    section.style.display = "block";
+  } catch (e) {
+    console.warn("loadEventDocs failed:", e.message);
+    section.style.display = "none";
+  }
+}
+
 function saveData() {
   try {
     const payload = {
@@ -3608,6 +3656,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadEventListIntoDropdown();
   } catch (e) {
     console.warn("Event list dropdown load skipped:", e.message);
+  }
+
+  // Load event-specific documents (PDFs / CSVs) for the bottom of the page.
+  try {
+    await loadEventDocs();
+  } catch (e) {
+    console.warn("loadEventDocs skipped:", e.message);
   }
   
   // ✅ Data bootstrap (must be early)
