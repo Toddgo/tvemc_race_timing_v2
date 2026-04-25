@@ -7,6 +7,314 @@ let currentRadioMessageNum = parseInt(localStorage.getItem("radioMsgNum") || "1"
 let radioConnection = null;
 window.radioConnection = window.radioConnection || null;
 
+// ----------------------------------------------------------------------
+// RX: replay-guard (seen MSG:NNN sequence numbers)
+// ----------------------------------------------------------------------
+const _seenRadioMsgNums = new Set();
+
+// ----------------------------------------------------------------------
+// RX: KISS frame accumulator and decoder
+// ----------------------------------------------------------------------
+let _kissBuffer = new Uint8Array(0);
+
+function _appendKissBuffer(chunk) {
+  const merged = new Uint8Array(_kissBuffer.length + chunk.length);
+  merged.set(_kissBuffer);
+  merged.set(chunk, _kissBuffer.length);
+  _kissBuffer = merged;
+}
+
+function _extractKissFrames() {
+  const frames = [];
+  const buf = _kissBuffer;
+  const FEND = 0xC0, FESC = 0xDB, TFEND = 0xDC, TFESC = 0xDD;
+
+  let i = 0;
+  let frameStart = -1;
+
+  while (i < buf.length) {
+    if (buf[i] === FEND) {
+      if (frameStart === -1) {
+        frameStart = i;
+      } else {
+        const raw = buf.slice(frameStart + 1, i);
+        if (raw.length > 0) {
+          const unescaped = [];
+          for (let j = 0; j < raw.length; j++) {
+            if (raw[j] === FESC && j + 1 < raw.length) {
+              j++;
+              unescaped.push(raw[j] === TFEND ? FEND : raw[j] === TFESC ? FESC : raw[j]);
+            } else {
+              unescaped.push(raw[j]);
+            }
+          }
+          if (unescaped[0] === 0x00 && unescaped.length > 1) {
+            frames.push(new Uint8Array(unescaped.slice(1)));
+          }
+        }
+        frameStart = i;
+      }
+    }
+    i++;
+  }
+
+  _kissBuffer = frameStart >= 0 ? buf.slice(frameStart) : new Uint8Array(0);
+  return frames;
+}
+
+// ----------------------------------------------------------------------
+// RX: AX.25 information-field extractor
+// Walks the address field (7-byte groups, last address has H-bit=1),
+// skips the control + PID bytes, returns the info field as UTF-8 text.
+// ----------------------------------------------------------------------
+function _extractAX25Info(frame) {
+  if (!frame || frame.length < 15) return null;
+
+  let pos = 0;
+  while (pos + 7 <= frame.length) {
+    const lastByte = frame[pos + 6];
+    pos += 7;
+    if (lastByte & 0x01) break;
+    if (pos >= frame.length) return null;
+  }
+
+  const infoStart = pos + 2; // skip control + PID bytes
+  if (infoStart >= frame.length) return null;
+
+  return new TextDecoder("utf-8", { fatal: false }).decode(frame.slice(infoStart));
+}
+
+// ----------------------------------------------------------------------
+// RX: entry point — called for every chunk/message from any TNC interface
+// ----------------------------------------------------------------------
+function handleIncomingRadioData(raw) {
+  if (typeof raw === "string") {
+    parseAndRouteRadioMessage(raw.trim());
+    return;
+  }
+
+  let bytes;
+  if (raw instanceof ArrayBuffer) {
+    bytes = new Uint8Array(raw);
+  } else if (raw instanceof Uint8Array) {
+    bytes = raw;
+  } else {
+    return;
+  }
+
+  _appendKissBuffer(bytes);
+  const frames = _extractKissFrames();
+  for (const frame of frames) {
+    const info = _extractAX25Info(frame);
+    if (info) parseAndRouteRadioMessage(info.trim());
+  }
+}
+
+// ----------------------------------------------------------------------
+// RX: Serial read pump for TNC4 Web Serial
+// ----------------------------------------------------------------------
+async function pumpSerialReader(port) {
+  try {
+    const reader = port.readable.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      handleIncomingRadioData(value);
+    }
+  } catch (e) {
+    console.warn("[Radio RX] Serial reader stopped:", e);
+  }
+}
+
+// ----------------------------------------------------------------------
+// RX: Minimal CSV line parser (handles RFC 4180 double-quoted fields)
+// ----------------------------------------------------------------------
+function _parseCSVLine(line) {
+  const cols = [];
+  let cur = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuote) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') { cur += '"'; i++; }
+        else { inQuote = false; }
+      } else {
+        cur += ch;
+      }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ",") { cols.push(cur); cur = ""; }
+      else { cur += ch; }
+    }
+  }
+  cols.push(cur);
+  return cols;
+}
+
+// ----------------------------------------------------------------------
+// RX: import runner CSV rows from a radio message into localStorage
+// and (on HQ page) POST each row to passes_submit.php
+// ----------------------------------------------------------------------
+function _importRadioRunnerData(lines) {
+  // lines[0] = "MSG:NNN TVEMC {station} Runner Updates"
+  // lines[1] = CSV header
+  // lines[2+] = data rows (until "END")
+  const dataLines = [];
+  for (let i = 2; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (!l || l === "END") break;
+    dataLines.push(l);
+  }
+  if (!dataLines.length) return;
+
+  // CSV field order matches buildRadioRunnerMessage:
+  // bib_number, action, time, day, station, comment, eta, operator, date,
+  // eventName, first_name, last_name, age, gender, distance
+  const newEntries = dataLines.map((line) => {
+    const c = _parseCSVLine(line);
+    return {
+      bib_number: c[0] || "",
+      action:     c[1] || "",
+      time:       c[2] || "",
+      day:        c[3] || "",
+      station:    c[4] || "",
+      comment:    c[5] || "",
+      eta:        c[6] || "",
+      operator:   c[7] || "",
+      date:       c[8] || "",
+      eventName:  c[9] || "",
+      first_name: c[10] || "",
+      last_name:  c[11] || "",
+      age:        c[12] || "",
+      gender:     c[13] || "",
+      distance:   c[14] || "",
+      radioReceived: true,
+      radioSent: true
+    };
+  }).filter((e) => e.bib_number !== "");
+
+  if (!newEntries.length) return;
+
+  const existing = JSON.parse(localStorage.getItem("bibEntries") || "[]");
+  let added = 0;
+  for (const entry of newEntries) {
+    const key = `${entry.bib_number}|${entry.action}|${entry.time}|${entry.station}`;
+    const isDuplicate = existing.some(
+      (e) =>
+        `${e.bib_number || e["Bib #"]}|${e.action}|${e.time}|${e.station || e["Station"]}` === key
+    );
+    if (!isDuplicate) {
+      existing.push(entry);
+      added++;
+    }
+  }
+
+  if (added > 0) {
+    localStorage.setItem("bibEntries", JSON.stringify(existing));
+    console.log(`[Radio RX] Imported ${added} new bib entries`);
+    if (typeof window.loadData === "function") window.loadData();
+    window.dispatchEvent(new CustomEvent("bibEntriesUpdated", { detail: { added } }));
+  }
+
+  // On HQ page: persist each entry to the DB via passes_submit.php
+  if (new URLSearchParams(window.location.search).get("hq") === "1") {
+    const eventCode =
+      (typeof getEventCode === "function" && getEventCode()) || "";
+    newEntries.forEach((entry) => {
+      if (!entry.bib_number) return;
+      fetch("passes_submit.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_code:    eventCode,
+          bib:           parseInt(entry.bib_number, 10) || 0,
+          distance_code: entry.distance || "",
+          pass_type:     (entry.action || "IN").toUpperCase(),
+          station_code:  entry.station || "",
+          operator:      entry.operator || "",
+          note:          entry.comment || ""
+        })
+      }).catch((e) => console.error("[Radio RX] passes_submit POST failed", e));
+    });
+  }
+}
+
+// ----------------------------------------------------------------------
+// RX: parse and route a fully-decoded text message
+// ----------------------------------------------------------------------
+async function parseAndRouteRadioMessage(text) {
+  if (!text || !text.startsWith("MSG:")) return;
+
+  const lines = text.split("\n");
+  const firstLine = lines[0];
+
+  const numMatch = firstLine.match(/^MSG:(\d+)\s/);
+  if (!numMatch) return;
+  const msgNum = parseInt(numMatch[1], 10);
+
+  if (_seenRadioMsgNums.has(msgNum)) {
+    console.log(`[Radio RX] Duplicate MSG:${String(msgNum).padStart(3, "0")} – ignored`);
+    return;
+  }
+  _seenRadioMsgNums.add(msgNum);
+  console.log(`[Radio RX] MSG:${String(msgNum).padStart(3, "0")} received`);
+
+  // HQ → Station: "MSG:NNN TVEMC HQ TO {target}: {text}"
+  const hqToStation = firstLine.match(/^MSG:\d+ TVEMC HQ TO ([^:]+):\s*(.*)/);
+  if (hqToStation) {
+    const target  = hqToStation[1].trim();
+    const msgText = hqToStation[2].trim();
+    if (typeof window.showHqMessageAtStation === "function") {
+      window.showHqMessageAtStation({
+        text:        msgText,
+        channel:     "radio",
+        created_at:  new Date().toISOString(),
+        operator:    "",
+        id:          null,
+        station_label: target
+      });
+    }
+    return;
+  }
+
+  // Station → HQ: "MSG:NNN TVEMC {station} TO HQ: {text}"
+  const stationToHq = firstLine.match(/^MSG:\d+ TVEMC (.+?) TO HQ:\s*(.*)/);
+  if (stationToHq && new URLSearchParams(window.location.search).get("hq") === "1") {
+    const senderStation = stationToHq[1].trim();
+    const msgText       = stationToHq[2].trim();
+    const eventCode =
+      (typeof getEventCode === "function" && getEventCode()) || "";
+    fetch("station_reply.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_code:     eventCode,
+        sender_station: senderStation,
+        message_text:   msgText,
+        operator:       "",
+        channel:        "radio"
+      })
+    }).catch((e) => console.error("[Radio RX] station_reply POST failed", e));
+    return;
+  }
+
+  // Runner data: "MSG:NNN TVEMC {station} Runner Updates"
+  if (/^MSG:\d+ TVEMC .+ Runner Updates/.test(firstLine)) {
+    _importRadioRunnerData(lines);
+    return;
+  }
+
+  // General comment: "MSG:NNN TVEMC {station} General: {text}"
+  const general = firstLine.match(/^MSG:\d+ TVEMC (.+?) General:\s*(.*)/);
+  if (general) {
+    console.log(
+      `[Radio RX] General comment from ${general[1].trim()}: ${general[2].trim()}`
+    );
+    return;
+  }
+}
+
 function saveRadioMessageNum() {
   localStorage.setItem("radioMsgNum", currentRadioMessageNum.toString());
   const el = document.getElementById("messageNumber");
@@ -50,6 +358,9 @@ async function autoConnectRadio() {
       });
 
       if (connected) {
+        ws.onmessage = function (event) {
+          handleIncomingRadioData(event.data);
+        };
         showRadioStatus(`Connected TCP KISS (port ${port}) – Direwolf/VARA ready`, "lime");
         saveRadioMessageNum();
         return true;
@@ -74,6 +385,7 @@ async function autoConnectRadio() {
 
       radioConnection = port;
       window.radioConnection = port;
+      pumpSerialReader(port);
       showRadioStatus("Connected to Mobilinkd TNC4", "green");
       saveRadioMessageNum();
       return true;

@@ -95,7 +95,7 @@ try {
 
     // station_target is always 'HQ' for station-originated messages
     $station_target = "HQ";
-    $channel        = "internet";
+    $channel        = trim((string)($data["channel"] ?? "internet"));
 
     $sql = "INSERT INTO hq_messages
               (event_id, station_target, channel, message_text, operator, sender_station)
