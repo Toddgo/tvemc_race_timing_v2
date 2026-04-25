@@ -51,6 +51,11 @@ $pass_type     = strtoupper(trim($data['pass_type'] ?? 'IN'));
 $station_code  = trim($data['station_code'] ?? '');
 $operator      = trim($data['operator'] ?? '');
 $note          = trim($data['note'] ?? '');
+// Optional station_order hint sent by the client to disambiguate multi-pass stations
+// (e.g. Junction visited twice in the 20M course has the same station_code but
+// different station_orders). When provided, it is used to select the correct station_id.
+$station_order_hint = (isset($data['station_order']) && is_numeric($data['station_order']))
+  ? (int)$data['station_order'] : null;
 
 // timestamp: store UTC
 $pass_ts = gmdate('Y-m-d H:i:s');
@@ -156,12 +161,22 @@ if ($has_station_code) {
   $q2_rows = $q2->get_result()->fetch_all(MYSQLI_ASSOC);
   $q2->close();
 
-  // Find the first row whose canonical distance matches the submitted canonical distance
+  // Find the station row for this distance.
+  // When station_order_hint is provided (sent by the client to disambiguate multi-pass
+  // stations like Junction visited twice), prefer the row with the matching station_order.
+  // Otherwise fall back to the first distance match (existing behaviour).
   $station_for_dist = null;
   foreach ($q2_rows as $q2row) {
     if (canonicalDistanceCode((string)($q2row['distance_code'] ?? '')) === $distance_code) {
-      $station_for_dist = $q2row;
-      break;
+      if ($station_order_hint !== null && (int)$q2row['station_order'] === $station_order_hint) {
+        // Exact occurrence match — use this and stop looking.
+        $station_for_dist = $q2row;
+        break;
+      } elseif ($station_for_dist === null) {
+        // Save as fallback (first distance match); keep scanning for exact hint match.
+        $station_for_dist = $q2row;
+        if ($station_order_hint === null) break; // no hint — first match is sufficient
+      }
     }
   }
 

@@ -1422,6 +1422,33 @@ async function addEntry(action) {
       }
       
       const distCode = canonicalDistanceCode(safeString(distance_code || ""));
+
+      // Pre-compute station_order before the server call so we can tell passes_submit.php
+      // exactly which occurrence of a repeated station (e.g. Junction visited twice in the
+      // 20M course) this pass belongs to.  Without this hint the server always picks the
+      // first matching station_id, storing the wrong station_order in the DB and breaking
+      // Card C path computation after a page reload.
+      const preComputed_station_order = (() => {
+        const dc = String(distCode || '').toUpperCase();
+        const sc = String(station_code || '').toUpperCase();
+        const sortedAS = (AID_STATION_MAP[dc] || []).slice()
+          .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+        const matches = sortedAS.filter(s => String(s.station_code || '').toUpperCase() === sc);
+        if (matches.length > 1) {
+          const passModeIsIn = String(pass_type || '').toUpperCase() === 'IN';
+          const inCount = entries.filter(prev =>
+            String(prev.bib_number || '').trim() === String(bib).trim() &&
+            String(prev.station_code || '').toUpperCase() === sc &&
+            String(prev.action || '').toUpperCase() === 'IN'
+          ).length;
+          const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
+          const match = matches[occurrenceIdx] || matches[matches.length - 1];
+          return (match?.station_order != null) ? Number(match.station_order) : null;
+        } else if (matches.length === 1 && matches[0].station_order != null) {
+          return Number(matches[0].station_order);
+        }
+        return null;
+      })();
       
       const payload = {
         event_code: entry.eventName || "AZM-300-2026-0004",
@@ -1430,7 +1457,8 @@ async function addEntry(action) {
         station_code: safeString(station_code).toUpperCase(),
         pass_type: safeString(pass_type).toUpperCase(),
         operator: operator || "Unknown",
-        note
+        note,
+        ...(preComputed_station_order != null ? { station_order: preComputed_station_order } : {})
       };
     
       // Sticky DNS/DNF warning (one-time per bib per click)

@@ -171,6 +171,30 @@ function recomputeExpectedFromPrevForUI() {
         ? sorted.findIndex(s => Number(s.station_order) === runnerOrder)
         : -1;
       if (idx < 0) idx = path.indexOf(rawLast);
+
+      // For courses where the same station_code appears more than once (e.g. Junction
+      // visited twice in the 20M Bishop Ultra), the DB may have stored the wrong
+      // station_order because passes_submit.php picked the first matching station_id.
+      // Correct this by counting IN passes at this station_code across the full list
+      // and using the count to select the right path occurrence.
+      if (rawLast && path.filter(p => p === rawLast).length > 1) {
+        const inCount = (list || []).filter(le => {
+          const lb = String(le.bib || le.bib_number || le.BIB || '').trim();
+          const lsc = norm(le.station_code || le.station || le.station_name || '');
+          const la = String(le.action || le.pass_type || '').toUpperCase();
+          return lb === bib && lsc === rawLast && la === 'IN';
+        }).length;
+        if (inCount > 0) {
+          let occ = 0;
+          for (let pi = 0; pi < path.length; pi++) {
+            if (path[pi] === rawLast) {
+              occ++;
+              if (occ === inCount) { idx = pi; break; }
+            }
+          }
+        }
+      }
+
       if (idx < 0) continue;
 
       const nextCode = path[idx + 1];
@@ -1557,7 +1581,7 @@ function stationNameFromCode(code) {
      return code;
     }
 
-    function computeExpectedFromPrev_PATH(latestMap, stationCodes) {
+    function computeExpectedFromPrev_PATH(latestMap, stationCodes, fullList) {
       const toSet = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
       const out = [];
     
@@ -1591,6 +1615,29 @@ function stationNameFromCode(code) {
           if (matchIdx >= 0) idx = matchIdx;
         }
         if (idx < 0) idx = path.indexOf(lastCode);
+
+        // For courses where the same station_code appears more than once (e.g. Junction
+        // visited twice in the 20M Bishop Ultra), the DB may have stored the wrong
+        // station_order because passes_submit.php picked the first matching station_id.
+        // Correct this by counting IN passes at this station_code in the full list
+        // and using the count to select the right path occurrence.
+        if (lastCode && Array.isArray(fullList) && path.filter(p => p === lastCode).length > 1) {
+          const inCount = fullList.filter(le => {
+            const lb = String(safeBib(le)).trim();
+            const lsc = String(safeStationCode(le) || '').toUpperCase();
+            return lb === bib && lsc === lastCode && safeAction(le) === 'IN';
+          }).length;
+          if (inCount > 0) {
+            let occ = 0;
+            for (let pi = 0; pi < path.length; pi++) {
+              if (path[pi] === lastCode) {
+                occ++;
+                if (occ === inCount) { idx = pi; break; }
+              }
+            }
+          }
+        }
+
         // Runner's last station not in the primary path — try alternate path sources.
         // This handles events (e.g. LDV 50K) where the runner's actual path diverges
         // from the hardcoded DIST_PATHS defaults (SOB-centric).
@@ -2006,14 +2053,14 @@ function stationNameFromCode(code) {
       if (!isPersonnelStation(stationUpper)) {
         const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
         const isCorral = (stationUpper === "CORRAL_AUTO");
-        const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestMap, ["AS8"]).length > 0;
+        const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestMap, ["AS8"], lastList).length > 0;
     
         if (forcePathFor30KCorralReturn) {
-          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes, lastList);
         } else if (flowPrev) {
           expectedPrevRows = computeExpectedFromPrev_FLOW(lastList, flowPrev, stationCodes);
         } else {
-          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes, lastList);
         }
     
         // First-station override: show all rostered runners expected from START.
@@ -2258,7 +2305,7 @@ function stationNameFromCode(code) {
                 const flowPrevNow = getFlowPredecessors(stationUpperNow, stationCodesNow);
                 let rows = flowPrevNow
                   ? computeExpectedFromPrev_FLOW(list, flowPrevNow, stationCodesNow)
-                  : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+                  : computeExpectedFromPrev_PATH(latestNow, stationCodesNow, list);
     
                 const finishedBibsNow = new Set(
                   Array.from(latestNow.entries())
