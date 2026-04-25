@@ -504,7 +504,9 @@
             <input type="text" id="subject" name="subject" readonly tabindex="7">
         </div>
         <div class="section">
-            <h2>Bib Data Entry</h2>
+            <h2 style="display:inline-block; margin-right:12px;">Bib Data Entry</h2>
+            <button type="button" id="openFieldModeBtn" onclick="openFieldMode()" style="vertical-align:middle; background:#1a1a2e; color:#00e5ff; border:2px solid #00e5ff; border-radius:8px; padding:6px 14px; font-size:15px; font-weight:bold; cursor:pointer; margin-bottom:6px;" title="Open mobile-friendly Field Mode bib entry">📱 Field Mode</button>
+            <br>
             <input type="checkbox" id="fastMode" name="fastMode" tabindex="8">
             <label for="fastMode">Fast Tab Mode (Skip Time/Yesterday)</label><br><br>
 	<div>
@@ -905,6 +907,92 @@ async function enterHqMode() {
 </div>
 
 <footer>© 2025 TVEMC • tvemc tracker™ • <a href="https://tvemc.org">tvemc.org</a></footer>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FIELD MODE MODAL – dark full-screen mobile bib-entry UI
+     Opened by clicking "📱 Field Mode" button in Bib Data Entry.
+     All submission goes through the existing addEntry() function.
+     ═══════════════════════════════════════════════════════════ -->
+<div id="fieldModeModal" role="dialog" aria-modal="true" aria-label="Field Bib Entry">
+
+  <!-- Header bar -->
+  <div id="fm-header">
+    <button id="fm-close" onclick="closeFieldMode()" aria-label="Close field mode">&#8592;</button>
+    <div id="fm-title">
+      <div id="fm-event-label"></div>
+      <div id="fm-page-label">Bib Entry</div>
+    </div>
+  </div>
+
+  <!-- Station chip -->
+  <div id="fm-station-bar">
+    <span id="fm-station-chip"></span>
+  </div>
+
+  <!-- Bib number display -->
+  <div id="fm-bib-card">
+    <div id="fm-bib-row">
+      <span id="fm-bib-hash">#</span>
+      <span id="fm-bib-digits">&mdash;</span>
+    </div>
+    <div id="fm-bib-hint">Enter a bib number</div>
+  </div>
+
+  <!-- Numeric keypad -->
+  <div id="fm-keypad">
+    <button class="fm-key" onclick="fieldKeyPress('1')" aria-label="1">1</button>
+    <button class="fm-key" onclick="fieldKeyPress('2')" aria-label="2">2</button>
+    <button class="fm-key" onclick="fieldKeyPress('3')" aria-label="3">3</button>
+    <button class="fm-key" onclick="fieldKeyPress('4')" aria-label="4">4</button>
+    <button class="fm-key" onclick="fieldKeyPress('5')" aria-label="5">5</button>
+    <button class="fm-key" onclick="fieldKeyPress('6')" aria-label="6">6</button>
+    <button class="fm-key" onclick="fieldKeyPress('7')" aria-label="7">7</button>
+    <button class="fm-key" onclick="fieldKeyPress('8')" aria-label="8">8</button>
+    <button class="fm-key" onclick="fieldKeyPress('9')" aria-label="9">9</button>
+    <button class="fm-key fm-key-back" onclick="fieldBackspace()" aria-label="Backspace">&#x232B;</button>
+    <button class="fm-key" onclick="fieldKeyPress('0')" aria-label="0">0</button>
+    <button class="fm-key fm-key-enter" onclick="fieldSubmit('IN')" aria-label="Submit IN">&#8629;</button>
+  </div>
+
+  <!-- Action buttons – row 1: IN / OUT -->
+  <div id="fm-actions-row1">
+    <button class="fm-action fm-action-in"     onclick="fieldSubmit('IN')"     aria-label="Record IN">IN</button>
+    <button class="fm-action fm-action-out"    onclick="fieldSubmit('OUT')"    aria-label="Record OUT">OUT</button>
+  </div>
+
+  <!-- Action buttons – row 2: FINISH / DNF / CHANGE DIST -->
+  <div id="fm-actions-row2">
+    <button class="fm-action fm-action-finish" onclick="fieldSubmit('FINISH')" aria-label="Record FINISH">FINISH</button>
+    <button class="fm-action fm-action-dnf"    onclick="fieldSubmit('DNF')"    aria-label="Record DNF">DNF</button>
+    <button class="fm-action fm-action-chgdist" onclick="fieldShowDistancePicker()" aria-label="Change Distance">CHANGE DIST</button>
+  </div>
+
+  <!-- Brief status flash after submit -->
+  <div id="fm-status" aria-live="polite"></div>
+
+  <!-- Inline distance picker (shown inside modal instead of main-page popup) -->
+  <div id="fm-dist-picker">
+    <div id="fm-dist-title">Select Distance</div>
+    <select id="fm-dist-select" aria-label="Select distance">
+      <option value="20M">20 Mile</option>
+      <option value="30K">30K</option>
+      <option value="26.2">26.2</option>
+      <option value="50K">50K</option>
+      <option value="50M">50 Mile</option>
+      <option value="100K">100K</option>
+      <option value="100M">100 Mile</option>
+      <option value="200M">200 Mile</option>
+      <option value="240M">240 Mile</option>
+      <option value="300M">300 Mile</option>
+      <option value="DNS">DNS</option>
+    </select>
+    <div id="fm-dist-buttons">
+      <button class="fm-dist-btn fm-dist-confirm" onclick="fieldUpdateDistance()" aria-label="Confirm distance">Update</button>
+      <button class="fm-dist-btn fm-dist-cancel"  onclick="fieldHideDistancePicker()" aria-label="Cancel">Cancel</button>
+    </div>
+  </div>
+
+</div><!-- end #fieldModeModal -->
 
 <script>
   if ('serviceWorker' in navigator) {

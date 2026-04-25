@@ -3783,6 +3783,192 @@ function loadDataButton() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FIELD MODE – dark full-screen mobile bib-entry overlay
+// ═══════════════════════════════════════════════════════════════
+(function () {
+  "use strict";
+
+  // Internal bib digit buffer
+  let _fmBib = "";
+
+  function _fmUpdateDisplay() {
+    const digitsEl = document.getElementById("fm-bib-digits");
+    const hintEl   = document.getElementById("fm-bib-hint");
+    if (!digitsEl) return;
+    if (_fmBib.length === 0) {
+      digitsEl.textContent = "\u2014"; // em dash
+      digitsEl.classList.add("fm-bib-empty");
+      if (hintEl) hintEl.style.visibility = "visible";
+    } else {
+      digitsEl.textContent = _fmBib;
+      digitsEl.classList.remove("fm-bib-empty");
+      if (hintEl) hintEl.style.visibility = "hidden";
+    }
+  }
+
+  function _fmFlashStatus(msg, isErr) {
+    const el = document.getElementById("fm-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = isErr ? "#ff6b6b" : "#00e5ff";
+    clearTimeout(el._fmTimer);
+    el._fmTimer = setTimeout(() => { el.textContent = ""; }, 2200);
+  }
+
+  window.openFieldMode = function openFieldMode() {
+    const modal = document.getElementById("fieldModeModal");
+    if (!modal) return;
+
+    // Populate header with event name and station
+    const eventCode = (typeof getEventCode === "function") ? getEventCode() : "";
+    const stationInfo = (typeof getStationNameAndCode === "function")
+      ? getStationNameAndCode()
+      : { station_name: "", station_code: "" };
+
+    const eventLabel   = document.getElementById("fm-event-label");
+    const stationChip  = document.getElementById("fm-station-chip");
+
+    if (eventLabel)  eventLabel.textContent  = eventCode || "";
+    if (stationChip) {
+      const name = stationInfo.station_name || stationInfo.station_code || "—";
+      stationChip.textContent = "\uD83D\uDCCD " + name; // 📍
+    }
+
+    // Sync distance picker options with the main-page dropdown
+    const mainSel = document.getElementById("distanceSelect");
+    const fmSel   = document.getElementById("fm-dist-select");
+    if (mainSel && fmSel && mainSel.options.length > 0) {
+      const currentVal = mainSel.value;
+      fmSel.innerHTML = mainSel.innerHTML;
+      fmSel.value = currentVal;
+    }
+
+    // Reset bib buffer and status
+    _fmBib = "";
+    _fmUpdateDisplay();
+    const statusEl = document.getElementById("fm-status");
+    if (statusEl) statusEl.textContent = "";
+
+    // Hide distance picker in case it was left open
+    fieldHideDistancePicker();
+
+    // Show modal
+    modal.classList.add("fm-open");
+    document.body.style.overflow = "hidden";
+  };
+
+  window.closeFieldMode = function closeFieldMode() {
+    const modal = document.getElementById("fieldModeModal");
+    if (!modal) return;
+    modal.classList.remove("fm-open");
+    document.body.style.overflow = "";
+    fieldHideDistancePicker();
+  };
+
+  window.fieldKeyPress = function fieldKeyPress(digit) {
+    if (_fmBib.length >= 6) return; // max 6 digits
+    _fmBib += digit;
+    _fmUpdateDisplay();
+  };
+
+  window.fieldBackspace = function fieldBackspace() {
+    if (_fmBib.length === 0) return;
+    _fmBib = _fmBib.slice(0, -1);
+    _fmUpdateDisplay();
+  };
+
+  window.fieldSubmit = async function fieldSubmit(action) {
+    if (!_fmBib) {
+      _fmFlashStatus("Enter a bib number first", true);
+      return;
+    }
+
+    // Copy bib into the main form's bib input so addEntry() works normally
+    const bibEl = document.getElementById("bibNumber");
+    if (!bibEl) {
+      _fmFlashStatus("Error: bib input not found", true);
+      return;
+    }
+    bibEl.value = _fmBib;
+
+    // Refresh time to now before submit
+    if (typeof setCurrentTime === "function") setCurrentTime(false);
+
+    // Clear any leftover comment so a fresh note isn't added accidentally
+    // (leave it alone – operators may want a pre-filled comment)
+
+    try {
+      await addEntry(action);
+      _fmFlashStatus("\u2713 " + action + " – Bib " + _fmBib + " recorded");
+      _fmBib = "";
+      _fmUpdateDisplay();
+    } catch (err) {
+      _fmFlashStatus("Submit error: " + (err.message || err), true);
+    }
+  };
+
+  window.fieldShowDistancePicker = function fieldShowDistancePicker() {
+    if (!_fmBib) {
+      _fmFlashStatus("Enter a bib number first", true);
+      return;
+    }
+    const picker = document.getElementById("fm-dist-picker");
+    if (picker) picker.classList.add("fm-dist-open");
+  };
+
+  window.fieldHideDistancePicker = function fieldHideDistancePicker() {
+    const picker = document.getElementById("fm-dist-picker");
+    if (picker) picker.classList.remove("fm-dist-open");
+  };
+
+  window.fieldUpdateDistance = async function fieldUpdateDistance() {
+    if (!_fmBib) {
+      _fmFlashStatus("Enter a bib number first", true);
+      fieldHideDistancePicker();
+      return;
+    }
+
+    const fmSel   = document.getElementById("fm-dist-select");
+    const mainSel = document.getElementById("distanceSelect");
+    const bibEl   = document.getElementById("bibNumber");
+
+    if (!fmSel || !bibEl) {
+      fieldHideDistancePicker();
+      return;
+    }
+
+    const newDist = fmSel.value;
+    bibEl.value = _fmBib;
+
+    // Sync selection to the main distance select so updateDistance() reads it
+    if (mainSel) mainSel.value = newDist;
+
+    // Close picker first (updateDistance may show its own alerts)
+    fieldHideDistancePicker();
+
+    // Re-use the main updateDistance() function (already handles DNS, overrides, etc.)
+    if (typeof updateDistance === "function") {
+      try {
+        await updateDistance(null);
+        _fmFlashStatus("\u2713 Distance updated – Bib " + _fmBib);
+        _fmBib = "";
+        _fmUpdateDisplay();
+      } catch (err) {
+        _fmFlashStatus("Distance error: " + (err.message || err), true);
+      }
+    }
+  };
+
+  // Close modal on Escape key (desktop fallback)
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      const modal = document.getElementById("fieldModeModal");
+      if (modal && modal.classList.contains("fm-open")) closeFieldMode();
+    }
+  });
+})();
+
 // Expose functions used by HTML buttons
 window.saveStartTimes = saveStartTimes;
 
@@ -3793,6 +3979,16 @@ window.updateSubject = updateSubject;
 window.showDistancePopup = showDistancePopup;
 window.closeDistancePopup = closeDistancePopup;
 window.updateDistance = updateDistance;
+
+// Field Mode modal
+window.openFieldMode          = window.openFieldMode;          // already assigned in IIFE
+window.closeFieldMode         = window.closeFieldMode;
+window.fieldKeyPress          = window.fieldKeyPress;
+window.fieldBackspace         = window.fieldBackspace;
+window.fieldSubmit            = window.fieldSubmit;
+window.fieldShowDistancePicker= window.fieldShowDistancePicker;
+window.fieldHideDistancePicker= window.fieldHideDistancePicker;
+window.fieldUpdateDistance    = window.fieldUpdateDistance;
 
 window.updateBibInfo = updateBibInfo;
 window.filterBibLog = filterBibLog;
