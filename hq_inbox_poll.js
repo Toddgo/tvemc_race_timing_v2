@@ -392,8 +392,8 @@ window.addEventListener("load", function () {
 
   // Start polling when page is loaded (aid station view)
   window.addEventListener("load", function () {
-    // Do NOT poll in HQ mode (?hq=1)
-    if (window.location.search.includes("hq=1")) return;
+    // Do NOT poll in HQ mode (state stored in sessionStorage, not URL)
+    if (sessionStorage.getItem("hq_mode") === "1") return;
 
     // ✅ The dropdown value is the station ID (AS2). Use it directly.
     const stationSelect = document.getElementById("aidStation");

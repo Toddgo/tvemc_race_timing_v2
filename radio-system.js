@@ -680,7 +680,7 @@ document.addEventListener("DOMContentLoaded", () => {
   autoConnectRadio();
 });
 
-// Show HQ box if ?hq=1
+// Show HQ box if hq_mode is set in sessionStorage
 if (sessionStorage.getItem("hq_mode") === "1") {
   const hqBox = document.getElementById("hqRadioBox");
   if (hqBox) hqBox.style.display = "block";

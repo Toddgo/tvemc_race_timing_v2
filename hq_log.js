@@ -230,7 +230,7 @@
 
   window.addEventListener("load", function () {
     // Only show and run the HQ log in HQ mode
-    if (!window.location.search.includes("hq=1")) {
+    if (sessionStorage.getItem("hq_mode") !== "1") {
       return;
     }
 

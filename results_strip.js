@@ -2138,7 +2138,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || window.entries || [];
                 let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if (sessionStorage.getItem("hq_mode") === "1") {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
@@ -2153,7 +2153,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || [];
                 let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if (sessionStorage.getItem("hq_mode") === "1") {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
