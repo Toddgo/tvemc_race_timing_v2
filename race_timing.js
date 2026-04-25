@@ -2878,6 +2878,19 @@ function importRadioWinlinkTxt() {
           START TIME 
 ----------------------------*/
 async function saveStartTimes() {
+  const btn = document.getElementById("saveStartTimesBtn");
+  const statusEl = document.getElementById("saveStartTimesStatus");
+
+  const setStatus = (msg, color) => {
+    if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color; }
+  };
+  const setBtnText = (txt) => { if (btn) btn.textContent = txt; };
+  const disableBtn = (d) => { if (btn) btn.disabled = d; };
+
+  setBtnText("Saving…");
+  disableBtn(true);
+  setStatus("", "");
+
   try {
     const event_code = cleanEventCode(getEventCode());
     const set_by = safeString(document.getElementById("operatorName")?.value || "HQ");
@@ -2910,6 +2923,11 @@ async function saveStartTimes() {
     const j = await res.json();
     if (!j.success) throw new Error(j.error || "Save failed");
 
+    setBtnText("Save Start Times");
+    disableBtn(false);
+    setStatus(`✓ Saved (${j.saved} time${j.saved !== 1 ? "s" : ""})`, "#00ff00");
+    setTimeout(() => setStatus("", ""), 5000);
+
     if (showAlerts) alert(`Start times saved to DB (${j.saved}).`);
 
     // Post-save refresh: reload config + reload passes + re-render
@@ -2934,6 +2952,10 @@ async function saveStartTimes() {
 
   } catch (e) {
     console.error("Save start times failed:", e);
+    setBtnText("Save Start Times");
+    disableBtn(false);
+    setStatus("✗ Save failed: " + e.message, "#ff4444");
+    setTimeout(() => setStatus("", ""), 8000);
     if (showAlerts) alert("Save start times failed: " + e.message);
   }
 }
