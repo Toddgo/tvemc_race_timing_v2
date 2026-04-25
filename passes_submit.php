@@ -166,10 +166,40 @@ if ($has_station_code) {
   }
 
   if (!$station_for_dist) {
-    // mismatch: station exists for event, but not for this distance
-    $is_mismatch = 1;
-    $warning = 'RUNNER OFF COURSE';
-    $station_id = $station_id_any;
+    // The submitted station_code is not in this runner's distance.
+    // Before flagging off-course, check whether the physical location
+    // (station_name) appears in the runner's distance under a different
+    // station_code — e.g. device left on AS15 (50M Hwy 168) while a
+    // 20M runner passes through (correct location, wrong device code).
+    $q_autofix = $conn->prepare("
+      SELECT station_id FROM aid_stations
+      WHERE event_id     = ?
+        AND distance_code = ?
+        AND station_name  = ?
+      ORDER BY station_order ASC
+      LIMIT 1
+    ");
+    $autofix_station_id = null;
+    if ($q_autofix) {
+      $q_autofix->bind_param("iss", $event_id, $distance_code, $station_name);
+      $q_autofix->execute();
+      $autofix_row = $q_autofix->get_result()->fetch_assoc();
+      $q_autofix->close();
+      if ($autofix_row) {
+        $autofix_station_id = (int)$autofix_row['station_id'];
+      }
+    }
+
+    if ($autofix_station_id !== null) {
+      // Same physical location exists in the runner's distance — auto-correct.
+      // No mismatch: the runner was on course; the device code was wrong.
+      $station_id = $autofix_station_id;
+    } else {
+      // Station name is genuinely not in this runner's distance: flag off-course.
+      $is_mismatch = 1;
+      $warning = 'RUNNER OFF COURSE';
+      $station_id = $station_id_any;
+    }
   } else {
     $station_id = (int)$station_for_dist['station_id'];
   }
