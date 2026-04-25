@@ -1534,14 +1534,36 @@ async function addEntry(action) {
         // Restore Elapsed / Avg Pace / ETA Next for IN/OUT rows
         // Look up the real station_order from AID_STATION_MAP (handles events like LD where
         // START occupies order=1, so AS1 is order=2 — parsing the suffix would give wrong result).
+        // For courses where the same station_code appears more than once (e.g. Junction in the
+        // 20M Bishop Ultra), count previous IN passes for this bib at this station_code to
+        // select the correct occurrence in the path.
         const so = (() => {
           const dc = String(payload.distance_code || '').toUpperCase();
           const sc = String(payload.station_code || '').toUpperCase();
-          const distStations = AID_STATION_MAP[dc] || [];
-          const found = distStations.find(s => String(s.station_code || '').toUpperCase() === sc);
-          if (found && found.station_order != null) return Number(found.station_order);
+          const sorted = (AID_STATION_MAP[dc] || []).slice()
+            .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+          const matches = sorted.filter(s => String(s.station_code || '').toUpperCase() === sc);
+          if (matches.length > 1) {
+            // Determine which occurrence this pass belongs to:
+            // IN passes start a new occurrence; OUT/other passes share the most recent IN's.
+            const passModeIsIn = String(payload.pass_type || '').toUpperCase() === 'IN';
+            const inCount = entries.filter(e =>
+              String(e.bib_number || '').trim() === String(bib).trim() &&
+              String(e.station_code || '').toUpperCase() === sc &&
+              String(e.action || '').toUpperCase() === 'IN'
+            ).length;
+            const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
+            const match = matches[occurrenceIdx] || matches[matches.length - 1];
+            if (match?.station_order != null) return Number(match.station_order);
+          } else if (matches.length === 1 && matches[0].station_order != null) {
+            return Number(matches[0].station_order);
+          }
           return stationOrderFromCode(payload.station_code); // fallback
         })();
+        // Store station_order on the entry so Card C path-lookup in recomputeExpectedFromPrevForUI
+        // and computeExpectedFromPrev_PATH correctly handle courses where the same station_code
+        // appears more than once (e.g. Junction visited twice in the 20M course).
+        if (so != null) entry.station_order = so;
         if (so != null && (entry.pass_ts_utc || entry.pass_ts) && !entry.mismatch) {
           const m = computeElapsedPaceEta(payload.distance_code, so, entry.pass_ts_utc || entry.pass_ts);
           entry.elapsed_total = m.elapsed;

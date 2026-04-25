@@ -203,12 +203,11 @@ export function computeResultsForRows({
       if (st.startMs != null && st.lastTs > st.startMs) {
         const elapsedSec = (st.lastTs - st.startMs) / 1000;
         out.elapsed_total = formatHMS(elapsedSec);
-        out.avg_pace = (st.lastMile != null && st.lastMile > 0)
-          ? paceMinPerMile(elapsedSec, st.lastMile)
-          : "";
+        // Do NOT overwrite avg_pace here — per-station pace was already computed by
+        // computeElapsedPaceEta when the entry was created/loaded; preserve it.
       } else {
         out.elapsed_total = "";
-        out.avg_pace = "";
+        // Leave avg_pace intact (per-station pace set by computeElapsedPaceEta on load/submit).
       }
     }
 
