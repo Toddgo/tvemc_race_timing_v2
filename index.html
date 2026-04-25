@@ -792,8 +792,19 @@
 <script>
 async function enterHqMode() {
   const pass = document.getElementById('hqPass').value || '';
-  if (pass !== 'Jesse2026!') {
-    alert('Wrong HQ password');
+  try {
+    const resp = await fetch('hq_auth.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pass })
+    });
+    const data = await resp.json();
+    if (!data.success) {
+      alert('Wrong HQ password');
+      return;
+    }
+  } catch (e) {
+    alert('Could not verify password – check server connection');
     return;
   }
   localStorage.setItem('hq_auth_token', 'valid');
