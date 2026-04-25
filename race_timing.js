@@ -327,6 +327,12 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
       return String((window.TVEMC_EVENT_META && window.TVEMC_EVENT_META.timezone) || "UTC");
     };
 
+    // Update the page title to reflect the selected event
+    const titleEl = document.getElementById("pageTitle");
+    if (titleEl && meta.event_name) {
+      titleEl.textContent = `${meta.event_name} (${meta.event_code})`;
+    }
+
     console.log("Loaded event meta:", meta);
     return meta;
   } catch (e) {
