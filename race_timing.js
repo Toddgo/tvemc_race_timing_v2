@@ -388,6 +388,13 @@ async function loadEventListIntoDropdown() {
     if (matched) {
       // Ensure localStorage is in sync with what the dropdown shows
       localStorage.setItem("tvemc_eventName", active);
+
+      // Update the page title immediately from events_list data (before events_load.php resolves)
+      const activeEvent = events.find(ev => ev.event_code === active);
+      if (activeEvent) {
+        const titleEl = document.getElementById("pageTitle");
+        if (titleEl) titleEl.textContent = `${activeEvent.event_name} (${activeEvent.event_code})`;
+      }
     }
 
     console.log("Event list loaded:", events.length, "events; active:", active, "matched:", matched);
