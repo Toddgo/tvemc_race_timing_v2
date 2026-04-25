@@ -726,11 +726,10 @@
   async function loadResultsConfigOnce() {
     if (__resultsConfigLoaded) return;
     // Use the same event-code resolution order as getEventCode() in race_timing.js:
-    // URL ?event=  →  #eventCode hidden input  →  #eventName text input  →  hardcoded fallback
-    const qs = new URLSearchParams(window.location.search);
+    // sessionStorage tvemc_eventName  →  #eventCode hidden input  →  #eventName text input  →  hardcoded fallback
     const eventCode = (
       window.TVEMC_EVENT_CODE ||
-      qs.get("event") ||
+      sessionStorage.getItem("tvemc_eventName") ||
       document.getElementById("eventCode")?.value ||
       document.getElementById("eventName")?.value ||
       "KH_SOB_2026_0003"
@@ -808,7 +807,8 @@ async function enterHqMode() {
     return;
   }
   localStorage.setItem('hq_auth_token', 'valid');
-  location.href = '?hq=1';
+  sessionStorage.setItem('hq_mode', '1');
+  location.href = location.pathname;
 }
 </script>
 

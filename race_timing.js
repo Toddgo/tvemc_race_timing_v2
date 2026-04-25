@@ -294,10 +294,8 @@ function cleanEventCode(ec) {
 }
 
 window.getEventCode = function getEventCode() {
-  const qs = new URLSearchParams(window.location.search);
-
-  // ✅ Canonical is ?event=...
-  const fromQS = qs.get("event");
+  // Canonical source is sessionStorage (URL params are stripped on load)
+  const fromSS = sessionStorage.getItem("tvemc_eventName") || "";
 
   // Fallbacks (tvemc_eventName is set by the event dropdown on change)
   const fromLSName = localStorage.getItem("tvemc_eventName") || "";
@@ -307,7 +305,7 @@ window.getEventCode = function getEventCode() {
     document.getElementById("eventName")?.value ||
     "";
 
-  return cleanEventCode(fromQS || fromInput || fromLSName || fromLSCode || "");
+  return cleanEventCode(fromSS || fromInput || fromLSName || fromLSCode || "");
 };
 
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
@@ -359,12 +357,11 @@ async function loadEventListIntoDropdown() {
     }
 
     // Determine which event should be selected:
-    // Priority: URL ?event=  →  localStorage tvemc_eventName  →  hidden #eventCode input
-    const qs = new URLSearchParams(window.location.search);
-    const fromQS = cleanEventCode(qs.get("event") || "");
+    // Priority: sessionStorage tvemc_eventName  →  localStorage tvemc_eventName  →  hidden #eventCode input
+    const fromSS = cleanEventCode(sessionStorage.getItem("tvemc_eventName") || "");
     const fromLS = cleanEventCode(localStorage.getItem("tvemc_eventName") || "");
     const fromHidden = cleanEventCode(document.getElementById("eventCode")?.value || "");
-    const active = fromQS || fromLS || fromHidden;
+    const active = fromSS || fromLS || fromHidden;
 
     // Rebuild options: blank placeholder + one per event
     sel.innerHTML = "";
@@ -406,10 +403,10 @@ async function loadEventListIntoDropdown() {
         const chosen = cleanEventCode(e.target.value || "");
         if (!chosen) return;
         localStorage.setItem("tvemc_eventName", chosen);
-        // Reload with new event in URL so all data (stations, runners, start times) refreshes
-        const url = new URL(window.location.href);
-        url.searchParams.set("event", chosen);
-        window.location.href = url.toString();
+        sessionStorage.setItem("tvemc_eventName", chosen);
+        // Reload with plain URL so all data (stations, runners, start times) refreshes
+        // without exposing the event code in the address bar
+        window.location.href = window.location.pathname;
       });
     }
   } catch (e) {
@@ -474,8 +471,7 @@ function loadData() {
 }
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = sessionStorage.getItem("hq_mode") === "1";
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -555,7 +551,7 @@ function updateFinishButtonVisibility() {
   const btn = document.getElementById("finishBtn");
   if (!btn) return;
 
-  const isHq = window.location.search.includes("hq=1");
+  const isHq = sessionStorage.getItem("hq_mode") === "1";
   btn.style.display = isHq ? "inline-block" : "none";
 }
 
@@ -563,8 +559,7 @@ window.addEventListener("load", updateFinishButtonVisibility);
 updateFinishButtonVisibility();
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = sessionStorage.getItem("hq_mode") === "1";
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -3584,6 +3579,24 @@ async function loadRunnerRegistryFromServer() {
    Boot
 ----------------------------*/
 document.addEventListener("DOMContentLoaded", async () => {
+  // Strip ?hq=1 and ?event=... from the address bar immediately, storing state
+  // in sessionStorage so curious users cannot bookmark or share privileged URLs.
+  (function stripURLParams() {
+    const qs = new URLSearchParams(window.location.search);
+    const hq = qs.get("hq");
+    const event = qs.get("event");
+    if (hq === "1") {
+      sessionStorage.setItem("hq_mode", "1");
+    }
+    if (event) {
+      sessionStorage.setItem("tvemc_eventName", event);
+      localStorage.setItem("tvemc_eventName", event); // keep localStorage in sync
+    }
+    if (hq || event) {
+      history.replaceState(null, "", window.location.pathname);
+    }
+  })();
+
   loadData();
   setupFastTabAndAlerts();
   setupHighContrastToggle();
