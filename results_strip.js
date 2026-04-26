@@ -223,6 +223,20 @@ function recomputeExpectedFromPrevForUI() {
 
     out.sort((a, b) => b.eta_utc_ms - a.eta_utc_ms);
 
+    // Enrich rows with pace-based ETAs computed by computeExpectedFromPrev_PATH (inside the
+    // IIFE).  That function stores its results in window.__rs_pathEtaRaw before each authoritative
+    // write so we can read them here without needing access to IIFE-internal helpers.
+    const _pathEtaRaw = window.__rs_pathEtaRaw || {};
+    for (const row of out) {
+      const eta = _pathEtaRaw[row.bib];
+      // Only use PATH ETA if it is strictly later than the runner's last-seen time
+      // (i.e. a real forward-looking estimate, not a fallback that equals last_time).
+      if (eta && eta.eta_utc_ms > (row.eta_utc_ms || 0)) {
+        row.nextArriving_time = eta.nextArriving_time_utc; // raw UTC; formatLocalDateTime applied in popup getter
+        row.eta_utc_ms       = eta.eta_utc_ms;
+      }
+    }
+
     // First-station supplement: runners coming straight from START (no pass in DB yet)
     // are invisible to the path-based loop above. Detect first-station from AID_STATION_MAP
     // and add any rostered bibs not yet seen at this station.
@@ -2130,6 +2144,21 @@ function stationNameFromCode(code) {
             const bib = String(r?.bib ?? "").trim();
             return bib && !finishedBibs.has(bib);
           });
+        }
+        // Store PATH/FLOW ETAs in a global so recomputeExpectedFromPrevForUI can enrich
+        // its rows.  That function is at global scope and cannot call the pace helpers
+        // defined inside this IIFE, so we act as a bridge here.
+        window.__rs_pathEtaRaw = {};
+        for (const r of (expectedPrevRows || [])) {
+          const bib = String(r?.bib ?? '').trim();
+          if (bib && r.eta_utc_ms) {
+            window.__rs_pathEtaRaw[bib] = {
+              eta_utc_ms: r.eta_utc_ms,
+              // Derive raw UTC string from epoch ms so the popup getter's formatLocalDateTime
+              // can convert it to local time correctly.
+              nextArriving_time_utc: new Date(r.eta_utc_ms).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+            };
+          }
         }
         // AUTHORITATIVE write: always prefer recomputeExpectedFromPrevForUI (uses
         // chronological path-stepping that handles duplicate/wrong station codes).
