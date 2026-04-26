@@ -1376,7 +1376,7 @@ function stationNameFromCode(code) {
         bib,
         last_station: safeStationText(e) || safeStationCode(e) || "",
         last_action: safeAction(e),
-        last_time: safePassTs(e),
+        last_time: formatLocalDateTime(safePassTs(e)),
         distance: normalizeDistance(e.distance_code || e.distance || ""),
         comment: e.comment || e.note || ""
       });
@@ -1393,7 +1393,7 @@ function stationNameFromCode(code) {
         bib,
         last_station: safeStationText(e) || safeStationCode(e) || "",
         last_action: safeAction(e),
-        last_time: safePassTs(e),
+        last_time: formatLocalDateTime(safePassTs(e)),
         distance: normalizeDistance(e.distance_code || e.distance || ""),
         comment: e.comment || e.note || ""
       });
@@ -1408,7 +1408,7 @@ function stationNameFromCode(code) {
       if (!isFinish(e)) continue;
       out.push({
         bib,
-        finish_time: safePassTs(e),
+        finish_time: formatLocalDateTime(safePassTs(e)),
         distance: normalizeDistance(e.distance_code || e.distance || ""),
         operator: e.operator || ""
       });
@@ -1432,7 +1432,7 @@ function stationNameFromCode(code) {
           bib,
           last_station: safeStationText(e) || safeStationCode(e) || "",
           last_action: act,
-          last_time: safePassTs(e),
+          last_time: formatLocalDateTime(safePassTs(e)),
           distance: normalizeDistance(e.distance_code || e.distance || "")
         });
       }
@@ -1555,7 +1555,7 @@ function stationNameFromCode(code) {
             last_station: stationNameFromCode(String(safeStationCode(eFrom) || "")),
         
             // Human display (respects HQ LOCAL / UTC toggle)
-            nextArriving_time: safePassTs(eFrom),
+            nextArriving_time: formatLocalDateTime(safePassTs(eFrom)),
             // ✅ Machine-accurate ETA (UTC millis, never formatted)
             eta_utc_ms: tFrom,
             
@@ -1701,8 +1701,8 @@ function stationNameFromCode(code) {
           out.push({
             bib,
             last_station: stationNameFromCode(lastCode),
-            last_time: safePassTs(e),
-            nextArriving_time: etaTime,
+            last_time: formatLocalDateTime(safePassTs(e)),
+            nextArriving_time: formatLocalDateTime(etaTime),
             eta_utc_ms: etaMs,
             next_station: stationNameFromCode(nextCode),
             distance: dist,
@@ -2254,7 +2254,7 @@ function stationNameFromCode(code) {
                   out.push({
                     bib,
                     last_station: e ? (safeStationText(e) || safeStationCode(e) || "") : "",
-                    last_time:    e ? safePassTs(e) : "",
+                    last_time:    e ? formatLocalDateTime(safePassTs(e)) : "",
                     distance:     e ? normalizeDistance(e.distance_code || e.distance || "") : (r.distance || "")
                   });
                 }
