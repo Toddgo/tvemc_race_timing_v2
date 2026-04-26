@@ -27,6 +27,13 @@ if (!$event) {
 $event_id = (int)$event['event_id'];
 
 // Return fields in the SAME names your JS expects (bib, firstName, lastName, etc.)
+// Include prev_distance_code when the column exists (added by add_prev_distance_column.sql)
+$has_prev = false;
+$chk = $conn->query("SHOW COLUMNS FROM runners LIKE 'prev_distance_code'");
+if ($chk && $chk->num_rows > 0) $has_prev = true;
+
+$prev_col = $has_prev ? "COALESCE(prev_distance_code, '') AS previousDistance" : "'' AS previousDistance";
+
 $sql = "SELECT
           bib AS bib,
           first_name AS firstName,
@@ -34,7 +41,7 @@ $sql = "SELECT
           age AS age,
           gender AS gender,
           distance_code AS distance,
-          '' AS previousDistance
+          {$prev_col}
         FROM runners
         WHERE event_id=?
         ORDER BY bib ASC";

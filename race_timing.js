@@ -1145,6 +1145,41 @@ async function loadPassesFromServer() {
       };
     });
 
+  // Propagate the "Distance changed X → Y" note to all LATER passes for the same bib
+  // so operators at downstream stations can see at a glance that the runner changed distance.
+  {
+    const distChangeByBib = new Map(); // bib -> { ts: number, note: string }
+    for (const e of entries) {
+      const noteText = String(e.comment || "");
+      if (/^Distance changed\s+\S+\s*→\s*\S+/i.test(noteText)) {
+        const bib = String(e.bib_number || "");
+        const ts  = e.pass_ts_ms || 0;
+        const existing = distChangeByBib.get(bib);
+        // Keep the most recent distance-change event for this bib
+        if (!existing || ts > existing.ts) {
+          distChangeByBib.set(bib, { ts, note: noteText });
+        }
+      }
+    }
+    if (distChangeByBib.size) {
+      for (const e of entries) {
+        const bib    = String(e.bib_number || "");
+        const change = distChangeByBib.get(bib);
+        if (!change) continue;
+        const ts = e.pass_ts_ms || 0;
+        // Only annotate passes that came AFTER the distance change
+        if (ts > change.ts) {
+          const tag = `[${change.note}]`;
+          const existing = String(e.comment || "");
+          // Avoid adding twice (e.g. if entries are refreshed)
+          if (!existing.includes("Distance changed")) {
+            e.comment = existing ? `${existing} ${tag}` : tag;
+          }
+        }
+      }
+    }
+  }
+
   // ----- PASS NUMBER DERIVATION (display only, chronological-safe) 01-07-2026-20:45-----
   // Work on a chronologically sorted copy (oldest -> newest)
   // ----- PASS NUMBER DERIVATION (IN increments; others inherit last IN) -----
@@ -2353,6 +2388,22 @@ async function updateDistance(e) {
     
   runner.previousDistance = runner.distance || runner.previousDistance || "N/A";
   runner.distance = newDist;
+
+  // Persist change to server so ALL stations see the updated distance immediately.
+  // Fire-and-forget: the pass submission already captures the note; this keeps the
+  // runners table in sync so runners_load.php returns the correct distance on reload.
+  try {
+    const _ec = (typeof cleanEventCode === "function" ? cleanEventCode : (s => s))(
+      (typeof getEventCode === "function" ? getEventCode() : "") || ""
+    );
+    fetch("runner_distance_update.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_code: _ec, bib: parseInt(bibStr, 10), new_distance: newDist })
+    }).catch(err => console.warn("runner_distance_update failed:", err));
+  } catch (_e) {
+    console.warn("runner_distance_update failed:", _e);
+  }
 
   updateBibInfo();
 
