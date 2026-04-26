@@ -2470,6 +2470,12 @@ function stationNameFromCode(code) {
                 if (!bib) continue;
                 // Remove internal code-only fields before display
                 const display = Object.assign({}, r);
+                // Format timestamps to local time (respects Local/UTC toggle).
+                // recomputeExpectedFromPrevForUI stores raw UTC strings from the DB;
+                // formatLocalDateTime is only in scope here (inside the IIFE), so
+                // this is the correct place to convert for display.
+                if (display.last_time) display.last_time = formatLocalDateTime(display.last_time);
+                if (display.nextArriving_time) display.nextArriving_time = formatLocalDateTime(display.nextArriving_time);
                 try { delete display.last_station_code; delete display.next_station_code; } catch(e) {}
                 out.push(display);
               }
