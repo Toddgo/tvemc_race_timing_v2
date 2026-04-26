@@ -1140,24 +1140,27 @@ async function loadPassesFromServer() {
         last_name: runner.lastName || "N/A",
         age: runner.age || "N/A",
         gender: runner.gender || "N/A",
-        distance: runner.distance || r.distance_code || "N/A",
+        distance: r.distance_code || runner.distance || "N/A",
         previous_distance: runner.previousDistance || "N/A"
       };
     });
 
   // Propagate the "Distance changed X → Y" note to all LATER passes for the same bib
   // so operators at downstream stations can see at a glance that the runner changed distance.
+  // Also derive and backfill previous_distance and forward-fill distance from the note so
+  // the bib log shows the correct values even when the runner registry (bibList) is stale.
   {
-    const distChangeByBib = new Map(); // bib -> { ts: number, note: string }
+    const distChangeByBib = new Map(); // bib -> { ts: number, note: string, oldDist: string, newDist: string }
     for (const e of entries) {
       const noteText = String(e.comment || "");
-      if (/^Distance changed\s+\S+\s*→\s*\S+/i.test(noteText)) {
+      const m = noteText.match(/^Distance changed\s+(\S+)\s*→\s*(\S+)/i);
+      if (m) {
         const bib = String(e.bib_number || "");
         const ts  = e.pass_ts_ms || 0;
         const existing = distChangeByBib.get(bib);
         // Keep the most recent distance-change event for this bib
         if (!existing || ts > existing.ts) {
-          distChangeByBib.set(bib, { ts, note: noteText });
+          distChangeByBib.set(bib, { ts, note: noteText, oldDist: m[1], newDist: m[2] });
         }
       }
     }
@@ -1167,13 +1170,29 @@ async function loadPassesFromServer() {
         const change = distChangeByBib.get(bib);
         if (!change) continue;
         const ts = e.pass_ts_ms || 0;
-        // Only annotate passes that came AFTER the distance change
+        // For the distance-change entry itself, set previous_distance from the note
+        if (ts === change.ts) {
+          if (!e.previous_distance || e.previous_distance === "N/A") {
+            e.previous_distance = change.oldDist;
+          }
+          if (!e.distance || e.distance === "N/A") {
+            e.distance = change.newDist;
+          }
+        }
+        // Annotate and fix distance for passes that came AFTER the distance change
         if (ts > change.ts) {
           const tag = `[${change.note}]`;
           const existing = String(e.comment || "");
           // Avoid adding twice (e.g. if entries are refreshed)
           if (!existing.includes("Distance changed")) {
             e.comment = existing ? `${existing} ${tag}` : tag;
+          }
+          // Backfill previous_distance and forward-fill distance when stale/missing
+          if (!e.previous_distance || e.previous_distance === "N/A") {
+            e.previous_distance = change.oldDist;
+          }
+          if (!e.distance || e.distance === "N/A") {
+            e.distance = change.newDist;
           }
         }
       }
@@ -3862,6 +3881,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       loadPassesFromServer().catch(() => {});
     }
   }, 15000);
+
+  // Refresh runner registry periodically so distance changes made at other stations
+  // are reflected in the All Runners Roster and Bib Log distance/prev_distance columns.
+  setInterval(() => {
+    loadRunnerRegistryFromServer().catch(() => {});
+  }, 60000);
 
   // Periodic offline sync
   setInterval(syncOfflineEntries, 30000);

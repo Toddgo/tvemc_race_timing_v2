@@ -151,12 +151,7 @@ function recomputeExpectedFromPrevForUI() {
           if (norm(k) === dist) { distStations = v || []; break; }
         }
       }
-      if (!distStations.length) {
-        // Fallback: first available distance in the map
-        const firstKey = Object.keys(aidMap)[0];
-        distStations = firstKey ? (aidMap[firstKey] || []) : [];
-      }
-      if (!distStations.length) continue;
+      if (!distStations.length) continue; // skip runners with unresolvable distance path
 
       const sorted = distStations.slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
       const path = sorted.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
