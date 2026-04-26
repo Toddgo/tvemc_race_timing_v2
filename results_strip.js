@@ -156,41 +156,49 @@ function recomputeExpectedFromPrevForUI() {
       const sorted = distStations.slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
       const path = sorted.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
 
-      const rawLast = norm(e.station_code || e.station || e.station_name || '');
-      // Use station_order from the runner's latest entry to find the correct path index.
-      // This handles courses where the same station is visited more than once (same
-      // station_code at different station_orders, e.g. Junction in the 20M course).
-      // path[i] corresponds to sorted[i], both ordered by station_order.
-      const runnerOrder = Number(e?.station_order || 0);
-      let idx = runnerOrder > 0
-        ? sorted.findIndex(s => Number(s.station_order) === runnerOrder)
-        : -1;
-      if (idx < 0) idx = path.indexOf(rawLast);
+      // Determine the runner's effective position in the path using chronological
+      // path-stepping across ALL of their passes (not just the latest one).
+      //
+      // This handles the case where a runner visits the same-named station twice
+      // (e.g. Junction in the 20M course) and the second pass is inadvertently
+      // recorded with the first Junction's station code (AS2 instead of AS4).
+      // Without this, the system would think the runner is still before Buttermilk
+      // and would never show them as expected at Hwy 168.
+      //
+      // Algorithm: process this bib's passes in chronological order, advancing a
+      // `searchFrom` pointer in the path.  When a pass maps to a station code that
+      // is no longer reachable from `searchFrom` (i.e. the runner is "going back"),
+      // we infer one completed loop segment and advance `searchFrom` by one step.
+      const bibAllPasses = list
+        .filter(le => String(le.bib || le.bib_number || le.BIB || '').trim() === bib)
+        .sort((a, b) => (Date.parse(a.pass_ts || a.time) || 0) - (Date.parse(b.pass_ts || b.time) || 0));
 
-      // For courses where the same station_code appears more than once (e.g. Junction
-      // visited twice in the 20M Bishop Ultra), the DB may have stored the wrong
-      // station_order because passes_submit.php picked the first matching station_id.
-      // Correct this by counting IN passes at this station_code across the full list
-      // and using the count to select the right path occurrence.
-      if (rawLast && path.filter(p => p === rawLast).length > 1) {
-        const inCount = (list || []).filter(le => {
-          const lb = String(le.bib || le.bib_number || le.BIB || '').trim();
-          const lsc = norm(le.station_code || le.station || le.station_name || '');
-          const la = String(le.action || le.pass_type || '').toUpperCase();
-          return lb === bib && lsc === rawLast && la === 'IN';
-        }).length;
-        if (inCount > 0) {
-          let occ = 0;
-          for (let pi = 0; pi < path.length; pi++) {
-            if (path[pi] === rawLast) {
-              occ++;
-              if (occ === inCount) { idx = pi; break; }
-            }
+      let idx = -1;
+      let searchFrom = 0;
+      for (const pass of bibAllPasses) {
+        const passCode = norm(pass.station_code || pass.station || pass.station_name || '');
+        if (!passCode) continue;
+        let found = false;
+        for (let pi = searchFrom; pi < path.length; pi++) {
+          if (path[pi] === passCode) {
+            idx = pi;
+            searchFrom = pi; // OUT passes at the same station won't change position
+            found = true;
+            break;
           }
+        }
+        if (!found && idx >= 0 && path.indexOf(passCode) >= 0) {
+          // passCode is in the path but behind searchFrom — runner has looped back.
+          // Advance one step to account for the completed loop segment.
+          idx = Math.min(idx + 1, path.length - 1);
+          searchFrom = idx;
         }
       }
 
       if (idx < 0) continue;
+
+      // Use the effective last-station info from the latest entry for display
+      const rawLast = norm(e.station_code || e.station || e.station_name || '');
 
       const nextCode = path[idx + 1];
       if (!nextCode) continue;
@@ -2464,26 +2472,14 @@ function stationNameFromCode(code) {
           return openListWindow(
             `Expected From Previous — ${stationLabel}`,
             () => {
-              // Prefer window.__rs_expectedPrevRows: updated every 5s by
-              // recomputeExpectedFromPrevForUI() and already filtered to the
-              // CURRENT station.  Fall back to localStorage only when the global
-              // hasn't been set yet (e.g. very first load before the interval fires).
-              let rows = window.__rs_expectedPrevRows;
-              if (!rows || !rows.length) {
-                // Try to recompute live — this re-reads the current station from
-                // the dropdown so it is always correct, even after station change.
-                rows = (typeof recomputeExpectedFromPrevForUI === 'function')
-                  ? (recomputeExpectedFromPrevForUI() || [])
-                  : [];
-              }
-              if (!rows || !rows.length) {
-                // Last resort: localStorage (may lag up to 10s behind station change)
-                try {
-                  const json = localStorage.getItem('__rs_expectedPrevRows_payload');
-                  const parsed = json ? JSON.parse(json) : null;
-                  rows = (parsed && Array.isArray(parsed.rows)) ? parsed.rows : [];
-                } catch(e){ rows = []; }
-              }
+              // Always recompute live so the popup reflects the CURRENT station,
+              // even if the station dropdown changed after the last 5-second interval.
+              // Reading window.__rs_expectedPrevRows can return stale data from a
+              // previously-selected station, causing wrong runners to appear
+              // (e.g. 20M bibs showing on the McGee Expected From Previous page).
+              let rows = (typeof recomputeExpectedFromPrevForUI === 'function')
+                ? (recomputeExpectedFromPrevForUI() || [])
+                : (window.__rs_expectedPrevRows || []);
               const out = [];
               for (const r of (rows || [])) {
                 const bib = String(r?.bib ?? "").trim();
