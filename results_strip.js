@@ -2416,9 +2416,20 @@ function stationNameFromCode(code) {
           }
 
           if (v === "all_runners") {
+            // Fetch fresh roster from server immediately when the popup opens
+            if (typeof loadRunnerRegistryFromServer === "function") {
+              loadRunnerRegistryFromServer().catch(() => {});
+            }
+            let _arLastFetch = Date.now(); // track last server fetch to avoid double-fetch
             return openListWindow(
               "All Runners — Roster",
               () => {
+                // Re-fetch from server every 30s while the popup is open
+                const _arNow = Date.now();
+                if (_arNow - _arLastFetch > 30000 && typeof loadRunnerRegistryFromServer === "function") {
+                  _arLastFetch = _arNow;
+                  loadRunnerRegistryFromServer().catch(() => {});
+                }
                 const roster = Array.isArray(window.bibList) ? window.bibList : [];
                 return roster
                   .filter(r => r && r.bib)
