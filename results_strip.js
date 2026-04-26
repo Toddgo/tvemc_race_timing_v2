@@ -1030,7 +1030,7 @@ function stationNameFromCode(code) {
       const w = window.open("", "_blank", "width=1100,height=800");
       if (!w) return;
     
-      const MAX_ROWS = Number(opts.maxRows || 300);
+      const MAX_ROWS = Number(opts.maxRows || 2000);
       const REFRESH_MS = Number(opts.refreshMs || 5000); // 5s default
     
       const safe = (v) =>
@@ -1937,18 +1937,6 @@ function stationNameFromCode(code) {
         STATUS_OVERRIDES.dnfClearedAtMs = new Map();
       }
       
-      // context & event
-     // const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-     // const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
-     // const IS_SOB = /SOB/i.test(eventCode);
-    
-      // ✅ ADD THIS DEBUG:
-      console.log("🔍 Event Context Debug:");
-      console.log("  - ctx.event_code:", ctx.event_code);
-      console.log("  - eventCode:", eventCode);
-      console.log("  - IS_SOB:", IS_SOB);
-      console.log("  - ctx.station_code:", ctx.station_code); 
-       
       // AUTHORITATIVE expected rows — attempt canonical recompute early (non-blocking fallback)
       try {
         // recomputeExpectedFromPrevForUI() should return canonical rows and write the global
@@ -2143,48 +2131,33 @@ function stationNameFromCode(code) {
             return bib && !finishedBibs.has(bib);
           });
         }
-        // ✅ ADD THIS DEBUG BEFORE THE TRY-CATCH:
-        console.log("🔍 Before AUTHORITATIVE write:");
-        console.log("  - expectedPrevRows.length:", expectedPrevRows.length);
-        console.log("  - Sample:", expectedPrevRows[0]);
-
-        // AUTHORITATIVE write: DON'T overwrite AS1 special override
+        // AUTHORITATIVE write: always prefer recomputeExpectedFromPrevForUI (uses
+        // chronological path-stepping that handles duplicate/wrong station codes).
+        // Update expectedPrevRows so Card C value is consistent with the popup.
         try {
-          console.log("🔍 INSIDE AUTHORITATIVE try block:");
-          console.log("  - expectedPrevRows.length BEFORE:", expectedPrevRows.length);
-          
-          // ✅ FIX: Skip recompute if we already have expectedPrevRows (AS1 START override)
-          if (!expectedPrevRows || expectedPrevRows.length === 0) {
-            console.log("  - Calling recomputeExpectedFromPrevForUI()");
-            const canonical = recomputeExpectedFromPrevForUI();
-            window.__rs_expectedPrevRows = canonical || [];
-            console.log("  - window.__rs_expectedPrevRows set from canonical:", window.__rs_expectedPrevRows.length);
+          const canonical = recomputeExpectedFromPrevForUI();
+          if (canonical && canonical.length > 0) {
+            // Canonical result is non-empty — use it as the authoritative source
+            window.__rs_expectedPrevRows = canonical;
+            expectedPrevRows = canonical;
           } else {
-            // Use our override (AS1 START→Picket Post)
-            console.log("  - Using expectedPrevRows override (AS1)");
-            window.__rs_expectedPrevRows = expectedPrevRows;
-            console.log("  - window.__rs_expectedPrevRows set from override:", window.__rs_expectedPrevRows.length);
+            // Canonical returned nothing; keep PATH/FLOW result if available
+            window.__rs_expectedPrevRows = expectedPrevRows || [];
           }
         } catch (err) {
           console.warn('recomputeExpectedFromPrevForUI failed (final), using local expectedPrevRows', err);
           window.__rs_expectedPrevRows = expectedPrevRows || [];
         }
         
-        console.log("🔍 AFTER AUTHORITATIVE write:");
-        console.log("  - window.__rs_expectedPrevRows.length:", window.__rs_expectedPrevRows.length);
-        console.log("  - Sample:", window.__rs_expectedPrevRows[0]);
-        
-        // ✅ ADD THIS: Update localStorage so popup gets fresh data
+        // Update localStorage so popup gets fresh data
         try {
           localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
             rows: window.__rs_expectedPrevRows || [],
-            stationCodes: [stationUpper],  // ✅ USE stationUpper (which is "AS1")
+            stationCodes: [stationUpper],
             stationLabel: stationLabel || ''
           }));
-          console.log("  - ✅ localStorage updated with", (window.__rs_expectedPrevRows || []).length, "rows, stationCodes:", [stationUpper]);
-        
         } catch (e) {
-          console.warn("  - ❌ Failed to update localStorage:", e);
+          console.warn("Failed to update localStorage expectedPrevRows:", e);
         }
           
       // Render UI (cards)

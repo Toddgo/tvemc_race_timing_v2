@@ -964,7 +964,7 @@ async function loadPassesFromServer() {
     if (!event_code) return; // keep
 
     const res = await fetch(
-      `passes_load.php?event_code=${encodeURIComponent(event_code)}&limit=500`,
+      `passes_load.php?event_code=${encodeURIComponent(event_code)}&limit=5000`,
       { cache: "no-store" }
     );
 

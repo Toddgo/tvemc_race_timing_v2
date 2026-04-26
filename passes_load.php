@@ -20,7 +20,7 @@ $conn->set_charset('utf8mb4');
 $event_code = trim($_GET['event_code'] ?? '');
 $limit = (int)($_GET['limit'] ?? 500);
 if ($limit < 1) $limit = 500;
-if ($limit > 5000) $limit = 5000;
+if ($limit > 10000) $limit = 10000;
 
 if ($event_code === '') {
   http_response_code(400);
