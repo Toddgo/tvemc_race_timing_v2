@@ -110,6 +110,23 @@ function buildPathFromAidStationMap(distance) {
 }
 
 
+// UTC-aware timestamp parser for use at global scope (outside the IIFE).
+// JavaScript's Date.parse() treats "YYYY-MM-DD HH:MM:SS" (space-separated, no timezone)
+// as LOCAL time in most browsers.  All pass_ts values from the DB are stored in UTC,
+// so we must append "Z" to force UTC interpretation.  Without this, row.eta_utc_ms
+// is inflated by the browser's UTC offset (e.g. +7 hours in PDT), which causes the
+// enrichment guard  eta.eta_utc_ms > row.eta_utc_ms  to fail for short course segments
+// (e.g. Junction→Buttermilk) even though computeExpectedFromPrev_PATH computed a
+// valid forward-looking ETA.
+function _parseUtcMs(ts) {
+  const s = String(ts || '').trim();
+  if (!s) return 0;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+    return Date.parse(s.replace(' ', 'T') + 'Z') || 0;
+  }
+  return Date.parse(s) || 0;
+}
+
 // Canonical DB-driven recompute for Expected From Previous.
 // Filters to only runners expected at the CURRENT station (per-bib distance path).
 function recomputeExpectedFromPrevForUI() {
@@ -130,9 +147,9 @@ function recomputeExpectedFromPrevForUI() {
     for (const e of list) {
       const bib = String(e.bib || e.bib_number || e.BIB || '').trim();
       if (!bib) continue;
-      const ts = Date.parse(e.pass_ts || e.time || '') || 0;
+      const ts = _parseUtcMs(e.pass_ts || e.time);
       const prev = latestByBib.get(bib);
-      if (!prev || ts > (Date.parse(prev.pass_ts || prev.time) || 0)) latestByBib.set(bib, e);
+      if (!prev || ts > _parseUtcMs(prev.pass_ts || prev.time)) latestByBib.set(bib, e);
     }
 
     const norm = s => {
@@ -214,7 +231,7 @@ function recomputeExpectedFromPrevForUI() {
         last_station_code: rawLast,
         last_time: e.pass_ts || e.time || '',
         nextArriving_time: e.pass_ts || e.time || '',
-        eta_utc_ms: Date.parse(e.pass_ts || e.time) || 0,
+        eta_utc_ms: _parseUtcMs(e.pass_ts || e.time),
         next_station: sObj.station_name || nextCode || '',
         next_station_code: nextCode || '',
         distance: dist || (Object.keys(aidMap)[0] || '')
@@ -2432,10 +2449,16 @@ function stationNameFromCode(code) {
         
           return openListWindow(
             `Last Seen Here — ${stationLabel || sc || "Station"}`,
-            () => (last10CacheKey ? (window[last10CacheKey] || []) : []).filter(r => {
-              const a = String(r?.pass_type || r?.action || "").toUpperCase();
-              return a !== "DNS" && a !== "DNF";
-            }),
+            () => (last10CacheKey ? (window[last10CacheKey] || []) : [])
+              .filter(r => {
+                const a = String(r?.pass_type || r?.action || "").toUpperCase();
+                return a !== "DNS" && a !== "DNF";
+              })
+              .map(r => {
+                const out = Object.assign({}, r);
+                if (out.pass_ts) out.pass_ts = formatLocalDateTime(out.pass_ts);
+                return out;
+              }),
             { refreshMs: 5000 }
           );
         }
