@@ -225,13 +225,51 @@ function recomputeExpectedFromPrevForUI() {
 
       const sObj = sorted.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
 
+      // Compute a pace-based ETA directly here so the popup is self-sufficient.
+      // Relying solely on _pathEtaRaw (populated by the main 10-s render cycle) fails
+      // when the station has just changed: the last render may have run for the
+      // PREVIOUS station and cleared _pathEtaRaw[bib] because that bib's next station
+      // is the NEW station (not the old one), leaving no ETA in _pathEtaRaw.
+      const passTs  = e.pass_ts || '';
+      const lastMs  = _parseUtcMs(passTs);
+      let   etaMs   = lastMs;
+
+      if (lastMs > 0 && typeof getStartTimeForDistance === 'function') {
+        const startDate = getStartTimeForDistance(dist);
+        if (startDate) {
+          const elapsedSec = (lastMs - startDate.getTime()) / 1000;
+          if (elapsedSec > 0) {
+            const curSt   = sorted.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === rawLast);
+            const curMile = (curSt && curSt.mile > 0) ? curSt.mile : (Number(e.mile) > 0 ? Number(e.mile) : 0);
+            // sObj is already the next-station object from sorted
+            let nextMile  = (sObj && sObj.mile > 0) ? sObj.mile : 0;
+            // Fallback: lookupNextStation (race_timing.js) uses station_order when aidMap lookup fails
+            if (!nextMile && typeof lookupNextStation === 'function' && Number(e.station_order) > 0) {
+              const ns = lookupNextStation(dist, Number(e.station_order));
+              if (ns && ns.mile > 0) nextMile = ns.mile;
+            }
+            if (curMile > 0 && nextMile > curMile) {
+              const mph = curMile / (elapsedSec / 3600);
+              if (mph > 0) {
+                etaMs = lastMs + ((nextMile - curMile) / mph) * 3600 * 1000;
+              }
+            }
+          }
+        }
+      }
+
+      // Raw UTC string for the popup's formatLocalDateTime call
+      const etaUtcStr = etaMs > lastMs
+        ? new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+        : passTs;
+
       out.push({
         bib: String(bib),
         last_station: e.station_name || e.station || rawLast,
         last_station_code: rawLast,
         last_time: e.pass_ts || e.time || '',
-        nextArriving_time: e.pass_ts || e.time || '',
-        eta_utc_ms: _parseUtcMs(e.pass_ts || e.time),
+        nextArriving_time: etaUtcStr,
+        eta_utc_ms: etaMs,
         next_station: sObj.station_name || nextCode || '',
         next_station_code: nextCode || '',
         distance: dist || (Object.keys(aidMap)[0] || '')
