@@ -1682,29 +1682,58 @@ function stationNameFromCode(code) {
         if (toSet.has(String(nextCode).toUpperCase())) {
           const lastMs = parseTsToMs(safePassTs(e));
           
-          // Get AID_STATION_MAP for this distance
+          // Get AID_STATION_MAP for this distance (try both window.AID_STATION_MAP and debug alias)
           const aidMap = window.AID_STATION_MAP?.[dist] || window.__AID_STATION_MAP_DEBUG?.[dist] || [];
           const curStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === lastCode);
           const nextStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === nextCode);
+
+          // Resolve current station mile: prefer AID_STATION_MAP, fall back to the pass entry's mile
+          // (passes_load.php JOINs aid_stations and carries the mile per-pass, same data race_timing uses).
+          const curMile = (curStation?.mile > 0) ? curStation.mile
+            : (Number(e.mile) > 0 ? Number(e.mile) : 0);
+
+          // Resolve next station mile: prefer AID_STATION_MAP lookup by code, then by station_order
+          // (lookupNextStation is a global from race_timing.js that handles canonical key lookup).
+          let nextMile = nextStation?.mile > 0 ? nextStation.mile : 0;
+          if (!nextMile && typeof lookupNextStation === 'function' && Number(e.station_order) > 0) {
+            const ns = lookupNextStation(dist, Number(e.station_order));
+            if (ns?.mile > 0) nextMile = ns.mile;
+          }
           
           let etaMs = lastMs;
           let etaTime = safePassTs(e);
           
-          if (curStation?.mile && nextStation?.mile && lastMs) {
-            // Bridge RACE_START_TIMES to TVEMC_startByDistance so ETA works for any event
+          if (curMile > 0 && nextMile > 0 && lastMs) {
+            // Resolve race start time with multiple fallbacks so ETA works for any event.
+            // getStartTimeForDistance (race_timing.js global) does a canonical key scan of the
+            // TVEMC_startByDistance Map, handling cases where the Map key format differs from dist.
             const startMs = (() => {
               const t = window.RACE_START_TIMES?.[dist];
               if (t) return t;
               const iso = window.TVEMC_startByDistance?.get(dist);
               if (iso) return new Date(iso).getTime();
+              // Canonical key fallback: iterate Map entries to handle "100K" vs "100k" etc.
+              if (window.TVEMC_startByDistance && window.TVEMC_startByDistance.size) {
+                const canon = (typeof canonicalDistanceCode === 'function') ? canonicalDistanceCode(dist) : dist;
+                for (const [k, v] of window.TVEMC_startByDistance.entries()) {
+                  if (((typeof canonicalDistanceCode === 'function') ? canonicalDistanceCode(k) : k) === canon) {
+                    return new Date(v).getTime();
+                  }
+                }
+              }
+              // Final fallback: use getStartTimeForDistance from race_timing.js (has full canonical logic)
+              if (typeof getStartTimeForDistance === 'function') {
+                const d = getStartTimeForDistance(dist);
+                if (d) return d.getTime();
+              }
               return 0;
             })();
             if (startMs) {
               const elapsedSec = (lastMs - startMs) / 1000;
-              const mph = curStation.mile / (elapsedSec / 3600);
+              const mph = curMile / (elapsedSec / 3600);
               
-              if (mph > 0 && nextStation.mile > curStation.mile) {
-                const segmentMiles = nextStation.mile - curStation.mile;
+              if (mph > 0 && nextMile > curMile) {
+                const segmentMiles = nextMile - curMile;
                 const travelTimeSec = (segmentMiles / mph) * 3600;
                 etaMs = lastMs + (travelTimeSec * 1000);
                 etaTime = new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
@@ -1839,9 +1868,10 @@ function stationNameFromCode(code) {
       for (const [bib, tDns] of lastDnsTs.entries()) {
         const cleared = overrides?.dnsClearedAtMs?.get(String(bib)) || 0;
         if (cleared >= tDns) continue;
-        out.push({ bib: String(bib), dns_time: msToIsoLocal(tDns) });
+        out.push({ bib: String(bib), dns_time: msToIsoLocal(tDns), _ts: tDns });
       }
-      out.sort((a, b) => (Date.parse(b.dns_time) || 0) - (Date.parse(a.dns_time) || 0));
+      out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+      out.forEach(r => delete r._ts);
       return out;
     }
     
@@ -1851,19 +1881,23 @@ function stationNameFromCode(code) {
       for (const [bib, tDnf] of lastDnfTs.entries()) {
         const cleared = overrides?.dnfClearedAtMs?.get(String(bib)) || 0;
         if (cleared >= tDnf) continue;
-        out.push({ bib: String(bib), dnf_time: msToIsoLocal(tDnf) });
+        out.push({ bib: String(bib), dnf_time: msToIsoLocal(tDnf), _ts: tDnf });
       }
-      out.sort((a, b) => (Date.parse(b.dnf_time) || 0) - (Date.parse(a.dnf_time) || 0));
+      out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+      out.forEach(r => delete r._ts);
       return out;
     }
     
     function msToIsoLocal(ms) {
       try {
         const d = new Date(ms);
-        const pad = (n) => String(n).padStart(2, "0");
-        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        if (isNaN(d.getTime())) return '';
+        // Convert epoch ms → UTC string → formatLocalDateTime (DD-MM-YYYY HH:MM:SS local)
+        // This keeps display consistent with last_time / nextArriving_time on other open list pages.
+        const utcStr = d.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+        return formatLocalDateTime(utcStr);
       } catch {
-        return "";
+        return '';
       }
     }
     
