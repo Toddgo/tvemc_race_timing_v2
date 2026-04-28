@@ -8,6 +8,24 @@ $conn = new mysqli($config['host'], $config['username'], $config['password'], $c
 if ($conn->connect_error) { http_response_code(500); echo json_encode(null); exit; }
 $conn->set_charset('utf8mb4');
 
+// ?list=1  →  return all active events ordered by event_name
+if (!empty($_GET['list'])) {
+  $sql = "SELECT event_id, event_code, event_name, timezone FROM events ORDER BY event_name ASC";
+  $result = $conn->query($sql);
+  $rows = [];
+  while ($row = $result->fetch_assoc()) {
+    $rows[] = [
+      'event_id'   => (int)$row['event_id'],
+      'event_code' => (string)$row['event_code'],
+      'event_name' => (string)$row['event_name'],
+      'timezone'   => (string)($row['timezone'] ?? 'UTC'),
+    ];
+  }
+  $conn->close();
+  echo json_encode($rows);
+  exit;
+}
+
 $event_code = trim($_GET['event_code'] ?? '');
 if ($event_code === '') { echo json_encode(null); exit; }
 

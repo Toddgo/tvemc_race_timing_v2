@@ -360,10 +360,10 @@
           <button onclick="document.getElementById('hqPasswordGate').style.display='flex'" style="background:#000080;color:white;font-size:18px;padding:12px 24px;border-radius:12px;margin-left:20px;vertical-align:middle;">Enter HQ / Race Director Mode</button>
     <form id="raceForm">
         <div class="section">
-            <label for="eventCode">Event Code:</label>
-            <input type="text" id="eventCode" name="eventCode" value="KH_SOB_2026_0003" tabindex="1"
-              title="Enter the event code (e.g. KH_SOB_2026_0003). Press Enter or Tab to reload stations."
-              style="width:260px;font-family:monospace;font-size:14px;"><br><br>
+            <label for="eventCode">Event:</label>
+            <select id="eventCode" name="eventCode" tabindex="1" style="min-width:260px;font-size:14px;">
+              <option value="">— loading events… —</option>
+            </select><br><br>
             <label for="eventName">Event Name:</label>
             <input type="text" id="eventName" name="eventName" value="" tabindex="2"><br><br>
             <label for="messageNum">Message #:</label>

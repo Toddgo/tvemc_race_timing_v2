@@ -278,6 +278,42 @@ window.getEventCode = function getEventCode() {
   return cleanEventCode(fromQS || fromInput || fromLS || "");
 };
 
+async function loadEventListIntoDropdown() {
+  const sel = document.getElementById("eventCode");
+  if (!sel || sel.tagName !== "SELECT") return;
+
+  try {
+    const res = await fetch("events_load.php?list=1", { cache: "no-store" });
+    if (!res.ok) { console.warn("events_load list failed:", res.status); return; }
+    const events = await res.json();
+    if (!Array.isArray(events) || events.length === 0) { console.warn("events_load list returned no events"); return; }
+
+    // Decide which event to pre-select:
+    // priority: URL ?event= param → localStorage → first in list
+    const qs = new URLSearchParams(window.location.search);
+    const fromQS   = cleanEventCode(qs.get("event") || "");
+    const fromLS   = cleanEventCode(localStorage.getItem("tvemc_event_code") || "");
+    const preferred = fromQS || fromLS || "";
+
+    sel.innerHTML = "";
+    for (const ev of events) {
+      const opt = document.createElement("option");
+      opt.value = ev.event_code;
+      opt.textContent = ev.event_name || ev.event_code;
+      sel.appendChild(opt);
+    }
+
+    // Restore selection
+    if (preferred && [...sel.options].some(o => o.value === preferred)) {
+      sel.value = preferred;
+    }
+    // Persist whatever ended up selected
+    localStorage.setItem("tvemc_event_code", sel.value);
+  } catch (e) {
+    console.warn("loadEventListIntoDropdown failed:", e);
+  }
+}
+
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
   const event_code = cleanEventCode(getEventCode());
   try {
@@ -1797,19 +1833,17 @@ function restoreHeaderFields() {
 }
 
 function wireHeaderFieldPersistence() {
-  // When the operator changes the Event Code field, reload stations for the new event
+  // When the operator changes the Event dropdown, persist and reload stations
   const ecEl = document.getElementById("eventCode");
   if (ecEl) {
     const reloadForEvent = async () => {
+      localStorage.setItem("tvemc_event_code", ecEl.value || "");
       await loadAidStationsFromServer();
       populateStationDropdownsFromMap(AID_STATION_MAP);
       await loadEventMetaFromServer();
       updateSubject();
     };
     ecEl.addEventListener("change", reloadForEvent);
-    ecEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); reloadForEvent(); }
-    });
   }
 
   document.getElementById("eventName")?.addEventListener("input", (e) => {
@@ -3310,6 +3344,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   wireHeaderFieldPersistence();
   
   // ✅ Data bootstrap (must be early)
+  // Populate Event dropdown first so getEventCode() reads the correct value
+  await loadEventListIntoDropdown();
   await loadEventMetaFromServer();
   await loadAidStationsFromServer();
   await loadRunnerRegistryFromServer();
