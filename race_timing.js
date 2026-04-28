@@ -1422,17 +1422,16 @@ function displayTimeForEntry(e) {
   return corrected || (e.time ?? "");
 }
 
-function populateStationDropdownsFromMap(map, distanceCode) {
+function populateStationDropdownsFromMap(map) {
   const eventCode = String(
     (typeof getEventCode === "function" ? getEventCode() : "") || ""
   ).trim();
   const ev = eventCode.toUpperCase();
-  const isSOB = ev.includes("SOB"); // apply SOB-only filters/options only for SOB events
+  const isSOB = ev.includes("SOB"); // keep for SOB-specific AUTO channel options
 
   /*
-    Aid Station dropdowns are populated EVENT-WIDE, not distance-only.
-    This ensures all stations (e.g. Tahoe 200M + 100K) are always available
-    regardless of which distance is currently selected.
+    Aid Station dropdowns are populated EVENT-WIDE from all unique station_name values.
+    This means adding a new event to the DB is enough — no code changes required.
 
     map = { "100K": [stations...], "200M": [stations...], ... }
   */
@@ -1443,13 +1442,12 @@ function populateStationDropdownsFromMap(map, distanceCode) {
 
   allStations.forEach(s => {
     const stationName = String(s.station_name || "").trim();
-    const stationCode = String(s.station_code || "").trim().toUpperCase();
     if (!stationName) return;
-    // Deduplicate by station name (operators know physical station names)
+    // Deduplicate by station_name — the physical location operators know
     const key = stationName.toUpperCase();
     if (!seen.has(key)) {
       seen.add(key);
-      uniqueStations.push({ ...s, station_code: stationCode, station_name: stationName });
+      uniqueStations.push(s);
     }
   });
 
@@ -1460,30 +1458,18 @@ function populateStationDropdownsFromMap(map, distanceCode) {
     return ao - bo;
   });
 
-  // Build station options from event-wide unique station list
-  let stationOpts = uniqueStations
-    .map(s => ({
-      value: String(s.station_code || "").trim().toUpperCase(),
-      label: `📍 ${String(s.station_name || "").trim()}`
-    }))
+  // Build options: value = station_code when available (backend key), else station_name
+  const stationOpts = uniqueStations
+    .map(s => {
+      const code = String(s.station_code || "").trim().toUpperCase();
+      const name = String(s.station_name || "").trim();
+      return {
+        value: code || name,
+        label: `📍 ${name}`
+      };
+    })
     .filter(o => o.value);
 
-  // ---------------------------
-  // TEMP SAFETY FILTER (v2 migration)
-  // Prevent phantom codes like AS3 that cause 400s.
-  // Once aid_stations.station_code is populated for the event, REMOVE this filter.
-  // ---------------------------
-  if (isSOB) {
-  const TEMP_VALID_CODES = new Set([
-    "START","FINISH",
-    "AS1","AS2","AS4","AS5","AS6","AS7","AS8","AS9","AS10","AS11",
-    "T30K",
-    // allow any explicitly provided AUTO codes too (even though they are synthetic)
-    "CORRAL_AUTO","KANAN_AUTO","ZUMA_AUTO"
-  ]);
-  stationOpts = stationOpts.filter(o => TEMP_VALID_CODES.has(o.value));
-  }
-  
   // AUTO group options (UI views, not DB stations)
   const autoOpts = isSOB ? [
   { value: "CORRAL_AUTO", label: "📍 CORRAL CANYON (AUTO)" },
@@ -3345,9 +3331,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadEventMetaFromServer();
   await loadAidStationsFromServer();
   await loadRunnerRegistryFromServer();
-  // Pick a default distance for dropdowns (use event primary later) Added Feb 6 14:17 with Line 1263
-  const defaultDist = Object.keys(AID_STATION_MAP || {})[0] || "";
-  populateStationDropdownsFromMap(AID_STATION_MAP, defaultDist);
+  populateStationDropdownsFromMap(AID_STATION_MAP);
 
 
  // Now that meta+stations exist, you can update derived UI
