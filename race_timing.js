@@ -358,6 +358,13 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
       eventEl.value = meta.event_name || meta.event_code || event_code;
     }
 
+    // Update the page heading and browser tab title with the event name
+    const heading = document.getElementById("pageHeading");
+    if (heading) {
+      heading.textContent = meta.event_name || meta.event_code || event_code;
+    }
+    document.title = (meta.event_name || meta.event_code || event_code) + " — TVEMC Race Timing";
+
     console.log("Loaded event meta:", meta);
     return meta;
   } catch (e) {
