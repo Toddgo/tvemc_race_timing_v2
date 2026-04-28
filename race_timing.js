@@ -1397,27 +1397,50 @@ function displayTimeForEntry(e) {
 }
 
 function populateStationDropdownsFromMap(map, distanceCode) {
-  const dist = String(distanceCode || "").trim() || Object.keys(map || {})[0] || "";
-  const list = (map && map[dist]) ? map[dist] : [];
-  const ev = String((typeof getEventCode === "function" ? getEventCode() : "") || "").toUpperCase();
+  const eventCode = String(
+    (typeof getEventCode === "function" ? getEventCode() : "") || ""
+  ).trim();
+  const ev = eventCode.toUpperCase();
   const isSOB = ev.includes("SOB"); // apply SOB-only filters/options only for SOB events
-  
-  // Build station options from DB/map
-  let stationOpts = list
+
+  /*
+    Aid Station dropdowns are populated EVENT-WIDE, not distance-only.
+    This ensures all stations (e.g. Tahoe 200M + 100K) are always available
+    regardless of which distance is currently selected.
+
+    map = { "100K": [stations...], "200M": [stations...], ... }
+  */
+  const allStations = Object.values(map || {}).flat();
+
+  const seen = new Set();
+  const uniqueStations = [];
+
+  allStations.forEach(s => {
+    const stationName = String(s.station_name || "").trim();
+    const stationCode = String(s.station_code || "").trim().toUpperCase();
+    if (!stationName) return;
+    // Deduplicate by station name (operators know physical station names)
+    const key = stationName.toUpperCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueStations.push({ ...s, station_code: stationCode, station_name: stationName });
+    }
+  });
+
+  // Sort by station_order if available
+  uniqueStations.sort((a, b) => {
+    const ao = Number(a.station_order || 9999);
+    const bo = Number(b.station_order || 9999);
+    return ao - bo;
+  });
+
+  // Build station options from event-wide unique station list
+  let stationOpts = uniqueStations
     .map(s => ({
       value: String(s.station_code || "").trim().toUpperCase(),
       label: `📍 ${String(s.station_name || "").trim()}`
     }))
     .filter(o => o.value);
-
-// Added Feb 11 at 22:50 with Global helper
-window.addEventListener("load", () => setTimeout(persistDistanceForEvent, 400));
-
-document.addEventListener("change", (e) => {
-  if (e.target && (e.target.id === "distanceSelect" || e.target.id === "distance_code" || e.target.id === "distanceCode")) {
-    persistDistanceForEvent();
-  }
-});
 
   // ---------------------------
   // TEMP SAFETY FILTER (v2 migration)
@@ -1481,7 +1504,7 @@ document.addEventListener("change", (e) => {
     append: hqExtras
   });
 
-  console.log("Dropdowns populated for distance:", dist, "stations:", stationOpts.length);
+  console.log("Dropdowns populated event-wide:", eventCode, "stations:", stationOpts.length, stationOpts.map(o => o.label));
   persistAidStationFromDropdown();
   persistDistanceForEvent();
 
