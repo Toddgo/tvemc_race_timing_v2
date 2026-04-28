@@ -57,6 +57,7 @@ export function computeResultsForRows({
     const gender = r.gender ?? r.Gender ?? "";
 
     if (!runners.has(bib)) {
+      const initMile = (r.mile != null && !isNaN(parseFloat(r.mile))) ? parseFloat(r.mile) : null;
       runners.set(bib, {
         bib,
         distance,
@@ -64,6 +65,7 @@ export function computeResultsForRows({
         gender,
         lastTs: ms,
         lastStation: station,
+        lastMile: initMile,
         finishedTs: null
       });
     }
@@ -73,10 +75,14 @@ export function computeResultsForRows({
     // Keep latest seen distance as "current distance"
     if (distance) st.distance = distance;
 
-    // Track last seen
+    // Track last seen (station + mile marker at that pass)
     if (ms > st.lastTs) {
       st.lastTs = ms;
       st.lastStation = station;
+      const rowMile = (r.mile != null) ? parseFloat(r.mile) : null;
+      if (rowMile != null && !isNaN(rowMile)) {
+        st.lastMile = rowMile;
+      }
     }
 
     // Detect finish (either explicit pass_type or station_id)
@@ -174,23 +180,35 @@ export function computeResultsForRows({
 
       out.finish_ts_ms  = st.finishedTs;
       out.elapsed_total = st.elapsedHMS;
-      out.avg_pace = st.avgPace;
       const act = safeUpper(out.action || st.action || "");
+      // Only stamp the overall race avg_pace on the FINISH row; IN/OUT rows keep
+      // their per-station pace that was computed by computeElapsedPaceEta on load.
+      if (act === "FINISH") {
+        out.avg_pace = st.avgPace;
+      }
       out.gender_place = (act === "FINISH") ? (genderPlace.get(bib) ?? "") : "";
       out.age_group = st.ageGroup;
       out.ag_place = agPlace.get(bib) ?? "";
       out.overall_place = overallPlace.get(bib) ?? "";
       out.eta_next = "—";
     } else {
-      // Not finished (keep existing computed fields or mark blank)
+      // Not finished — compute elapsed/pace to most recent station
       out.finish_time = "";
-      out.elapsed_total = "";
-      out.avg_pace = "";
       out.gender_place = "";
       out.age_group = ageGroup(st.age);
       out.ag_place = "";
       out.overall_place = "";
       // eta_next handled elsewhere (station-to-next math) — leave as-is
+
+      if (st.startMs != null && st.lastTs > st.startMs) {
+        const elapsedSec = (st.lastTs - st.startMs) / 1000;
+        out.elapsed_total = formatHMS(elapsedSec);
+        // Do NOT overwrite avg_pace here — per-station pace was already computed by
+        // computeElapsedPaceEta when the entry was created/loaded; preserve it.
+      } else {
+        out.elapsed_total = "";
+        // Leave avg_pace intact (per-station pace set by computeElapsedPaceEta on load/submit).
+      }
     }
 
     return out;

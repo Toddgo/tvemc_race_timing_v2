@@ -23,6 +23,10 @@ console.log("✅ results_strip.js START");
     'LDV-100-2026-0001': {
       use_out_for_expected: false,
       name: 'Leona Divide 100'
+    },
+    'BU-ULTRA-2026-0006': {
+      use_out_for_expected: false,
+      name: 'Bishop Ultra 2026'
     }
     // Add more events here as needed
   };
@@ -42,7 +46,14 @@ function buildPathFromAidStationMap(distance) {
 // stationNameFromCode — prefer dynamic lookup from in-memory AID_STATION_MAP
 function stationNameFromCode(code) {
   const c = String(code || "").toUpperCase();
-  
+
+  // Dynamic lookup first: works for any event (LDV, AZM, SOB, etc.)
+  const aidMap = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+  for (const dist of Object.keys(aidMap)) {
+    const hit = (aidMap[dist] || []).find(s => String(s.station_code || '').toUpperCase() === c);
+    if (hit && hit.station_name) return hit.station_name;
+  }
+
   const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
   const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
   
@@ -51,14 +62,14 @@ function stationNameFromCode(code) {
     AS2: isSOB ? "Kanan Road #1" : "Gila River",
     AS3: isSOB ? "Turnaround Spot (30K . No Aid)" : "Grand Enchantment",
     AS4: isSOB ? "Zuma Edison Ridge Mtwy #1" : "Tortilla",
-    AS5: isSOB ? "Bonsall" : "Freeman",               // ← Add all 19 AZM stations
+    AS5: isSOB ? "Bonsall" : "Freeman",
     AS6: isSOB ? "Zuma Edison Ridge Mtwy #2" : "Black Hills",
     AS7: isSOB ? "Kanan Road #2" : "Tiger Mine",
     AS8: isSOB ? "Corral Canyon #2" : "Oracle",
     AS9: isSOB ? "100K Turnaround - Bulldog" : "Mt Lemmon",
     AS10: isSOB ? "Corral Canyon #3" : "Charloux Gap",
     AS11: isSOB ? "Piuma Creek (No Aid)" : "Catalina",
-    AS12: "Rillito",        // AZM-only stations
+    AS12: "Rillito",
     AS13: "Valencia",
     AS14: "Pistol Hill",
     AS15: "Gabe Zimmerman",
@@ -78,15 +89,12 @@ function stationNameFromCode(code) {
     map.ZUMA_AUTO = "Zuma (AUTO)";
   }
   
-  // Check the map first
   if (map[c]) return map[c];
   
-  // Fallback to older mapping if it exists
   if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) {
     return STATION_NAME_MAP[c];
   }
   
-  // Last resort: return the code itself
   return c;
 }
 
@@ -102,13 +110,36 @@ function buildPathFromAidStationMap(distance) {
 }
 
 
-// Canonical DB-driven recompute for Expected From Previous (replace existing function)
+// UTC-aware timestamp parser for use at global scope (outside the IIFE).
+// JavaScript's Date.parse() treats "YYYY-MM-DD HH:MM:SS" (space-separated, no timezone)
+// as LOCAL time in most browsers.  All pass_ts values from the DB are stored in UTC,
+// so we must append "Z" to force UTC interpretation.  Without this, row.eta_utc_ms
+// is inflated by the browser's UTC offset (e.g. +7 hours in PDT), which causes the
+// enrichment guard  eta.eta_utc_ms > row.eta_utc_ms  to fail for short course segments
+// (e.g. Junction→Buttermilk) even though computeExpectedFromPrev_PATH computed a
+// valid forward-looking ETA.
+function _parseUtcMs(ts) {
+  const s = String(ts || '').trim();
+  if (!s) return 0;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+    return Date.parse(s.replace(' ', 'T') + 'Z') || 0;
+  }
+  return Date.parse(s) || 0;
+}
+
+// Canonical DB-driven recompute for Expected From Previous.
+// Filters to only runners expected at the CURRENT station (per-bib distance path).
 function recomputeExpectedFromPrevForUI() {
   try {
-    const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
-    const distKey = Object.keys(map)[0] || '300M';
-    const stations = (map[distKey] || []).slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
-    const path = stations.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
+    // Current station code — prefer the live dropdown/sessionStorage value so the 5-second
+    // interval stays correct even when the user changes the station without triggering a
+    // full computeAndRender cycle (e.g. before the 10-second auto-refresh fires).
+    const currentStation = String(
+      (typeof window.getStationCode === 'function' ? window.getStationCode() : '') ||
+      window.__rs_lastStationCode || ''
+    ).toUpperCase();
+
+    const aidMap = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
 
     // latest pass per bib from the in-memory lastList
     const list = window.__rs_lastList || [];
@@ -116,63 +147,223 @@ function recomputeExpectedFromPrevForUI() {
     for (const e of list) {
       const bib = String(e.bib || e.bib_number || e.BIB || '').trim();
       if (!bib) continue;
-      const ts = Date.parse(e.pass_ts || e.time || '') || 0;
+      const ts = _parseUtcMs(e.pass_ts || e.time);
       const prev = latestByBib.get(bib);
-      if (!prev || ts > (Date.parse(prev.pass_ts || prev.time) || 0)) latestByBib.set(bib, e);
+      if (!prev || ts > _parseUtcMs(prev.pass_ts || prev.time)) latestByBib.set(bib, e);
     }
 
-    // helper: normalize simple strings for fuzzy compare
-    const norm = s => String(s || '').toUpperCase().trim();
-    const normLoose = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const norm = s => {
+      if (typeof canonicalDistanceCode === 'function') return canonicalDistanceCode(s);
+      return String(s || '').toUpperCase().replace(/\s+/g, '').trim();
+    };
 
     const out = [];
     for (const [bib, e] of latestByBib.entries()) {
-      // find station code for last station: prefer explicit code; otherwise match by name (exact or fuzzy)
-      const rawLast = e.station_code || e.station || e.station_name || '';
-      const lastRawNorm = norm(rawLast);
-      let matchedStation = stations.find(s => {
-        const sc = String(s.station_code || s.code || s.value || '').toUpperCase().trim();
-        const sname = String(s.station_name || s.text || s.name || '').toUpperCase().trim();
-        return sc === lastRawNorm || sname === lastRawNorm;
-      });
+      // Resolve this bib's distance and get the matching aid-station path
+      const dist = norm(e.distance_code || e.distance || '');
+      let distStations = dist && aidMap[dist] ? (aidMap[dist] || []) : [];
+      if (!distStations.length && dist) {
+        // Try canonical match on aidMap keys (handles "50 K" stored in DB vs "50K" canonical)
+        for (const [k, v] of Object.entries(aidMap)) {
+          if (norm(k) === dist) { distStations = v || []; break; }
+        }
+      }
+      if (!distStations.length) continue; // skip runners with unresolvable distance path
 
-      if (!matchedStation && lastRawNorm) {
-        const target = normLoose(lastRawNorm);
-        matchedStation = stations.find(s => {
-          const snameLoose = normLoose(s.station_name || s.text || s.name || '');
-          const scLoose = normLoose(s.station_code || s.code || s.value || '');
-          return snameLoose === target || scLoose === target;
-        });
+      const sorted = distStations.slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
+      const path = sorted.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
+
+      // Determine the runner's effective position in the path using chronological
+      // path-stepping across ALL of their passes (not just the latest one).
+      //
+      // This handles the case where a runner visits the same-named station twice
+      // (e.g. Junction in the 20M course) and the second pass is inadvertently
+      // recorded with the first Junction's station code (AS2 instead of AS4).
+      // Without this, the system would think the runner is still before Buttermilk
+      // and would never show them as expected at Hwy 168.
+      //
+      // Algorithm: process this bib's passes in chronological order, advancing a
+      // `searchFrom` pointer in the path.  When a pass maps to a station code that
+      // is no longer reachable from `searchFrom` (i.e. the runner is "going back"),
+      // we infer one completed loop segment and advance `searchFrom` by one step.
+      const bibAllPasses = list
+        .filter(le => String(le.bib || le.bib_number || le.BIB || '').trim() === bib)
+        .sort((a, b) => (Date.parse(a.pass_ts || a.time) || 0) - (Date.parse(b.pass_ts || b.time) || 0));
+
+      let idx = -1;
+      let searchFrom = 0;
+      for (const pass of bibAllPasses) {
+        const passCode = norm(pass.station_code || pass.station || pass.station_name || '');
+        if (!passCode) continue;
+        let found = false;
+        for (let pi = searchFrom; pi < path.length; pi++) {
+          if (path[pi] === passCode) {
+            idx = pi;
+            searchFrom = pi; // OUT passes at the same station won't change position
+            found = true;
+            break;
+          }
+        }
+        if (!found && idx >= 0 && path.indexOf(passCode) >= 0) {
+          // passCode is in the path but behind searchFrom — runner has looped back.
+          // Advance one step to account for the completed loop segment.
+          idx = Math.min(idx + 1, path.length - 1);
+          searchFrom = idx;
+        }
       }
 
-      // canonical last station code (use matched station code if available, otherwise use normalized raw)
-      const lastStationCode = matchedStation ? String(matchedStation.station_code || matchedStation.code || matchedStation.value || '').toUpperCase() : lastRawNorm;
-      const idx = path.indexOf(lastStationCode);
-
-      // Only include if we can find the downstream station in the path
       if (idx < 0) continue;
+
+      // Use the effective last-station info from the latest entry for display
+      const rawLast = norm(e.station_code || e.station || e.station_name || '');
+
       const nextCode = path[idx + 1];
       if (!nextCode) continue;
 
-      const sObj = stations.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
+      // Only include runners expected at the current station
+      if (currentStation && String(nextCode).toUpperCase() !== currentStation) continue;
+
+      const sObj = sorted.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
+
+      // Compute a pace-based ETA directly here so the popup is self-sufficient.
+      // Relying solely on _pathEtaRaw (populated by the main 10-s render cycle) fails
+      // when the station has just changed: the last render may have run for the
+      // PREVIOUS station and cleared _pathEtaRaw[bib] because that bib's next station
+      // is the NEW station (not the old one), leaving no ETA in _pathEtaRaw.
+      const passTs  = e.pass_ts || '';
+      const lastMs  = _parseUtcMs(passTs);
+      let   etaMs   = lastMs;
+
+      if (lastMs > 0 && typeof getStartTimeForDistance === 'function') {
+        const startDate = getStartTimeForDistance(dist);
+        if (startDate) {
+          const elapsedSec = (lastMs - startDate.getTime()) / 1000;
+          if (elapsedSec > 0) {
+            const curSt   = sorted.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === rawLast);
+            const curMile = (curSt && curSt.mile > 0) ? curSt.mile : (Number(e.mile) > 0 ? Number(e.mile) : 0);
+            // sObj is already the next-station object from sorted
+            let nextMile  = (sObj && sObj.mile > 0) ? sObj.mile : 0;
+            // Fallback: lookupNextStation (race_timing.js) uses station_order when aidMap lookup fails
+            if (!nextMile && typeof lookupNextStation === 'function' && Number(e.station_order) > 0) {
+              const ns = lookupNextStation(dist, Number(e.station_order));
+              if (ns && ns.mile > 0) nextMile = ns.mile;
+            }
+            if (curMile > 0 && nextMile > curMile) {
+              const mph = curMile / (elapsedSec / 3600);
+              if (mph > 0) {
+                etaMs = lastMs + ((nextMile - curMile) / mph) * 3600 * 1000;
+              }
+            }
+          }
+        }
+      }
+
+      // Raw UTC string for the popup's formatLocalDateTime call
+      const etaUtcStr = etaMs > lastMs
+        ? new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+        : passTs;
 
       out.push({
         bib: String(bib),
-        last_station: e.station_name || (matchedStation ? matchedStation.station_name : (e.station || e.station_name || '')),
-        last_station_code: lastStationCode || '',
+        last_station: e.station_name || e.station || rawLast,
+        last_station_code: rawLast,
         last_time: e.pass_ts || e.time || '',
-        nextArriving_time: e.pass_ts || e.time || '',
-        eta_utc_ms: Date.parse(e.pass_ts || e.time) || 0,
+        nextArriving_time: etaUtcStr,
+        eta_utc_ms: etaMs,
         next_station: sObj.station_name || nextCode || '',
         next_station_code: nextCode || '',
-        distance: e.distance_code || e.distance || distKey
+        distance: dist || (Object.keys(aidMap)[0] || '')
       });
     }
 
     out.sort((a, b) => b.eta_utc_ms - a.eta_utc_ms);
 
-    // authoritative write
+    // Enrich rows with pace-based ETAs computed by computeExpectedFromPrev_PATH (inside the
+    // IIFE).  That function stores its results in window.__rs_pathEtaRaw before each authoritative
+    // write so we can read them here without needing access to IIFE-internal helpers.
+    const _pathEtaRaw = window.__rs_pathEtaRaw || {};
+    for (const row of out) {
+      const eta = _pathEtaRaw[row.bib];
+      // Only use PATH ETA if it is strictly later than the runner's last-seen time
+      // (i.e. a real forward-looking estimate, not a fallback that equals last_time).
+      if (eta && eta.eta_utc_ms > (row.eta_utc_ms || 0)) {
+        row.nextArriving_time = eta.nextArriving_time_utc; // raw UTC; formatLocalDateTime applied in popup getter
+        row.eta_utc_ms       = eta.eta_utc_ms;
+      }
+    }
+
+    // First-station supplement: runners coming straight from START (no pass in DB yet)
+    // are invisible to the path-based loop above. Detect first-station from AID_STATION_MAP
+    // and add any rostered bibs not yet seen at this station.
+    if (currentStation) {
+      const distancesFirstHere = new Set();
+      for (const [d, stations] of Object.entries(aidMap)) {
+        if (!Array.isArray(stations)) continue;
+        // Find the first non-START station (handles events where START is order=1 explicitly)
+        const sorted = stations.slice()
+          .filter(s => String(s.station_code || '').toUpperCase() !== 'START')
+          .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+        if (sorted.length > 0 && String(sorted[0].station_code || '').toUpperCase() === currentStation) {
+          distancesFirstHere.add(norm(d));
+        }
+      }
+
+      if (distancesFirstHere.size > 0 && window.bibList && Array.isArray(window.bibList)) {
+        const seenHere = new Set(
+          (list || [])
+            .filter(e => String(e.station_code || '').toUpperCase() === currentStation)
+            .map(e => String(e.bib || e.bib_number || '').trim())
+            .filter(Boolean)
+        );
+        const dns = window.__rs_dnsSet || new Set();
+        const dnf = window.__rs_dnfSet || new Set();
+        const finished = window.__rs_finishSet || new Set();
+        const alreadyInOut = new Set(out.map(r => String(r.bib)));
+
+        for (const r of window.bibList) {
+          const bib = String(r.bib || '').trim();
+          if (!bib) continue;
+          const bibDist = norm(r.distance || r.distance_code || '');
+          if (!distancesFirstHere.has(bibDist)) continue;
+          if (seenHere.has(bib)) continue;
+          if (dns.has(bib) || dnf.has(bib) || finished.has(bib)) continue;
+          if (alreadyInOut.has(bib)) continue;
+          out.push({
+            bib,
+            last_station: 'START',
+            last_station_code: 'START',
+            last_time: '',
+            nextArriving_time: '',
+            eta_utc_ms: 0,
+            next_station: '(arriving here)',
+            next_station_code: currentStation,
+            distance: bibDist
+          });
+        }
+
+        // Re-sort: path-based rows (with real timestamps) first, then START rows by bib number
+        out.sort((a, b) => {
+          if (a.eta_utc_ms && b.eta_utc_ms) return b.eta_utc_ms - a.eta_utc_ms;
+          if (a.eta_utc_ms) return -1;
+          if (b.eta_utc_ms) return 1;
+          return Number(a.bib) - Number(b.bib);
+        });
+      }
+    }
+
+    // authoritative write — keep window global AND localStorage in sync so the
+    // Expected From Previous popup always reads the current-station list regardless
+    // of whether it reads the window global (5s) or localStorage (10s).
     window.__rs_expectedPrevRows = out;
+    try {
+      localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
+        rows: out,
+        stationCode: currentStation,
+        ts: Date.now()
+      }));
+    } catch (lsErr) {
+      console.warn('recomputeExpectedFromPrevForUI: localStorage write failed', lsErr);
+    }
     return out;
   } catch (err) {
     console.warn('recomputeExpectedFromPrevForUI error', err);
@@ -296,6 +487,7 @@ window.getCurrentStationContext = function () {
 
   // Distance paths (station_code order). Used for PATH mode Card C.
   const DIST_PATHS = {
+    "20M":  ["AS1", "AS2", "AS3", "AS4", "AS5", "AS6", "FINISH"],   // Bishop Ultra 20M fallback
     "30K":  ["AS1", "AS8", "FINISH"],   // "AS3",
     "26.2": ["AS1", "AS2", "AS8", "FINISH"],
     "50K":  ["AS1", "AS2", "AS7", "AS8", "FINISH"],
@@ -359,7 +551,28 @@ window.getCurrentStationContext = function () {
      return null; // force PATH
    }
 
-    return FLOW_PREV_MAP[c] || null;
+    const flowPreds = FLOW_PREV_MAP[c] || null;
+    if (!flowPreds) return null;
+
+    // Verify that at least one predecessor code exists in the current event's AID_STATION_MAP.
+    // FLOW_PREV_MAP entries (e.g. FINISH→["AS8","AS10"]) are SOB-event-specific. For other
+    // events (e.g. Bishop Ultra where FINISH is preceded by AS6), fall back to PATH mode so
+    // the DB-driven path is used instead of the wrong hardcoded predecessors.
+    const aidMap = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+    const allEventStationCodes = new Set();
+    for (const stations of Object.values(aidMap)) {
+      if (Array.isArray(stations)) {
+        for (const s of stations) {
+          allEventStationCodes.add(String(s.station_code || "").toUpperCase());
+        }
+      }
+    }
+    // Only use FLOW if at least one predecessor code actually exists in this event
+    if (allEventStationCodes.size > 0 && !flowPreds.some(code => allEventStationCodes.has(String(code).toUpperCase()))) {
+      return null; // force PATH — predecessors are not part of this event's station map
+    }
+
+    return flowPreds;
  }
  
   function physicalCodeForPath(e) {
@@ -405,6 +618,7 @@ window.getCurrentStationContext = function () {
     if (u === "26.2" || u.includes("MARATHON")) return "26.2";
 
   // ✅ New ultra-mile mappings
+    if (u === "20M" || u === "20 MI" || u === "20 MILE" || u === "20 MILES") return "20M";
     if (u === "100M" || u === "100 MI" || u === "100 MILE" || u === "100 MILES" || u === "100MILE") return "100M";
     if (u === "200M" || u === "200 MI" || u === "200 MILE" || u === "200 MILES" || u === "200MILE") return "200M";
     if (u === "240M" || u === "240 MI" || u === "240 MILE" || u === "240 MILES" || u === "240MILE") return "240M";
@@ -521,6 +735,13 @@ window.getCurrentStationContext = function () {
 // FEB20 2026 Updated for multi-event support (SOB vs AZM-300)
 function stationNameFromCode(code) {
   const c = String(code || "").toUpperCase();
+
+  // Dynamic lookup first: works for any event (LDV, AZM, SOB, etc.)
+  const aidMap = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+  for (const dist of Object.keys(aidMap)) {
+    const hit = (aidMap[dist] || []).find(s => String(s.station_code || '').toUpperCase() === c);
+    if (hit && hit.station_name) return hit.station_name;
+  }
   
   // Determine which event we're running
   const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
@@ -558,15 +779,12 @@ function stationNameFromCode(code) {
     map.ZUMA_AUTO = "Zuma (AUTO)";
   }
   
-  // Check the map first
   if (map[c]) return map[c];
   
-  // Fallback to older mapping if it exists
   if (typeof STATION_NAME_MAP !== 'undefined' && STATION_NAME_MAP[c]) {
     return STATION_NAME_MAP[c];
   }
   
-  // Last resort: return the code itself
   return c;
 }
 
@@ -836,9 +1054,10 @@ function stationNameFromCode(code) {
             <option value="finished">Finished</option>
             <option value="not_finished">Not Finished</option>
             <option value="not_seen">Not Seen (this station)</option>
-            <option value="last10_here">Last 10 Seen Here</option>
+            <option value="last10_here">Last Seen Here</option>
             <option value="expected_prev">Expected From Previous</option>
             <option value="corral_nonstart">Corral Reconciliation (Non-Start)</option>
+            <option value="all_runners">All Runners (Roster)</option>
           </select>
         </label>
 
@@ -880,11 +1099,11 @@ function stationNameFromCode(code) {
       const w = window.open("", "_blank", "width=1100,height=800");
       if (!w) return;
     
-      const MAX_ROWS = Number(opts.maxRows || 300);
+      const MAX_ROWS = Number(opts.maxRows || 2000);
       const REFRESH_MS = Number(opts.refreshMs || 5000); // 5s default
     
       const safe = (v) =>
-        String(v ?? "").replace(/[<>&]/g, s => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[s]));
+        String(v ?? "").replace(/[<>&"]/g, s => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;", '"':"&quot;" }[s]));
     
       // Allow passing either an array OR a function that returns the latest rows
       const getRows = () => {
@@ -897,6 +1116,7 @@ function stationNameFromCode(code) {
       };
     
       // Build the skeleton once
+      const _wrapMaxHeight = opts.searchable ? "calc(100vh - 160px)" : "calc(100vh - 120px)";
       w.document.write(`
         <html>
         <head>
@@ -905,8 +1125,14 @@ function stationNameFromCode(code) {
         </head>
         <body style="font-family:Arial, sans-serif; padding:14px;">
           <h2 style="margin:0 0 6px 0;">${safe(title)}</h2>
+          ${opts.searchable ? `
+          <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px;">
+            <input id="srch" type="search" placeholder="Search bib, name, distance\u2026"
+              style="padding:6px 10px;border:1px solid #bbb;border-radius:6px;width:280px;font-size:13px;" />
+            <span id="srch-count" style="opacity:.7;font-size:12px;"></span>
+          </div>` : ""}
           <div id="meta" style="margin-bottom:10px;opacity:.75;"></div>
-          <div id="wrap" style="border:1px solid #ddd;border-radius:8px;overflow:auto;max-height: calc(100vh - 120px);">
+          <div id="wrap" style="border:1px solid #ddd;border-radius:8px;overflow:auto;max-height: ${_wrapMaxHeight};">
             <table style="border-collapse:collapse;width:100%;font-size:13px;">
               <thead id="thead"></thead>
               <tbody id="tbody"></tbody>
@@ -999,11 +1225,45 @@ function stationNameFromCode(code) {
           }
         };
 
+      // Sort state (used when opts.sortable is true)
+      let __sortCol = opts.defaultSort || null;
+      let __sortDir = "asc";
+
       function render() {
         if (w.closed) return;
     
         const allRows = getRows();
-        const shown = allRows.slice(0, MAX_ROWS);
+
+        // --- Search filter (searchable mode) ---
+        let filteredRows = allRows;
+        if (opts.searchable) {
+          const srchEl = w.document.getElementById("srch");
+          const term = (srchEl ? srchEl.value : "").toLowerCase().trim();
+          if (term) {
+            filteredRows = allRows.filter(r =>
+              Object.values(r).some(v => String(v ?? "").toLowerCase().includes(term))
+            );
+          }
+          const countEl = w.document.getElementById("srch-count");
+          if (countEl) {
+            countEl.textContent = term
+              ? `Showing ${filteredRows.length} of ${allRows.length}`
+              : `${allRows.length} total`;
+          }
+        }
+
+        // --- Column sort (sortable mode) ---
+        if (opts.sortable && __sortCol) {
+          filteredRows = filteredRows.slice().sort((a, b) => {
+            const av = String(a[__sortCol] ?? "");
+            const bv = String(b[__sortCol] ?? "");
+            const an = Number(av), bn = Number(bv);
+            const cmp = (!isNaN(an) && !isNaN(bn)) ? (an - bn) : av.localeCompare(bv);
+            return __sortDir === "asc" ? cmp : -cmp;
+          });
+        }
+
+        const shown = filteredRows.slice(0, MAX_ROWS);
         
         // ---- Overdue highlighting (display-only) ----
         const OVERDUE_YELLOW_MIN = 15;
@@ -1060,9 +1320,14 @@ function stationNameFromCode(code) {
           ? Object.keys(shown[0]).filter(k => !HIDE_COLS.has(String(k)))
           : ["bib"];
 
-        const headHtml = `<tr>` + cols.map(c =>
-          `<th style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;">${safe(c)}</th>`
-        ).join("") + `</tr>`;
+        // Sortable header when opts.sortable is true; plain header otherwise
+        const headHtml = `<tr>` + cols.map(c => {
+          if (opts.sortable) {
+            const arrow = (__sortCol === c) ? (__sortDir === "asc" ? " ▲" : " ▼") : "";
+            return `<th data-col="${safe(c)}" style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;cursor:pointer;user-select:none;">${safe(c)}${arrow}</th>`;
+          }
+          return `<th style="text-align:left;border-bottom:1px solid #ccc;padding:6px;position:sticky;top:0;background:#fff;">${safe(c)}</th>`;
+        }).join("") + `</tr>`;
     
        const bodyHtml = shown.map(r => {
          const bibVal = String(r?.bib ?? "").trim();
@@ -1099,10 +1364,12 @@ function stationNameFromCode(code) {
          return `<td style="padding:6px;border-bottom:1px solid #eee;${bibCellStyle}">${safe(val)}</td>`;
        }).join("");
         
-      // Row tint (subtle)
+      // Row tint (subtle); changed-distance rows get amber when not overdue
+       const hasDistChange = !!(r?.prev_distance);
        const rowStyle =
          rowClass === "overdue-red"    ? "background:#fff0f0;" :
          rowClass === "overdue-yellow" ? "background:#fffbe6;" :
+         hasDistChange                 ? "background:#fff3e0;" :
             "";
         
       return `<tr style="${rowStyle}">${tds}</tr>`;
@@ -1118,7 +1385,7 @@ function stationNameFromCode(code) {
         // Preserve scroll position
         const scrollTop = wrapEl.scrollTop;
     
-        metaEl.textContent = `Showing ${shown.length} of ${allRows.length} rows (refreshes every ${Math.round(REFRESH_MS/1000)}s)`;
+        metaEl.textContent = `Showing ${shown.length} of ${filteredRows.length} rows (refreshes every ${Math.round(REFRESH_MS/1000)}s)`;
         theadEl.innerHTML = headHtml;
         tbodyEl.innerHTML = bodyHtml;
     
@@ -1127,6 +1394,34 @@ function stationNameFromCode(code) {
     
       // Initial render + interval
       render();
+
+      // Wire sort click handler on thead (event delegation — survives innerHTML resets)
+      if (opts.sortable) {
+        const theadForSort = w.document.getElementById("thead");
+        if (theadForSort) {
+          theadForSort.addEventListener("click", (ev) => {
+            const th = ev.target && ev.target.closest("th[data-col]");
+            if (!th) return;
+            const col = th.getAttribute("data-col");
+            if (__sortCol === col) {
+              __sortDir = (__sortDir === "asc") ? "desc" : "asc";
+            } else {
+              __sortCol = col;
+              __sortDir = "asc";
+            }
+            render();
+          });
+        }
+      }
+
+      // Wire search input for live filtering (input event fires on every keystroke)
+      if (opts.searchable) {
+        const srchForFilter = w.document.getElementById("srch");
+        if (srchForFilter) {
+          srchForFilter.addEventListener("input", () => render());
+        }
+      }
+
       const timer = w.setInterval(() => {
         if (w.closed) {
           try { w.clearInterval(timer); } catch {}
@@ -1150,7 +1445,7 @@ function stationNameFromCode(code) {
         bib,
         last_station: safeStationText(e) || safeStationCode(e) || "",
         last_action: safeAction(e),
-        last_time: safePassTs(e),
+        last_time: formatLocalDateTime(safePassTs(e)),
         distance: normalizeDistance(e.distance_code || e.distance || ""),
         comment: e.comment || e.note || ""
       });
@@ -1167,7 +1462,7 @@ function stationNameFromCode(code) {
         bib,
         last_station: safeStationText(e) || safeStationCode(e) || "",
         last_action: safeAction(e),
-        last_time: safePassTs(e),
+        last_time: formatLocalDateTime(safePassTs(e)),
         distance: normalizeDistance(e.distance_code || e.distance || ""),
         comment: e.comment || e.note || ""
       });
@@ -1182,7 +1477,7 @@ function stationNameFromCode(code) {
       if (!isFinish(e)) continue;
       out.push({
         bib,
-        finish_time: safePassTs(e),
+        finish_time: formatLocalDateTime(safePassTs(e)),
         distance: normalizeDistance(e.distance_code || e.distance || ""),
         operator: e.operator || ""
       });
@@ -1206,7 +1501,7 @@ function stationNameFromCode(code) {
           bib,
           last_station: safeStationText(e) || safeStationCode(e) || "",
           last_action: act,
-          last_time: safePassTs(e),
+          last_time: formatLocalDateTime(safePassTs(e)),
           distance: normalizeDistance(e.distance_code || e.distance || "")
         });
       }
@@ -1282,7 +1577,7 @@ function stationNameFromCode(code) {
           };
         })
         .sort((a, b) => parseTsToMs(b._ts) - parseTsToMs(a._ts))
-        .slice(0, 10);
+        .slice(0, 50);
     
       // Remove internal sort key so it doesn't show as a popup column
       rows.forEach(r => delete r._ts);
@@ -1329,7 +1624,7 @@ function stationNameFromCode(code) {
             last_station: stationNameFromCode(String(safeStationCode(eFrom) || "")),
         
             // Human display (respects HQ LOCAL / UTC toggle)
-            nextArriving_time: safePassTs(eFrom),
+            nextArriving_time: formatLocalDateTime(safePassTs(eFrom)),
             // ✅ Machine-accurate ETA (UTC millis, never formatted)
             eta_utc_ms: tFrom,
             
@@ -1358,7 +1653,7 @@ function stationNameFromCode(code) {
      return code;
     }
 
-    function computeExpectedFromPrev_PATH(latestMap, stationCodes) {
+    function computeExpectedFromPrev_PATH(latestMap, stationCodes, fullList) {
       const toSet = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
       const out = [];
     
@@ -1367,15 +1662,74 @@ function stationNameFromCode(code) {
         if (act === "DNS" || act === "DNF" || act === "FINISH") continue;
     
         const dist = normalizeDistance(e.distance_code || e.distance || "");
-        const path = DIST_PATHS[dist];
+
+        // Prefer DB-driven path (event-specific, most accurate) over the hardcoded DIST_PATHS.
+        // Fall back to DIST_PATHS if the DB has no path covering the target station.
+        let { path: rawPath, stations: pathStations } = buildPathFromAidStationMap(dist);
+        let path = rawPath || [];
+        if (!path.length || !path.some(c => toSet.has(String(c).toUpperCase()))) {
+          path = DIST_PATHS[dist] || [];
+          pathStations = null; // DIST_PATHS has no station_order metadata
+        }
         if (!path || !path.length) continue;
     
-       // const lastCode = String(safeStationCode(e) || "").toUpperCase();  // Jan20 17:52 with New below
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
-        const idx = path.indexOf(lastCode);
-        if (idx < 0) continue;
+        // Use station_order from the runner's latest entry to find the correct path index.
+        // This handles courses where the same station code appears more than once in the path
+        // (e.g. Junction visited twice in the 20M course). path[i] aligns with pathStations[i]
+        // since both are sorted by station_order from buildPathFromAidStationMap.
+        const runnerOrder = Number(e?.station_order || 0);
+        let idx = -1;
+        if (runnerOrder > 0 && pathStations && pathStations.length > 0) {
+          const matchIdx = pathStations.findIndex(s => Number(s.station_order) === runnerOrder);
+          if (matchIdx >= 0) idx = matchIdx;
+        }
+        if (idx < 0) idx = path.indexOf(lastCode);
+
+        // For courses where the same station_code appears more than once (e.g. Junction
+        // visited twice in the 20M Bishop Ultra), the DB may have stored the wrong
+        // station_order because passes_submit.php picked the first matching station_id.
+        // Correct this by counting IN passes at this station_code in the full list
+        // and using the count to select the right path occurrence.
+        if (lastCode && Array.isArray(fullList) && path.filter(p => p === lastCode).length > 1) {
+          const inCount = fullList.filter(le => {
+            const lb = String(safeBib(le)).trim();
+            const lsc = String(safeStationCode(le) || '').toUpperCase();
+            return lb === bib && lsc === lastCode && safeAction(le) === 'IN';
+          }).length;
+          if (inCount > 0) {
+            let occ = 0;
+            for (let pi = 0; pi < path.length; pi++) {
+              if (path[pi] === lastCode) {
+                occ++;
+                if (occ === inCount) { idx = pi; break; }
+              }
+            }
+          }
+        }
+
+        // Runner's last station not in the primary path — try alternate path sources.
+        // This handles events (e.g. LDV 50K) where the runner's actual path diverges
+        // from the hardcoded DIST_PATHS defaults (SOB-centric).
+        if (idx < 0) {
+          const aidMapNow = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+          const tried = path;
+          const altPaths = [
+            DIST_PATHS[dist] || [],
+            buildPathFromAidStationMap(dist).path || [],
+            ...Object.keys(aidMapNow).map(k => buildPathFromAidStationMap(k).path || [])
+          ].filter(ap => ap.length && ap !== tried);
+          let found = false;
+          for (const ap of altPaths) {
+            const ai = ap.indexOf(lastCode);
+            if (ai >= 0 && ap[ai + 1] && toSet.has(String(ap[ai + 1]).toUpperCase())) {
+              path = ap; idx = ai; found = true; break;
+            }
+          }
+          if (!found) continue;
+        }
     
         const nextCode = path[idx + 1];
         if (!nextCode) continue;
@@ -1383,41 +1737,78 @@ function stationNameFromCode(code) {
         if (toSet.has(String(nextCode).toUpperCase())) {
           const lastMs = parseTsToMs(safePassTs(e));
           
-          // Get AID_STATION_MAP for this distance
+          // Get AID_STATION_MAP for this distance (try both window.AID_STATION_MAP and debug alias)
           const aidMap = window.AID_STATION_MAP?.[dist] || window.__AID_STATION_MAP_DEBUG?.[dist] || [];
           const curStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === lastCode);
           const nextStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === nextCode);
+
+          // Resolve current station mile: prefer AID_STATION_MAP, fall back to the pass entry's mile
+          // (passes_load.php JOINs aid_stations and carries the mile per-pass, same data race_timing uses).
+          const curMile = (curStation?.mile > 0) ? curStation.mile
+            : (Number(e.mile) > 0 ? Number(e.mile) : 0);
+
+          // Resolve next station mile: prefer AID_STATION_MAP lookup by code, then by station_order
+          // (lookupNextStation is a global from race_timing.js that handles canonical key lookup).
+          let nextMile = nextStation?.mile > 0 ? nextStation.mile : 0;
+          if (!nextMile && typeof lookupNextStation === 'function' && Number(e.station_order) > 0) {
+            const ns = lookupNextStation(dist, Number(e.station_order));
+            if (ns?.mile > 0) nextMile = ns.mile;
+          }
           
           let etaMs = lastMs;
           let etaTime = safePassTs(e);
           
-          if (curStation?.mile && nextStation?.mile && lastMs) {
-            // Get race start time
-            const startMs = window.RACE_START_TIMES?.[dist] || 0;
+          if (curMile > 0 && nextMile > 0 && lastMs) {
+            // Resolve race start time with multiple fallbacks so ETA works for any event.
+            // getStartTimeForDistance (race_timing.js global) does a canonical key scan of the
+            // TVEMC_startByDistance Map, handling cases where the Map key format differs from dist.
+            const startMs = (() => {
+              const t = window.RACE_START_TIMES?.[dist];
+              if (t) return t;
+              const iso = window.TVEMC_startByDistance?.get(dist);
+              if (iso) return new Date(iso).getTime();
+              // Canonical key fallback: iterate Map entries to handle "100K" vs "100k" etc.
+              if (window.TVEMC_startByDistance && window.TVEMC_startByDistance.size) {
+                const canon = (typeof canonicalDistanceCode === 'function') ? canonicalDistanceCode(dist) : dist;
+                for (const [k, v] of window.TVEMC_startByDistance.entries()) {
+                  if (((typeof canonicalDistanceCode === 'function') ? canonicalDistanceCode(k) : k) === canon) {
+                    return new Date(v).getTime();
+                  }
+                }
+              }
+              // Final fallback: use getStartTimeForDistance from race_timing.js (has full canonical logic)
+              if (typeof getStartTimeForDistance === 'function') {
+                const d = getStartTimeForDistance(dist);
+                if (d) return d.getTime();
+              }
+              return 0;
+            })();
             if (startMs) {
               const elapsedSec = (lastMs - startMs) / 1000;
-              const mph = curStation.mile / (elapsedSec / 3600);
+              const mph = curMile / (elapsedSec / 3600);
               
-              if (mph > 0 && nextStation.mile > curStation.mile) {
-                const segmentMiles = nextStation.mile - curStation.mile;
+              if (mph > 0 && nextMile > curMile) {
+                const segmentMiles = nextMile - curMile;
                 const travelTimeSec = (segmentMiles / mph) * 3600;
                 etaMs = lastMs + (travelTimeSec * 1000);
                 etaTime = new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
               }
             }
-          
-  
+          }
+
           out.push({
             bib,
             last_station: stationNameFromCode(lastCode),
-            last_time: safePassTs(e),
-            nextArriving_time: etaTime,
+            last_time: formatLocalDateTime(safePassTs(e)),
+            nextArriving_time: formatLocalDateTime(etaTime),
             eta_utc_ms: etaMs,
             next_station: stationNameFromCode(nextCode),
             distance: dist,
             _ts: lastMs
           });
         }
+      }
+
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
       out.forEach(r => delete r._ts);
       return out;
@@ -1532,9 +1923,10 @@ function stationNameFromCode(code) {
       for (const [bib, tDns] of lastDnsTs.entries()) {
         const cleared = overrides?.dnsClearedAtMs?.get(String(bib)) || 0;
         if (cleared >= tDns) continue;
-        out.push({ bib: String(bib), dns_time: msToIsoLocal(tDns) });
+        out.push({ bib: String(bib), dns_time: msToIsoLocal(tDns), _ts: tDns });
       }
-      out.sort((a, b) => (Date.parse(b.dns_time) || 0) - (Date.parse(a.dns_time) || 0));
+      out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+      out.forEach(r => delete r._ts);
       return out;
     }
     
@@ -1544,19 +1936,23 @@ function stationNameFromCode(code) {
       for (const [bib, tDnf] of lastDnfTs.entries()) {
         const cleared = overrides?.dnfClearedAtMs?.get(String(bib)) || 0;
         if (cleared >= tDnf) continue;
-        out.push({ bib: String(bib), dnf_time: msToIsoLocal(tDnf) });
+        out.push({ bib: String(bib), dnf_time: msToIsoLocal(tDnf), _ts: tDnf });
       }
-      out.sort((a, b) => (Date.parse(b.dnf_time) || 0) - (Date.parse(a.dnf_time) || 0));
+      out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+      out.forEach(r => delete r._ts);
       return out;
     }
     
     function msToIsoLocal(ms) {
       try {
         const d = new Date(ms);
-        const pad = (n) => String(n).padStart(2, "0");
-        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        if (isNaN(d.getTime())) return '';
+        // Convert epoch ms → UTC string → formatLocalDateTime (DD-MM-YYYY HH:MM:SS local)
+        // This keeps display consistent with last_time / nextArriving_time on other open list pages.
+        const utcStr = d.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+        return formatLocalDateTime(utcStr);
       } catch {
-        return "";
+        return '';
       }
     }
     
@@ -1627,6 +2023,7 @@ function stationNameFromCode(code) {
       // station selection and labels
       const effectiveStation = String(stationCode || ctx.station_code || "").trim();
       lastStationCode = effectiveStation;
+      window.__rs_lastStationCode = effectiveStation.toUpperCase(); // used by recomputeExpectedFromPrevForUI
       const stationUpper = effectiveStation.toUpperCase();
       const stationLabel = stationLabelFromDropdown(effectiveStation);
       const stationCodes = expandStationCodes(effectiveStation);
@@ -1643,18 +2040,6 @@ function stationNameFromCode(code) {
         STATUS_OVERRIDES.dnfClearedAtMs = new Map();
       }
       
-      // context & event
-     // const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-     // const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
-     // const IS_SOB = /SOB/i.test(eventCode);
-    
-      // ✅ ADD THIS DEBUG:
-      console.log("🔍 Event Context Debug:");
-      console.log("  - ctx.event_code:", ctx.event_code);
-      console.log("  - eventCode:", eventCode);
-      console.log("  - IS_SOB:", IS_SOB);
-      console.log("  - ctx.station_code:", ctx.station_code); 
-       
       // AUTHORITATIVE expected rows — attempt canonical recompute early (non-blocking fallback)
       try {
         // recomputeExpectedFromPrevForUI() should return canonical rows and write the global
@@ -1725,7 +2110,10 @@ function stationNameFromCode(code) {
         expectedHereDB = entrantsDB;
       }
     
-      // Determine if this is the first real station in the distance (station_order === 1)
+      // Determine if this is the first real (non-START) aid station in any distance.
+      // Works for events where START occupies station_order=1 and the first staffed
+      // aid station has station_order=2 (e.g. Leona Divide), not just SOB-style where
+      // the first aid station itself is order=1.
       const isFirstStation =
         Array.isArray(stationCodes) &&
         stationCodes.length === 1 &&
@@ -1733,9 +2121,11 @@ function stationNameFromCode(code) {
         (AID_STATION_MAP && (() => {
           const sc = String(stationCodes[0]).toUpperCase();
           for (const d of Object.keys(AID_STATION_MAP || {})) {
-            const arr = AID_STATION_MAP[d] || [];
-            const hit = arr.find(x => String(x.station_code || "").toUpperCase() === sc);
-            if (hit) return Number(hit.station_order) === 1;
+            const arr = (AID_STATION_MAP[d] || []).slice()
+              .filter(x => String(x.station_code || "").toUpperCase() !== "START")
+              .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+            // True when this station is the FIRST non-START station in any distance path
+            if (arr.length > 0 && String(arr[0].station_code || "").toUpperCase() === sc) return true;
           }
           return false;
         })());
@@ -1757,21 +2147,23 @@ function stationNameFromCode(code) {
       if (!isPersonnelStation(stationUpper)) {
         const flowPrev = getFlowPredecessors(stationUpper, stationCodes);
         const isCorral = (stationUpper === "CORRAL_AUTO");
-        const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestMap, ["AS8"]).length > 0;
+        const forcePathFor30KCorralReturn = isCorral && computeExpectedFromPrev_PATH(latestMap, ["AS8"], lastList).length > 0;
     
         if (forcePathFor30KCorralReturn) {
-          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes, lastList);
         } else if (flowPrev) {
           expectedPrevRows = computeExpectedFromPrev_FLOW(lastList, flowPrev, stationCodes);
         } else {
-          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes);
+          expectedPrevRows = computeExpectedFromPrev_PATH(latestMap, stationCodes, lastList);
         }
     
-        // CCAS1: Corral Pass-1 reconciliation (START → AS1) — event-specific override
-        if (stationUpper === "AS1") {
-          const seenAtAS1 = new Set(
+        // First-station override: show all rostered runners expected from START.
+        // Uses isFirstStation so it works for any event (LDV AS1, SOB AS1, etc.),
+        // not just the hardcoded SOB AS1 code.
+        if (isFirstStation) {
+          const seenAtFirstStation = new Set(
             (lastList || [])
-              .filter(e => String(e?.station_code || "").toUpperCase() === "AS1")
+              .filter(e => String(e?.station_code || "").toUpperCase() === stationUpper)
               .map(e => String(e?.bib_number ?? e?.bib ?? "").trim())
               .filter(Boolean)
           );
@@ -1782,62 +2174,50 @@ function stationNameFromCode(code) {
               .map(([bib]) => String(bib).trim())
           );
     
-        const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
-        const overrideRows = [];
-        
-        // ✅ ADD THESE DEBUG LINES:
-        console.log("🔍 AS1 Override Debug:");
-        console.log("  - stationUpper:", stationUpper);
-        console.log("  - bibList exists?", typeof bibList !== "undefined");
-        console.log("  - bibList is array?", Array.isArray(bibList));
-        console.log("  - roster length:", roster.length);
-        console.log("  - seenAtAS1 size:", seenAtAS1.size);
-        
-        for (const r of roster) {
-          const bib = String(r?.bib ?? "").trim();
-          if (!bib) {
-            console.log("  - SKIP: empty bib");
-            continue;
+          const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
+          const overrideRows = [];
+
+          // Only include runners whose distance path has this as the first non-START station.
+          const aidMapLocal = window.AID_STATION_MAP || window.__AID_STATION_MAP_DEBUG || {};
+          const _distCanon = (typeof canonicalDistanceCode === 'function')
+            ? canonicalDistanceCode
+            : s => String(s || '').toUpperCase().replace(/\s+/g, '').trim();
+          const distancesFirstHere = new Set();
+          for (const [d, stations] of Object.entries(aidMapLocal)) {
+            if (!Array.isArray(stations)) continue;
+            const sorted = stations.slice()
+              .filter(s => String(s.station_code || "").toUpperCase() !== "START")
+              .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+            if (sorted.length > 0 && String(sorted[0].station_code || "").toUpperCase() === stationUpper) {
+              distancesFirstHere.add(_distCanon(d));
+            }
           }
-          if (seenAtAS1.has(bib)) {
-            console.log("  - SKIP bib", bib, ": already seen at AS1");
-            continue;
+
+          for (const r of roster) {
+            const bib = String(r?.bib ?? "").trim();
+            if (!bib) continue;
+            // Distance filter: only show bibs whose distance starts at this station
+            if (distancesFirstHere.size) {
+              const bibDist = _distCanon(r?.distance || r?.distance_code || "");
+              if (!distancesFirstHere.has(bibDist)) continue;
+            }
+            if (seenAtFirstStation.has(bib)) continue;
+            if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+            if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+            if (finishedBibs.has(bib)) continue;
+            overrideRows.push({
+              bib,
+              last_station: "START",
+              last_station_code: "START",
+              nextArriving_time: "",
+              next_station: "(arriving here)",
+              next_station_code: stationUpper,
+              distance: r?.distance || ""
+            });
           }
-          if (stickyStatusByBib?.dns?.has?.(bib)) {
-            console.log("  - SKIP bib", bib, ": DNS");
-            continue;
-          }
-          if (stickyStatusByBib?.dnf?.has?.(bib)) {
-            console.log("  - SKIP bib", bib, ": DNF");
-            continue;
-          }
-          if (finishedBibs.has(bib)) {
-            console.log("  - SKIP bib", bib, ": finished");
-            continue;
-          }
-        
-          console.log("  ✅ ADDING bib", bib, "to overrideRows");
-          overrideRows.push({
-            bib,
-            last_station: "START",
-            last_station_code: "START",
-            nextArriving_time: "",
-            next_station: "(arriving here)",
-            next_station_code: "AS1",
-            distance: r?.distance || ""
-          });
-        }
-        
-        overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
-        console.log("  - overrideRows created:", overrideRows.length);
-        // ✅ ADD THIS DEBUG:
-        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
-        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
-        
-        if (overrideRows.length) expectedPrevRows = overrideRows;
-        // ✅ ADD THIS DEBUG:
-        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
-        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
+
+          overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
+          if (overrideRows.length) expectedPrevRows = overrideRows;
         }
       } // end if not personnel station
     
@@ -1854,48 +2234,48 @@ function stationNameFromCode(code) {
             return bib && !finishedBibs.has(bib);
           });
         }
-        // ✅ ADD THIS DEBUG BEFORE THE TRY-CATCH:
-        console.log("🔍 Before AUTHORITATIVE write:");
-        console.log("  - expectedPrevRows.length:", expectedPrevRows.length);
-        console.log("  - Sample:", expectedPrevRows[0]);
-
-        // AUTHORITATIVE write: DON'T overwrite AS1 special override
+        // Store PATH/FLOW ETAs in a global so recomputeExpectedFromPrevForUI can enrich
+        // its rows.  That function is at global scope and cannot call the pace helpers
+        // defined inside this IIFE, so we act as a bridge here.
+        window.__rs_pathEtaRaw = {};
+        for (const r of (expectedPrevRows || [])) {
+          const bib = String(r?.bib ?? '').trim();
+          if (bib && r.eta_utc_ms) {
+            window.__rs_pathEtaRaw[bib] = {
+              eta_utc_ms: r.eta_utc_ms,
+              // Derive raw UTC string from epoch ms so the popup getter's formatLocalDateTime
+              // can convert it to local time correctly.
+              nextArriving_time_utc: new Date(r.eta_utc_ms).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+            };
+          }
+        }
+        // AUTHORITATIVE write: always prefer recomputeExpectedFromPrevForUI (uses
+        // chronological path-stepping that handles duplicate/wrong station codes).
+        // Update expectedPrevRows so Card C value is consistent with the popup.
         try {
-          console.log("🔍 INSIDE AUTHORITATIVE try block:");
-          console.log("  - expectedPrevRows.length BEFORE:", expectedPrevRows.length);
-          
-          // ✅ FIX: Skip recompute if we already have expectedPrevRows (AS1 START override)
-          if (!expectedPrevRows || expectedPrevRows.length === 0) {
-            console.log("  - Calling recomputeExpectedFromPrevForUI()");
-            const canonical = recomputeExpectedFromPrevForUI();
-            window.__rs_expectedPrevRows = canonical || [];
-            console.log("  - window.__rs_expectedPrevRows set from canonical:", window.__rs_expectedPrevRows.length);
+          const canonical = recomputeExpectedFromPrevForUI();
+          if (canonical && canonical.length > 0) {
+            // Canonical result is non-empty — use it as the authoritative source
+            window.__rs_expectedPrevRows = canonical;
+            expectedPrevRows = canonical;
           } else {
-            // Use our override (AS1 START→Picket Post)
-            console.log("  - Using expectedPrevRows override (AS1)");
-            window.__rs_expectedPrevRows = expectedPrevRows;
-            console.log("  - window.__rs_expectedPrevRows set from override:", window.__rs_expectedPrevRows.length);
+            // Canonical returned nothing; keep PATH/FLOW result if available
+            window.__rs_expectedPrevRows = expectedPrevRows || [];
           }
         } catch (err) {
           console.warn('recomputeExpectedFromPrevForUI failed (final), using local expectedPrevRows', err);
           window.__rs_expectedPrevRows = expectedPrevRows || [];
         }
         
-        console.log("🔍 AFTER AUTHORITATIVE write:");
-        console.log("  - window.__rs_expectedPrevRows.length:", window.__rs_expectedPrevRows.length);
-        console.log("  - Sample:", window.__rs_expectedPrevRows[0]);
-        
-        // ✅ ADD THIS: Update localStorage so popup gets fresh data
+        // Update localStorage so popup gets fresh data
         try {
           localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
             rows: window.__rs_expectedPrevRows || [],
-            stationCodes: [stationUpper],  // ✅ USE stationUpper (which is "AS1")
+            stationCodes: [stationUpper],
             stationLabel: stationLabel || ''
           }));
-          console.log("  - ✅ localStorage updated with", (window.__rs_expectedPrevRows || []).length, "rows, stationCodes:", [stationUpper]);
-        
         } catch (e) {
-          console.warn("  - ❌ Failed to update localStorage:", e);
+          console.warn("Failed to update localStorage expectedPrevRows:", e);
         }
           
       // Render UI (cards)
@@ -1908,11 +2288,11 @@ function stationNameFromCode(code) {
         // Card B
         bLabel: `Card B — Seen at ${stationLabel}`,
         bVal: `${seenHereSet.size}`,
-        bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast 10 seen here: (Open List)`,
+        bSub: `Total Expected (DB): ${expectedActive}\nNot seen: ${notSeenCount} (Open List)\nLast seen here: (Open List)`,
     
         // Card C - CHANGE THIS LINE:
         cLabel: `Card C — Expected From Previous`,
-        cVal: `${Math.max(0, (window.__rs_expectedPrevRows || expectedPrevRows || []).length - seenHereSet.size)}`,  // ✅ NEW
+        cVal: `${Math.max(0, (expectedPrevRows || []).length)}`,
         cSub: isPersonnelStation(stationUpper)
           ? `Personnel view (no station expectations)`
           : (stationUpper === "FINISH"
@@ -1941,7 +2321,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || window.entries || [];
                 let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if (sessionStorage.getItem("hq_mode") === "1") {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
@@ -1956,7 +2336,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || [];
                 let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if (sessionStorage.getItem("hq_mode") === "1") {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
@@ -1992,7 +2372,7 @@ function stationNameFromCode(code) {
                   out.push({
                     bib,
                     last_station: e ? (safeStationText(e) || safeStationCode(e) || "") : "",
-                    last_time:    e ? safePassTs(e) : "",
+                    last_time:    e ? formatLocalDateTime(safePassTs(e)) : "",
                     distance:     e ? normalizeDistance(e.distance_code || e.distance || "") : (r.distance || "")
                   });
                 }
@@ -2019,7 +2399,7 @@ function stationNameFromCode(code) {
                 const flowPrevNow = getFlowPredecessors(stationUpperNow, stationCodesNow);
                 let rows = flowPrevNow
                   ? computeExpectedFromPrev_FLOW(list, flowPrevNow, stationCodesNow)
-                  : computeExpectedFromPrev_PATH(latestNow, stationCodesNow);
+                  : computeExpectedFromPrev_PATH(latestNow, stationCodesNow, list);
     
                 const finishedBibsNow = new Set(
                   Array.from(latestNow.entries())
@@ -2049,19 +2429,22 @@ function stationNameFromCode(code) {
           // Normalize to explicit codes array using known helper if present
           const codes = (typeof expandStationCodes === 'function' && sc) ? (expandStationCodes(sc) || []) : (sc ? [sc] : []);
         
-          // Helper to fetch last10 rows from server and cache in window.__rs_last10HereRows
+          // Helper to fetch last10 rows from server and cache in a per-station key.
+          // Using window["__rs_last10HereRows_<code>"] prevents multiple station intervals
+          // from overwriting each other when the operator switches between stations.
           async function fetchLast10HereFromServer(eventCodeLocal, stationCodeLocal) {
+            const cacheKey = "__rs_last10HereRows_" + stationCodeLocal;
             try {
               if (!eventCodeLocal || !stationCodeLocal) {
-                window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+                window[cacheKey] = window[cacheKey] || [];
                 return;
               }
               const url = `/tvemc_race_timing_v2/passes_last_seen.php?event_code=${encodeURIComponent(eventCodeLocal)}&station=${encodeURIComponent(stationCodeLocal)}`;
               const resp = await fetch(url, { credentials: 'same-origin' });
               const json = await resp.json();
               if (json && json.success && Array.isArray(json.rows)) {
-                // store rows for THIS station only
-                window.__rs_last10HereRows = json.rows.map(r => {
+                // store rows keyed by THIS station so other station intervals cannot overwrite
+                window[cacheKey] = json.rows.map(r => {
                   const out = Object.assign({}, r);
                   out.bib = out.bib || out.bib_number || out.BIB || out.bib_no;
                   out.pass_ts = out.pass_ts || out.time || out.pass_ts;
@@ -2069,13 +2452,17 @@ function stationNameFromCode(code) {
                   return out;
                 });
               } else {
-                window.__rs_last10HereRows = [];
+                window[cacheKey] = [];
               }
             } catch (err) {
               console.warn('fetchLast10HereFromServer error', err);
-              window.__rs_last10HereRows = window.__rs_last10HereRows || [];
+              window[cacheKey] = window[cacheKey] || [];
             }
           }
+
+          // Determine the cache key for the openListWindow callback (captured in closure).
+          const stationCodeForCache = (codes && codes.length) ? String(codes[0]).trim() : "";
+          const last10CacheKey = stationCodeForCache ? "__rs_last10HereRows_" + stationCodeForCache : null;
         
           // if we have a code, start/ensure a per-station interval
           if (codes && codes.length) {
@@ -2089,24 +2476,27 @@ function stationNameFromCode(code) {
             window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || {};
             if (!window.__rs_last10_fetch_intervals[stationCodeLocal]) {
               window.__rs_last10_fetch_intervals[stationCodeLocal] = setInterval(() => {
-                // recompute event and station each tick (defensive)
+                // recompute event each tick (defensive); station stays tied to the one that created this interval
                 const ctxTick = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: (window._EVENT_META && window._EVENT_META.event_code) || '' });
                 const ev = ctxTick?.event_code || (window._EVENT_META && window._EVENT_META.event_code) || '';
-                const st = stationCodeLocal; // keep the interval tied to the station that created it
+                const st = stationCodeLocal;
                 if (ev && st) fetchLast10HereFromServer(ev, st);
               }, 5000);
             }
-          } else {
-            // no station codes: clear any global rows
-            window.__rs_last10HereRows = window.__rs_last10HereRows || [];
           }
         
           return openListWindow(
-            `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
-            () => (window.__rs_last10HereRows || []).filter(r => {
-              const a = String(r?.pass_type || r?.action || "").toUpperCase();
-              return a !== "DNS" && a !== "DNF";
-            }),
+            `Last Seen Here — ${stationLabel || sc || "Station"}`,
+            () => (last10CacheKey ? (window[last10CacheKey] || []) : [])
+              .filter(r => {
+                const a = String(r?.pass_type || r?.action || "").toUpperCase();
+                return a !== "DNS" && a !== "DNF";
+              })
+              .map(r => {
+                const out = Object.assign({}, r);
+                if (out.pass_ts) out.pass_ts = formatLocalDateTime(out.pass_ts);
+                return out;
+              }),
             { refreshMs: 5000 }
           );
         }
@@ -2148,68 +2538,72 @@ function stationNameFromCode(code) {
               { refreshMs: 5000 }
             );
           }
+
+          if (v === "all_runners") {
+            // Fetch fresh roster from server immediately when the popup opens
+            if (typeof loadRunnerRegistryFromServer === "function") {
+              loadRunnerRegistryFromServer().catch(() => {});
+            }
+            let _arLastFetch = Date.now(); // track last server fetch to avoid double-fetch
+            return openListWindow(
+              "All Runners — Roster",
+              () => {
+                // Re-fetch from server every 30s while the popup is open
+                const _arNow = Date.now();
+                if (_arNow - _arLastFetch > 30000 && typeof loadRunnerRegistryFromServer === "function") {
+                  _arLastFetch = _arNow;
+                  loadRunnerRegistryFromServer().catch(() => {});
+                }
+                const roster = Array.isArray(window.bibList) ? window.bibList : [];
+                return roster
+                  .filter(r => r && r.bib)
+                  .map(r => {
+                    const curDist = String(r.distance || r.distance_code || "");
+                    const prevDist = String(r.previousDistance || r.previous_distance || "");
+                    return {
+                      bib:           String(r.bib || ""),
+                      first_name:    String(r.firstName || r.first_name || ""),
+                      last_name:     String(r.lastName  || r.last_name  || ""),
+                      distance:      curDist,
+                      prev_distance: (prevDist && prevDist !== curDist) ? prevDist : "",
+                      gender:        String(r.gender || r.Gender || "")
+                    };
+                  })
+                  .sort((a, b) => Number(a.bib) - Number(b.bib));
+              },
+              { refreshMs: 5000, searchable: true, sortable: true, maxRows: 2000, defaultSort: "bib" }
+            );
+          }
     
-        // Expected From Previous — robust payload write
+        // Expected From Previous
         if (v === "expected_prev") {
-          // ❌ DELETE THIS ENTIRE BLOCK (lines that compute and write to localStorage):
-          // let authoritativeRows = window.__rs_expectedPrevRows || expectedPrevRows || [];
-          // let payloadStationCodes = ...
-          // localStorage.setItem('__rs_expectedPrevRows_payload', ...);
-        
-          // ✅ JUST OPEN THE POPUP - let it read from localStorage that was already written by recompute()
           return openListWindow(
             `Expected From Previous — ${stationLabel}`,
             () => {
-              // popup reads from localStorage (which has the fresh 23 rows from recompute)
-              let parsed = null;
-              try {
-                const json = localStorage.getItem('__rs_expectedPrevRows_payload');
-                parsed = json ? JSON.parse(json) : null;
-              } catch(e){ /* ignore parse errors */ }
-        
-              const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
-              const popupCodes = parsed && Array.isArray(parsed.stationCodes) ? parsed.stationCodes : [];
-              const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : '';
-              
-              console.log("🔍 POPUP Debug:");
-              console.log("  - rows.length:", rows.length);
-              console.log("  - popupCodes:", popupCodes);
-      
-              const filtered = (rows || []).filter(r => {
+              // Always recompute live so the popup reflects the CURRENT station,
+              // even if the station dropdown changed after the last 5-second interval.
+              // Reading window.__rs_expectedPrevRows can return stale data from a
+              // previously-selected station, causing wrong runners to appear
+              // (e.g. 20M bibs showing on the McGee Expected From Previous page).
+              let rows = (typeof recomputeExpectedFromPrevForUI === 'function')
+                ? (recomputeExpectedFromPrevForUI() || [])
+                : (window.__rs_expectedPrevRows || []);
+              const out = [];
+              for (const r of (rows || [])) {
                 const bib = String(r?.bib ?? "").trim();
-                if (!bib) {
-                 console.log("  - FILTER: Skip row (no bib):", r);
-                 return false;
+                if (!bib) continue;
+                // Remove internal code-only fields before display
+                const display = Object.assign({}, r);
+                // Format timestamps to local time (respects Local/UTC toggle).
+                // recomputeExpectedFromPrevForUI stores raw UTC strings from the DB;
+                // formatLocalDateTime is only in scope here (inside the IIFE), so
+                // this is the correct place to convert for display.
+                if (display.last_time) display.last_time = formatLocalDateTime(display.last_time);
+                if (display.nextArriving_time) display.nextArriving_time = formatLocalDateTime(display.nextArriving_time);
+                try { delete display.last_station_code; delete display.next_station_code; } catch(e) {}
+                out.push(display);
               }
-            
-                const nextCode = String(r?.next_station_code || "").toUpperCase();
-                const nextName = String(r?.next_station || "").toUpperCase();
-              
-               // ✅ ADD DEBUG:
-               console.log(`  - FILTER bib ${bib}: nextCode="${nextCode}", nextName="${nextName}"`);
-               console.log(`    popupCodes includes "${nextCode}"?`, popupCodes.includes(nextCode));
-               console.log(`    popupLabel includes "${nextName}"?`, popupLabel.includes(nextName));
-            
-               const codeMatch = popupCodes.includes(nextCode);
-               const nameMatch = popupLabel && nextName && popupLabel.includes(nextName);
-              
-               const keep = codeMatch || nameMatch;
-               console.log(`    → KEEP: ${keep}`);
-              
-               return keep;
-             });
-              
-              // Remove code-only columns so popup only shows human-readable station names
-              for (const r of filtered) {
-                try {
-                 delete r.last_station_code;
-                 delete r.next_station_code;
-               } catch (e) {
-                 // ignore any errors and continue
-               }
-             }
-        
-              return filtered;
+              return out;
             },
             { refreshMs: 5000 }
           );
@@ -2284,6 +2678,5 @@ function stationNameFromCode(code) {
     
     console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
     
-    }
     })();  // end IIFE
- });
+})();

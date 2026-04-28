@@ -25,14 +25,37 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $data = json_decode(file_get_contents('php://input'), true) ?: [];
 
+// Normalize human-readable distance labels to canonical codes so they match aid_stations.distance_code
+function canonicalDistanceCode($d) {
+  // Strip ALL internal whitespace so "50 K" → "50K", "50 M" → "50M", etc.
+  $x = strtoupper(preg_replace('/\s+/', '', trim((string)($d ?? ''))));
+  if (!$x) return (string)$d;
+  if (in_array($x, ['20M','20MI','20MILE','20MILES'])) return '20M';
+  if (in_array($x, ['50MILER','50MI','50M'])) return '50M';
+  if ($x === '50K') return '50K';
+  if ($x === '30K') return '30K';
+  if (in_array($x, ['26.2','MARATHON'])) return '26.2';
+  if ($x === '100K') return '100K';
+  if (in_array($x, ['100M','100MI','100MILE','100MILES','100MILER'])) return '100M';
+  if (in_array($x, ['200M','200MI','200MILE','200MILES'])) return '200M';
+  if (in_array($x, ['240M','240MI','240MILE','240MILES'])) return '240M';
+  if (in_array($x, ['300M','300MI','300MILE','300MILES'])) return '300M';
+  return (string)$d;
+}
+
 // required
 $event_code    = trim($data['event_code'] ?? 'AZM-300-2026-0004');
 $bib           = (int)($data['bib'] ?? 0);
-$distance_code = trim($data['distance_code'] ?? '');
+$distance_code = canonicalDistanceCode(trim($data['distance_code'] ?? ''));
 $pass_type     = strtoupper(trim($data['pass_type'] ?? 'IN'));
 $station_code  = trim($data['station_code'] ?? '');
 $operator      = trim($data['operator'] ?? '');
 $note          = trim($data['note'] ?? '');
+// Optional station_order hint sent by the client to disambiguate multi-pass stations
+// (e.g. Junction visited twice in the 20M course has the same station_code but
+// different station_orders). When provided, it is used to select the correct station_id.
+$station_order_hint = (isset($data['station_order']) && is_numeric($data['station_order']))
+  ? (int)$data['station_order'] : null;
 
 // timestamp: store UTC
 $pass_ts = gmdate('Y-m-d H:i:s');
@@ -115,35 +138,85 @@ if ($has_station_code) {
   $station_id_any = (int)($station_row['station_id'] ?? 0);
 
   // 2) Is it valid for this distance?
+  // Fetch ALL stations for this event sharing this station_code, then compare distances
+  // using canonicalDistanceCode() on both sides to tolerate format differences in the DB
+  // (e.g. "50 K" in aid_stations vs "50K" sent by the client).
   $q2 = $conn->prepare("
-    SELECT station_id
+    SELECT station_id, distance_code
     FROM aid_stations
     WHERE event_id = ?
-      AND distance_code = ?
       AND (
         ( ? = 'START'  AND station_order = 0 )
         OR ( ? = 'FINISH' AND is_finish = 1 )
         OR (station_code = ?)
       )
-    LIMIT 1
   ");
   if (!$q2) {
     http_response_code(500);
     echo json_encode(['success'=>false,'error'=>'Prepare failed (distance station lookup)','details'=>$conn->error]);
     exit;
   }
-  $q2->bind_param("issss", $event_id, $distance_code, $scode, $scode, $scode);
+  $q2->bind_param("isss", $event_id, $scode, $scode, $scode);
   $q2->execute();
-  $r = $q2->get_result()->fetch_assoc();
+  $q2_rows = $q2->get_result()->fetch_all(MYSQLI_ASSOC);
   $q2->close();
 
-  if (!$r) {
-    // mismatch: station exists for event, but not for this distance
-    $is_mismatch = 1;
-    $warning = 'RUNNER OFF COURSE';
-    $station_id = $station_id_any;
+  // Find the station row for this distance.
+  // When station_order_hint is provided (sent by the client to disambiguate multi-pass
+  // stations like Junction visited twice), prefer the row with the matching station_order.
+  // Otherwise fall back to the first distance match (existing behaviour).
+  $station_for_dist = null;
+  foreach ($q2_rows as $q2row) {
+    if (canonicalDistanceCode((string)($q2row['distance_code'] ?? '')) === $distance_code) {
+      if ($station_order_hint !== null && (int)$q2row['station_order'] === $station_order_hint) {
+        // Exact occurrence match — use this and stop looking.
+        $station_for_dist = $q2row;
+        break;
+      } elseif ($station_for_dist === null) {
+        // Save as fallback (first distance match); keep scanning for exact hint match.
+        $station_for_dist = $q2row;
+        if ($station_order_hint === null) break; // no hint — first match is sufficient
+      }
+    }
+  }
+
+  if (!$station_for_dist) {
+    // The submitted station_code is not in this runner's distance.
+    // Before flagging off-course, check whether the physical location
+    // (station_name) appears in the runner's distance under a different
+    // station_code — e.g. device left on AS15 (50M Hwy 168) while a
+    // 20M runner passes through (correct location, wrong device code).
+    $q_autofix = $conn->prepare("
+      SELECT station_id FROM aid_stations
+      WHERE event_id     = ?
+        AND distance_code = ?
+        AND station_name  = ?
+      ORDER BY station_order ASC
+      LIMIT 1
+    ");
+    $autofix_station_id = null;
+    if ($q_autofix) {
+      $q_autofix->bind_param("iss", $event_id, $distance_code, $station_name);
+      $q_autofix->execute();
+      $autofix_row = $q_autofix->get_result()->fetch_assoc();
+      $q_autofix->close();
+      if ($autofix_row) {
+        $autofix_station_id = (int)$autofix_row['station_id'];
+      }
+    }
+
+    if ($autofix_station_id !== null) {
+      // Same physical location exists in the runner's distance — auto-correct.
+      // No mismatch: the runner was on course; the device code was wrong.
+      $station_id = $autofix_station_id;
+    } else {
+      // Station name is genuinely not in this runner's distance: flag off-course.
+      $is_mismatch = 1;
+      $warning = 'RUNNER OFF COURSE';
+      $station_id = $station_id_any;
+    }
   } else {
-    $station_id = (int)$r['station_id'];
+    $station_id = (int)$station_for_dist['station_id'];
   }
 
 } else {
@@ -258,14 +331,6 @@ if ($has_station_code) {
     http_response_code(400);
     echo json_encode(['success'=>false,'error'=>'Unknown station_code','station_code'=>$station_code]);
     exit;
-  }
-}
-
-// If mismatch, persist warning into note so it survives refresh/viewer reload
-if ($is_mismatch === 1) {
-  $prefix = "⚠️ {$warning} — {$distance_code} at {$scode}. ";
-  if (stripos($note, $warning) === false) {
-    $note = $prefix . $note;
   }
 }
 

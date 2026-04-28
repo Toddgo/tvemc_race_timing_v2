@@ -16,6 +16,7 @@ if ($conn->connect_error) {
   echo json_encode(['success'=>false,'error'=>'DB connect failed: '.$conn->connect_error]);
   exit;
 }
+$conn->query("SET time_zone = '+00:00'");
 
 $event_code = trim($_GET['event_code'] ?? '');
 if ($event_code === '') {
@@ -59,7 +60,7 @@ if ($ack === "0" || $ack === "1") {
 }
 
 $sql = "
-  SELECT id, event_id, station_target, channel, message_text, operator, msg_number,
+  SELECT id, event_id, station_target, sender_station, channel, message_text, operator, msg_number,
          acknowledged, ack_time, created_at
   FROM hq_messages
   $where

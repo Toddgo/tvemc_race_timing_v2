@@ -25,6 +25,16 @@ $has_station_code = false;
 $chk = $conn->query("SHOW COLUMNS FROM aid_stations LIKE 'station_code'");
 if ($chk && $chk->num_rows > 0) $has_station_code = true;
 
+// Detect whether aid_stations.lat/lon exist
+$has_lat = false;
+$chk2 = $conn->query("SHOW COLUMNS FROM aid_stations LIKE 'lat'");
+if ($chk2 && $chk2->num_rows > 0) $has_lat = true;
+
+// Detect whether is_multi_pass / multi_pass_group exist
+$has_multi_pass = false;
+$chk3 = $conn->query("SHOW COLUMNS FROM aid_stations LIKE 'is_multi_pass'");
+if ($chk3 && $chk3->num_rows > 0) $has_multi_pass = true;
+
 // Build SQL safely depending on schema
 $sql = "
   SELECT
@@ -35,7 +45,9 @@ $sql = "
     mile,
     is_aid,
     is_finish" .
-    ($has_station_code ? ", station_code" : "") . "
+    ($has_station_code ? ", station_code" : "") .
+    ($has_lat ? ", lat, lon" : "") .
+    ($has_multi_pass ? ", is_multi_pass, multi_pass_group" : "") . "
   FROM aid_stations
   WHERE event_id = ?
   ORDER BY distance_code ASC, station_order ASC
@@ -54,6 +66,10 @@ while ($r = $res->fetch_assoc()) {
   $r['mile'] = isset($r['mile']) ? (float)$r['mile'] : 0.0;
   $r['is_aid'] = (int)($r['is_aid'] ?? 0);
   $r['is_finish'] = (int)($r['is_finish'] ?? 0);
+  if (array_key_exists('lat', $r)) $r['lat'] = $r['lat'] !== null ? (float)$r['lat'] : null;
+  if (array_key_exists('lon', $r)) $r['lon'] = $r['lon'] !== null ? (float)$r['lon'] : null;
+  if (array_key_exists('is_multi_pass', $r))  $r['is_multi_pass']   = (int)($r['is_multi_pass'] ?? 0);
+  if (array_key_exists('multi_pass_group', $r)) $r['multi_pass_group'] = $r['multi_pass_group'] !== null ? (string)$r['multi_pass_group'] : null;
 
   // If station_code exists in DB and is non-empty, use it.
   $dbCode = trim((string)($r['station_code'] ?? ''));

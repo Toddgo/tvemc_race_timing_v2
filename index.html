@@ -122,6 +122,11 @@
   </div>
   
    <div class="start-time-row">
+    <label>20M</label>
+    <input type="datetime-local" id="start_20M">
+  </div>
+
+  <div class="start-time-row">
     <label>26.2</label>
     <input type="datetime-local" id="start_26_2">
   </div>
@@ -140,8 +145,29 @@
     <label>100K</label>
     <input type="datetime-local" id="start_100K">
   </div>
+
+  <div class="start-time-row">
+    <label>100M</label>
+    <input type="datetime-local" id="start_100M">
+  </div>
+
+  <div class="start-time-row">
+    <label>200M</label>
+    <input type="datetime-local" id="start_200M">
+  </div>
+
+  <div class="start-time-row">
+    <label>240M</label>
+    <input type="datetime-local" id="start_240M">
+  </div>
+
+  <div class="start-time-row">
+    <label>300M</label>
+    <input type="datetime-local" id="start_300M">
+  </div>
 </div>
-  <button type="button" onclick="saveStartTimes()">Save Start Times</button>
+  <button type="button" id="saveStartTimesBtn" onclick="saveStartTimes()">Save Start Times</button>
+  <span id="saveStartTimesStatus" style="margin-left:12px;font-weight:bold;font-size:15px;"></span>
   
   <!-- HQ Occupancy Mode Control -->
 <div class="hq-occupancy-mode">
@@ -222,6 +248,7 @@
       Station:
       <select id="hqLogStationFilter">
     <option value="">All</option>
+    <option value="HQ">📥 FROM STATIONS (→ HQ)</option>
     <option value="START">🏁START</option>
     <option value="CORRAL_AUTO">📍 CORRAL CANYON (AUTO)</option>
     <option value="KANAN_AUTO">📍 KANAN ROAD (AUTO)</option>
@@ -267,6 +294,7 @@
         <tr>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Time</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Station</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">From</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Channel</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Message</th>
           <th style="border-bottom: 1px solid #ccc; padding: 4px;">Operator</th>
@@ -276,7 +304,7 @@
       </thead>
       <tbody>
         <tr>
-          <td colspan="7" style="padding: 6px; text-align: center; font-style: italic;">
+          <td colspan="8" style="padding: 6px; text-align: center; font-style: italic;">
             Loading...
           </td>
         </tr>
@@ -308,6 +336,49 @@
   <div id="hqStatus" style="font-size: 14px; margin-top: 10px;">Status: Ready</div>
 
 
+
+  <!-- Aid Station: Send Message to HQ (hidden in ?hq=1 mode) -->
+<div id="stationSendToHQ"
+     style="display: none;
+            background: #000080;
+            color: white;
+            padding: 12px 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 2px solid #ffff00;">
+  <h4 style="margin: 0 0 8px 0; color: #ffff00; font-size: 16px;">
+    📡 Send Message to HQ
+  </h4>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+    <input
+      type="text"
+      id="stationToHqText"
+      placeholder="Your message to HQ..."
+      style="flex: 1; min-width: 180px; padding: 7px 10px; border-radius: 5px; border: none; font-size: 14px;"
+    />
+  </div>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+    <button
+      type="button"
+      id="stationToHqRadioBtn"
+      onclick="sendStationToHQViaRadio()"
+      style="background: #ffff00; color: black; font-weight: bold; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; white-space: nowrap;"
+    >
+      📡 SEND RADIO TO HQ
+    </button>
+    <button
+      type="button"
+      id="stationToHqSendBtn"
+      onclick="sendStationToHQ()"
+      style="background: #ffff00; color: black; font-weight: bold; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; white-space: nowrap;"
+    >
+      🌐 SEND INTERNET TO HQ
+    </button>
+  </div>
+  <div id="stationToHqStatus" style="font-size: 12px; margin-top: 6px; color: #ccc;">
+    Status: Ready
+  </div>
+</div>
 
   <!-- Aid Station: HQ Message History -->
 <div id="stationHistory"
@@ -385,7 +456,7 @@
 </div>
       
     
-    <h1>KH_SOB_2026_3 KH Race Tvemc-Tracker “Race Timing-T (race_timingT)”</h1>
+    <h1 id="pageTitle">KH_SOB_2026_3 KH Race Tvemc-Tracker “Race Timing-T (race_timingT)”</h1>
    <!-- KH_SOB_2026_0003 for event_id = 1, KH_SOB_TEST event_id = 2 -->
     
     <div class="section">
@@ -397,8 +468,10 @@
            <input type="hidden" id="eventCode" value="KH_SOB_2026_0003">
 
         <div class="section">
-            <label for="eventName">Event Name:</label>
-            <input type="text" id="eventName" name="eventName" value="" tabindex="1"><br><br>
+            <label for="eventName">Event:</label>
+            <select id="eventName" name="eventName" tabindex="1">
+              <option value="">— Loading events… —</option>
+            </select><br><br>
             <label for="messageNum">Message #:</label>
             <input type="number" id="messageNum" name="messageNum" value="1" tabindex="2">
             <button type="button" class="increment-button" onclick="incrementMessage()" tabindex="3" role="button" aria-label="Increment Message Number">Increment</button><br><br>
@@ -432,7 +505,9 @@
             <input type="text" id="subject" name="subject" readonly tabindex="7">
         </div>
         <div class="section">
-            <h2>Bib Data Entry</h2>
+            <h2 style="display:inline-block; margin-right:12px;">Bib Data Entry</h2>
+            <button type="button" id="openFieldModeBtn" onclick="openFieldMode()" style="vertical-align:middle; background:#1a1a2e; color:#00e5ff; border:2px solid #00e5ff; border-radius:8px; padding:6px 14px; font-size:15px; font-weight:bold; cursor:pointer; margin-bottom:6px;" title="Open mobile-friendly Field Mode bib entry">📱 Field Mode</button>
+            <br>
             <input type="checkbox" id="fastMode" name="fastMode" tabindex="8">
             <label for="fastMode">Fast Tab Mode (Skip Time/Yesterday)</label><br><br>
 	<div>
@@ -468,6 +543,7 @@
         <div id="distancePopup" style="display: none;">
             <label for="distanceSelect">Select Distance:</label>
             <select id="distanceSelect" tabindex="17">
+                <option value="20M">20 mile</option>
                 <option value="30K">30K</option>
                 <option value="26.2">26.2</option>
                 <option value="50K">50K</option>
@@ -652,10 +728,15 @@
 
   async function loadResultsConfigOnce() {
     if (__resultsConfigLoaded) return;
-    const eventCode =
-      (window.TVEMC_EVENT_CODE ||
-       document.getElementById("eventName")?.value ||
-       "KH_SOB_2026_0003").toString().trim();
+    // Use the same event-code resolution order as getEventCode() in race_timing.js:
+    // sessionStorage tvemc_eventName  →  #eventCode hidden input  →  #eventName text input  →  hardcoded fallback
+    const eventCode = (
+      window.TVEMC_EVENT_CODE ||
+      sessionStorage.getItem("tvemc_eventName") ||
+      document.getElementById("eventCode")?.value ||
+      document.getElementById("eventName")?.value ||
+      "KH_SOB_2026_0003"
+    ).toString().trim();
 
     const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, {
       cache: "no-store"
@@ -664,7 +745,14 @@
     if (!data.success) throw new Error(data.error || "results_config_load failed");
 
     window.TVEMC_milesByDistance = new Map(Object.entries(data.distances || {}));
-    window.TVEMC_startByDistance = new Map(Object.entries(data.start_times_iso || {}));
+    // Only overwrite TVEMC_startByDistance if the server returned actual start times;
+    // don't clobber auto-derived start times (from earliest Start Line pass) with an empty map.
+    const newStarts = new Map(Object.entries(data.start_times_iso || {}));
+    if (newStarts.size > 0) {
+      window.TVEMC_startByDistance = newStarts;
+    } else if (!window.TVEMC_startByDistance) {
+      window.TVEMC_startByDistance = new Map();
+    }
     window.TVEMC_runnerStartByBib = new Map(Object.entries(data.runner_starts_iso || {}));
 
     __resultsConfigLoaded = true;
@@ -706,12 +794,24 @@
 <script>
 async function enterHqMode() {
   const pass = document.getElementById('hqPass').value || '';
-  if (pass !== 'Jesse2026!') {
-    alert('Wrong HQ password');
+  try {
+    const resp = await fetch('hq_auth.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pass })
+    });
+    const data = await resp.json();
+    if (!data.success) {
+      alert('Wrong HQ password');
+      return;
+    }
+  } catch (e) {
+    alert('Could not verify password – check server connection');
     return;
   }
   localStorage.setItem('hq_auth_token', 'valid');
-  location.href = '?hq=1';
+  sessionStorage.setItem('hq_mode', '1');
+  location.href = location.pathname;
 }
 </script>
 
@@ -776,6 +876,14 @@ async function enterHqMode() {
 })();
 
 </script>
+<!-- Event-specific documents (PDFs / CSVs) — populated dynamically by loadEventDocs() -->
+<div id="eventDocsSection" style="display:none; margin-top:20px; text-align:center;">
+  <div style="font-size:20px; font-weight:bold; color:#FFEA00; margin-bottom:10px;">
+    📁 Event Documents
+  </div>
+  <div id="eventDocsList"></div>
+</div>
+
 <!-- Bottom Help Links -->
 <div class="bottom-help-links" style="margin-top:20px; text-align:center;">
 
@@ -797,9 +905,104 @@ async function enterHqMode() {
     </a>
   </div>
 
+  <div style="margin-top:12px;">
+    <a class="help-link"
+       href="https://tvemc.org/tvemc_race_timing_v2/finish_lookup.html?event_code=BU-ULTRA-2026-0006"
+       target="_blank"
+       rel="noopener">
+      🏁 Runner Lookup – Finish Line
+    </a>
+  </div>
+
 </div>
 
 <footer>© 2025 TVEMC • tvemc tracker™ • <a href="https://tvemc.org">tvemc.org</a></footer>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FIELD MODE MODAL – dark full-screen mobile bib-entry UI
+     Opened by clicking "📱 Field Mode" button in Bib Data Entry.
+     All submission goes through the existing addEntry() function.
+     ═══════════════════════════════════════════════════════════ -->
+<div id="fieldModeModal" role="dialog" aria-modal="true" aria-label="Field Bib Entry">
+
+  <!-- Header bar -->
+  <div id="fm-header">
+    <button id="fm-close" onclick="closeFieldMode()" aria-label="Close field mode">&#8592;</button>
+    <div id="fm-title">
+      <div id="fm-event-label"></div>
+      <div id="fm-page-label">Bib Entry</div>
+    </div>
+  </div>
+
+  <!-- Station chip -->
+  <div id="fm-station-bar">
+    <span id="fm-station-chip"></span>
+  </div>
+
+  <!-- Bib number display -->
+  <div id="fm-bib-card">
+    <div id="fm-bib-row">
+      <span id="fm-bib-hash">#</span>
+      <span id="fm-bib-digits">&mdash;</span>
+    </div>
+    <div id="fm-bib-hint">Enter a bib number</div>
+  </div>
+
+  <!-- Numeric keypad -->
+  <div id="fm-keypad">
+    <button class="fm-key" onclick="fieldKeyPress('1')" aria-label="1">1</button>
+    <button class="fm-key" onclick="fieldKeyPress('2')" aria-label="2">2</button>
+    <button class="fm-key" onclick="fieldKeyPress('3')" aria-label="3">3</button>
+    <button class="fm-key" onclick="fieldKeyPress('4')" aria-label="4">4</button>
+    <button class="fm-key" onclick="fieldKeyPress('5')" aria-label="5">5</button>
+    <button class="fm-key" onclick="fieldKeyPress('6')" aria-label="6">6</button>
+    <button class="fm-key" onclick="fieldKeyPress('7')" aria-label="7">7</button>
+    <button class="fm-key" onclick="fieldKeyPress('8')" aria-label="8">8</button>
+    <button class="fm-key" onclick="fieldKeyPress('9')" aria-label="9">9</button>
+    <button class="fm-key fm-key-back" onclick="fieldBackspace()" aria-label="Backspace">&#x232B;</button>
+    <button class="fm-key" onclick="fieldKeyPress('0')" aria-label="0">0</button>
+    <button class="fm-key fm-key-enter" onclick="fieldSubmit('IN')" aria-label="Submit IN">&#8629;</button>
+  </div>
+
+  <!-- Action buttons – row 1: IN / OUT -->
+  <div id="fm-actions-row1">
+    <button class="fm-action fm-action-in"     onclick="fieldSubmit('IN')"     aria-label="Record IN">IN</button>
+    <button class="fm-action fm-action-out"    onclick="fieldSubmit('OUT')"    aria-label="Record OUT">OUT</button>
+  </div>
+
+  <!-- Action buttons – row 2: FINISH / DNF / CHANGE DIST -->
+  <div id="fm-actions-row2">
+    <button class="fm-action fm-action-finish" onclick="fieldSubmit('FINISH')" aria-label="Record FINISH">FINISH</button>
+    <button class="fm-action fm-action-dnf"    onclick="fieldSubmit('DNF')"    aria-label="Record DNF">DNF</button>
+    <button class="fm-action fm-action-chgdist" onclick="fieldShowDistancePicker()" aria-label="Change Distance">CHANGE DIST</button>
+  </div>
+
+  <!-- Brief status flash after submit -->
+  <div id="fm-status" aria-live="polite"></div>
+
+  <!-- Inline distance picker (shown inside modal instead of main-page popup) -->
+  <div id="fm-dist-picker">
+    <div id="fm-dist-title">Select Distance</div>
+    <select id="fm-dist-select" aria-label="Select distance">
+      <option value="20M">20 Mile</option>
+      <option value="30K">30K</option>
+      <option value="26.2">26.2</option>
+      <option value="50K">50K</option>
+      <option value="50M">50 Mile</option>
+      <option value="100K">100K</option>
+      <option value="100M">100 Mile</option>
+      <option value="200M">200 Mile</option>
+      <option value="240M">240 Mile</option>
+      <option value="300M">300 Mile</option>
+      <option value="DNS">DNS</option>
+    </select>
+    <div id="fm-dist-buttons">
+      <button class="fm-dist-btn fm-dist-confirm" onclick="fieldUpdateDistance()" aria-label="Confirm distance">Update</button>
+      <button class="fm-dist-btn fm-dist-cancel"  onclick="fieldHideDistancePicker()" aria-label="Cancel">Cancel</button>
+    </div>
+  </div>
+
+</div><!-- end #fieldModeModal -->
 
 <script>
   if ('serviceWorker' in navigator) {

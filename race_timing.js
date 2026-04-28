@@ -294,19 +294,18 @@ function cleanEventCode(ec) {
 }
 
 window.getEventCode = function getEventCode() {
-  const qs = new URLSearchParams(window.location.search);
+  // Canonical source is sessionStorage (URL params are stripped on load)
+  const fromSS = sessionStorage.getItem("tvemc_eventName") || "";
 
-  // ✅ Canonical is ?event=...
-  const fromQS = qs.get("event");
-
-  // Fallbacks
-  const fromLS = localStorage.getItem("tvemc_event_code") || "";
+  // Fallbacks (tvemc_eventName is set by the event dropdown on change)
+  const fromLSName = localStorage.getItem("tvemc_eventName") || "";
+  const fromLSCode = localStorage.getItem("tvemc_event_code") || "";
   const fromInput =
     document.getElementById("eventCode")?.value ||
     document.getElementById("eventName")?.value ||
     "";
 
-  return cleanEventCode(fromQS || fromInput || fromLS || "");
+  return cleanEventCode(fromSS || fromInput || fromLSName || fromLSCode || "");
 };
 
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
@@ -326,11 +325,141 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
       return String((window.TVEMC_EVENT_META && window.TVEMC_EVENT_META.timezone) || "UTC");
     };
 
+    // Update the page title to reflect the selected event
+    const titleEl = document.getElementById("pageTitle");
+    if (titleEl && meta.event_name) {
+      titleEl.textContent = `${meta.event_name} (${meta.event_code})`;
+    }
+
     console.log("Loaded event meta:", meta);
     return meta;
   } catch (e) {
     console.warn("Failed to load event meta:", e);
     return null;
+  }
+}
+
+// Populate the #eventName <select> dropdown from events_list.php.
+// The currently-active event code (from URL ?event=, or localStorage tvemc_eventName) is
+// pre-selected.  When the user picks a different event the page reloads with ?event=<code>
+// so all stations, runners, and start-times refresh cleanly.
+async function loadEventListIntoDropdown() {
+  const sel = document.getElementById("eventName");
+  if (!sel || sel.tagName !== "SELECT") return; // nothing to do if it's still a text input
+
+  try {
+    const res = await fetch("events_list.php", { cache: "no-store" });
+    const events = await res.json();
+    if (!Array.isArray(events) || events.length === 0) {
+      console.warn("events_list returned empty array");
+      sel.innerHTML = '<option value="">— No events found —</option>';
+      return;
+    }
+
+    // Determine which event should be selected:
+    // Priority: sessionStorage tvemc_eventName  →  localStorage tvemc_eventName  →  hidden #eventCode input
+    const fromSS = cleanEventCode(sessionStorage.getItem("tvemc_eventName") || "");
+    const fromLS = cleanEventCode(localStorage.getItem("tvemc_eventName") || "");
+    const fromHidden = cleanEventCode(document.getElementById("eventCode")?.value || "");
+    const active = fromSS || fromLS || fromHidden;
+
+    // Rebuild options: blank placeholder + one per event
+    sel.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "— Select Event —";
+    sel.appendChild(placeholder);
+
+    let matched = false;
+    for (const ev of events) {
+      const opt = document.createElement("option");
+      opt.value = ev.event_code;
+      opt.textContent = `${ev.event_name} (${ev.event_code})`;
+      if (ev.event_code === active) {
+        opt.selected = true;
+        matched = true;
+      }
+      sel.appendChild(opt);
+    }
+
+    if (matched) {
+      // Ensure localStorage is in sync with what the dropdown shows
+      localStorage.setItem("tvemc_eventName", active);
+
+      // Update the page title immediately from events_list data (before events_load.php resolves)
+      const activeEvent = events.find(ev => ev.event_code === active);
+      if (activeEvent) {
+        const titleEl = document.getElementById("pageTitle");
+        if (titleEl) titleEl.textContent = `${activeEvent.event_name} (${activeEvent.event_code})`;
+      }
+    }
+
+    console.log("Event list loaded:", events.length, "events; active:", active, "matched:", matched);
+
+    // When the user picks a new event, persist and reload the page with ?event=<code>
+    if (!sel.__tvemc_event_bound) {
+      sel.__tvemc_event_bound = true;
+      sel.addEventListener("change", (e) => {
+        const chosen = cleanEventCode(e.target.value || "");
+        if (!chosen) return;
+        localStorage.setItem("tvemc_eventName", chosen);
+        sessionStorage.setItem("tvemc_eventName", chosen);
+        // Reload with plain URL so all data (stations, runners, start times) refreshes
+        // without exposing the event code in the address bar
+        window.location.href = window.location.pathname;
+      });
+    }
+  } catch (e) {
+    console.warn("loadEventListIntoDropdown failed:", e.message);
+    sel.innerHTML = '<option value="">— Could not load events —</option>';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// loadEventDocs — fetches event-specific PDFs/CSVs from event_docs.php and
+// renders them in #eventDocsSection.  Called on page load and whenever the
+// event changes (the existing event-dropdown change handler reloads the page,
+// so a single call on DOMContentLoaded is sufficient).
+// ---------------------------------------------------------------------------
+async function loadEventDocs(eventCode) {
+  const section  = document.getElementById("eventDocsSection");
+  const listEl   = document.getElementById("eventDocsList");
+  if (!section || !listEl) return;
+
+  const ec = cleanEventCode(eventCode || (typeof getEventCode === "function" ? getEventCode() : ""));
+  if (!ec) {
+    section.style.display = "none";
+    return;
+  }
+
+  try {
+    const res   = await fetch(`event_docs.php?event_code=${encodeURIComponent(ec)}`, { cache: "no-store" });
+    const files = await res.json();
+
+    if (!Array.isArray(files) || files.length === 0) {
+      section.style.display = "none";
+      return;
+    }
+
+    listEl.innerHTML = "";
+    for (const f of files) {
+      const icon = f.ext === "csv" ? "📊" : "📄";
+      const div  = document.createElement("div");
+      div.style.marginBottom = "10px";
+      const a = document.createElement("a");
+      a.className   = "help-link";
+      a.href        = f.url;
+      a.target      = "_blank";
+      a.rel         = "noopener";
+      a.textContent = `${icon} ${f.name}`;
+      div.appendChild(a);
+      listEl.appendChild(div);
+    }
+
+    section.style.display = "block";
+  } catch (e) {
+    console.warn("loadEventDocs failed:", e.message);
+    section.style.display = "none";
   }
 }
 
@@ -390,8 +519,7 @@ function loadData() {
 }
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = sessionStorage.getItem("hq_mode") === "1";
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -471,7 +599,7 @@ function updateFinishButtonVisibility() {
   const btn = document.getElementById("finishBtn");
   if (!btn) return;
 
-  const isHq = window.location.search.includes("hq=1");
+  const isHq = sessionStorage.getItem("hq_mode") === "1";
   btn.style.display = isHq ? "inline-block" : "none";
 }
 
@@ -479,8 +607,7 @@ window.addEventListener("load", updateFinishButtonVisibility);
 updateFinishButtonVisibility();
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = sessionStorage.getItem("hq_mode") === "1";
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -837,7 +964,7 @@ async function loadPassesFromServer() {
     if (!event_code) return; // keep
 
     const res = await fetch(
-      `passes_load.php?event_code=${encodeURIComponent(event_code)}&limit=500`,
+      `passes_load.php?event_code=${encodeURIComponent(event_code)}&limit=5000`,
       { cache: "no-store" }
     );
 
@@ -847,6 +974,44 @@ async function loadPassesFromServer() {
       console.error("passes_load returned non-array:", rows);
       return;
     }
+
+    // --- Auto-derive start times from earliest Start-Line IN pass ---------------
+    // Covers the common case where the user never explicitly saved start times in
+    // the UI but has already tagged runners through the Start Line.
+    // Only fills distances that have NO entry in TVEMC_startByDistance yet.
+    // Explicit saved start times (from event_start_times via loadResultsConfig)
+    // always take precedence and are never overwritten here.
+    if (!window.TVEMC_startByDistance) {
+      window.TVEMC_startByDistance = new Map();
+    }
+    {
+      const derivedStarts = new Map(); // distance_code -> earliest UTC ms
+      for (const r of rows) {
+        const dc = String(r.distance_code || "").trim();
+        if (!dc || dc === "N/A") continue;
+        // Check for a saved start time using canonical key comparison so "50K" and "50 K" match
+        const dcCanon = canonicalDistanceCode(dc);
+        const hasExplicit = [...window.TVEMC_startByDistance.keys()].some(
+          k => canonicalDistanceCode(k) === dcCanon
+        );
+        if (hasExplicit) continue; // explicit start already set — skip auto-derive
+        const isStartStation = (r.station_order === 0) ||
+          String(r.station_code || "").toUpperCase() === "START";
+        const isIn = String(r.pass_type || "").toUpperCase() === "IN";
+        if (!isStartStation || !isIn) continue;
+        const d = new Date(String(r.pass_ts || "").replace(" ", "T") + "Z");
+        if (isNaN(d.getTime())) continue;
+        const existing = derivedStarts.get(dc);
+        if (existing === undefined || d.getTime() < existing) {
+          derivedStarts.set(dc, d.getTime());
+        }
+      }
+      for (const [dc, ms] of derivedStarts) {
+        window.TVEMC_startByDistance.set(dc, new Date(ms).toISOString());
+        console.log(`[auto-start] No saved start time for ${dc}; using earliest Start Line IN pass: ${new Date(ms).toISOString()}`);
+      }
+    }
+    // -------------------------------------------------------------------------
 
     // Map DB passes -> your Bib Log entry shape expected by filterBibLog()
     entries = rows.map(r => {
@@ -868,12 +1033,32 @@ async function loadPassesFromServer() {
       }
     
       // Distance & station order for computations
-      const distance_code = runner.distance || r.distance_code || "N/A";
+      const distance_code = canonicalDistanceCode(runner.distance || r.distance_code || "N/A");
     
-      const station_order_num = (r.station_order !== null && r.station_order !== undefined)
+      let station_order_num = (r.station_order !== null && r.station_order !== undefined)
         ? parseInt(r.station_order, 10)
         : stationOrderFromCode(r.station_code);
-    
+
+      // Mismatch correction: when the pass was flagged as a mismatch the stored
+      // station_id belongs to a different distance (e.g. a 50K runner scanned at
+      // the 100K "AS6" checkpoint).  The JOIN therefore returns the wrong
+      // station_order and mile.  If that station_order doesn't exist in the
+      // runner's own distance map, try to resolve the correct station by name so
+      // that pace and ETA math uses the right mileage.
+      let correctedMile = r.mile;
+      if (distance_code && distance_code !== "N/A") {
+        const inDistMap = (station_order_num !== null)
+          ? lookupStationByOrder(distance_code, station_order_num)
+          : null;
+        if (!inDistMap) {
+          const byName = lookupStationByName(distance_code, r.station_name);
+          if (byName) {
+            station_order_num = byName.station_order;
+            correctedMile = byName.mile;
+          }
+        }
+      }
+
       // Time parsing
       const passDateUtc = r.pass_ts ? parsePassTsUtcToDate(r.pass_ts) : new Date(NaN);
       const mode = TVEMC_timeMode();
@@ -891,8 +1076,10 @@ async function loadPassesFromServer() {
           : passDateUtc.toLocaleDateString("en-US", { timeZone: tz })
         );
     
-      // Results computations
-      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts);
+      // Results computations — pass correctedMile as fallback so pace/ETA work even when the
+      // AID_STATION_MAP lookup fails (e.g. mile not yet entered in station config).
+      // correctedMile falls back to r.mile when no name-based station correction was found.
+      const computed = computeElapsedPaceEta(distance_code, station_order_num, r.pass_ts, correctedMile);
     
       const distCode = canonicalDistanceCode(safeString(r.distance_code || r.distance || ""));
       let sc = String(r.station_code ?? "").trim().toUpperCase();
@@ -920,13 +1107,24 @@ async function loadPassesFromServer() {
         station_code: sc,
         station_name: r.station_name ?? r.station_display ?? r.station ?? "",
         station_order: (r.station_order != null ? Number(r.station_order) : null),
-        mile: (r.mile != null ? Number(r.mile) : null),
+        // Use correctedMile (resolved via station-name lookup for mismatch passes) so
+        // that results_engine computes avg_pace from the runner's actual distance mileage.
+        mile: (correctedMile != null ? Number(correctedMile) : null),
     
         event_code: r.event_code ?? "",
     
-        comment: (r.mismatch == 1 && !(r.note || "").trim())
-          ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
-          : (r.note || ""),
+        comment: (() => {
+          // Strip any legacy mismatch prefix baked into the note by the old passes_submit.php.
+          // The mismatch flag (r.mismatch) is stored as a proper column and drives display.
+          const rawNote = String(r.note || "");
+          const operatorNote = rawNote.replace(/^⚠️\s*RUNNER OFF COURSE\s*—[^.]*\.\s*/i, "").trim();
+          const mismatchLabel = (r.mismatch == 1)
+            ? `⚠️ RUNNER OFF COURSE — ${distCode} at ${String(r.station_code || "").toUpperCase() || "UNKNOWN"}.`
+            : "";
+          return mismatchLabel
+            ? (operatorNote ? `${mismatchLabel} ${operatorNote}` : mismatchLabel)
+            : operatorNote;
+        })(),
     
         pass_ts: r.pass_ts || "",
         pass_ts_ms: isNaN(passDateUtc.getTime()) ? null : passDateUtc.getTime(),
@@ -942,14 +1140,99 @@ async function loadPassesFromServer() {
         last_name: runner.lastName || "N/A",
         age: runner.age || "N/A",
         gender: runner.gender || "N/A",
-        distance: runner.distance || r.distance_code || "N/A",
+        distance: r.distance_code || runner.distance || "N/A",
         previous_distance: runner.previousDistance || "N/A"
       };
     });
 
+  // Propagate the "Distance changed X → Y" note to all LATER passes for the same bib
+  // so operators at downstream stations can see at a glance that the runner changed distance.
+  // Also derive and backfill previous_distance and forward-fill distance from the note so
+  // the bib log shows the correct values even when the runner registry (bibList) is stale.
+  {
+    const distChangeByBib = new Map(); // bib -> { ts: number, note: string, oldDist: string, newDist: string }
+    for (const e of entries) {
+      const noteText = String(e.comment || "");
+      const m = noteText.match(/^Distance changed\s+(\S+)\s*→\s*(\S+)/i);
+      if (m) {
+        const bib = String(e.bib_number || "");
+        const ts  = e.pass_ts_ms || 0;
+        const existing = distChangeByBib.get(bib);
+        // Keep the most recent distance-change event for this bib
+        if (!existing || ts > existing.ts) {
+          distChangeByBib.set(bib, { ts, note: noteText, oldDist: m[1], newDist: m[2] });
+        }
+      }
+    }
+    if (distChangeByBib.size) {
+      for (const e of entries) {
+        const bib    = String(e.bib_number || "");
+        const change = distChangeByBib.get(bib);
+        if (!change) continue;
+        const ts = e.pass_ts_ms || 0;
+        // For the distance-change entry itself, set previous_distance from the note
+        if (ts === change.ts) {
+          if (!e.previous_distance || e.previous_distance === "N/A") {
+            e.previous_distance = change.oldDist;
+          }
+          if (!e.distance || e.distance === "N/A") {
+            e.distance = change.newDist;
+          }
+        }
+        // Annotate and fix distance for passes that came AFTER the distance change
+        if (ts > change.ts) {
+          const tag = `[${change.note}]`;
+          const existing = String(e.comment || "");
+          // Avoid adding twice (e.g. if entries are refreshed)
+          if (!existing.includes("Distance changed")) {
+            e.comment = existing ? `${existing} ${tag}` : tag;
+          }
+          // Backfill previous_distance and forward-fill distance when stale/missing
+          if (!e.previous_distance || e.previous_distance === "N/A") {
+            e.previous_distance = change.oldDist;
+          }
+          if (!e.distance || e.distance === "N/A") {
+            e.distance = change.newDist;
+          }
+        }
+      }
+    }
+  }
+
   // ----- PASS NUMBER DERIVATION (display only, chronological-safe) 01-07-2026-20:45-----
   // Work on a chronologically sorted copy (oldest -> newest)
   // ----- PASS NUMBER DERIVATION (IN increments; others inherit last IN) -----
+  // Group key is "DIST|BASE_STATION_NAME" (strips "#N" suffix) so stations like
+  // "Lake Hughes #1" and "Lake Hughes #2" in the same distance share the same group.
+  // This is AID_STATION_MAP-driven and works for any event without hardcoding.
+
+  // Pre-compute which (dist|base) groups are multi-pass (2+ station codes share the base name)
+  const multiPassGroups = new Set();
+  for (const [distCode, stations] of Object.entries(AID_STATION_MAP || {})) {
+    const groupCounts = {};
+    for (const st of stations) {
+      const name = String(st.station_name || '').trim();
+      const base = name.replace(/\s*#\d+\s*$/i, '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      if (!base) continue;
+      const key = `${distCode.toUpperCase()}|${base}`;
+      groupCounts[key] = (groupCounts[key] || 0) + 1;
+    }
+    for (const [key, count] of Object.entries(groupCounts)) {
+      if (count > 1) multiPassGroups.add(key);
+    }
+  }
+
+  function stationGroupFromEntry(entry) {
+    const distCode = String(entry.distance_code || '').toUpperCase();
+    const stCode = String(entry.station_code || '').toUpperCase();
+    const distStations = AID_STATION_MAP[distCode] || [];
+    const stObj = distStations.find(s => String(s.station_code || '').toUpperCase() === stCode);
+    const name = String(stObj?.station_name || entry.station_name || '').trim();
+    if (!name) return '';
+    const base = name.replace(/\s*#\d+\s*$/i, '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    return base ? `${distCode}|${base}` : '';
+  }
+
   const chron = [...entries].sort((a, b) => (a.pass_ts_ms || 0) - (b.pass_ts_ms || 0));
 
   const inCount = {};           // "bib|GROUP" -> number of INs
@@ -958,9 +1241,7 @@ async function loadPassesFromServer() {
 
   for (const e of chron) {
     const bib = String(e.bib_number || "");
-    const group = stationGroupFromCode(e.station_code);
-              // const baseStation = stripPassSuffix(e.station);
-              // const group = stationGroupFromName(baseStation);
+    const group = stationGroupFromEntry(e);
     if (!bib || !group) continue;
 
     const k = `${bib}|${group}`;
@@ -977,11 +1258,12 @@ async function loadPassesFromServer() {
   }
 
   for (const e of entries) {
-    const group = stationGroupFromCode(e.station_code);
+    const group = stationGroupFromEntry(e);
     if (!group) continue;
 
     const n = passLabelByPassId[e.pass_id];
-    e.pass_num = n ? String(n) : "";  // store pass number only
+    // Only store a pass number for multi-pass stations (so single-pass stations stay blank)
+    e.pass_num = (multiPassGroups.has(group) && n) ? String(n) : "";
   }
 
 
@@ -1112,12 +1394,6 @@ async function addEntry(action) {
         }
       }
     
-     // FINISH: if any old cached page still sends FINISH, block with a clear message
-    if (pass_type === "FINISH" && String(station_code).toUpperCase() === "FINISH") {
-      if (showAlerts) alert("FINISH blocked: update your page (finish dropdown must be AS12). Hard refresh this device.");
-      continue;
-    }
-
       // Force FINISH record (HQ/RD only)
      // if (pass_type === "FINISH") {
      //   station_code = "FINISH";
@@ -1200,15 +1476,86 @@ async function addEntry(action) {
       }
       
       const distCode = canonicalDistanceCode(safeString(distance_code || ""));
-      
+
+      // Resolve the correct station code and order for this pass. Handles two cases:
+      //   1. Same station_name appears multiple times with DIFFERENT codes in this distance
+      //      (e.g. "Junction" = AS2 @ mile 4.70 and AS14 @ mile 32.60 in Bishop Ultra 100K).
+      //      The dropdown deduplicates by name and always shows the first occurrence's code
+      //      (AS2). We count IN passes for ANY station sharing that name to route the second
+      //      visit to AS14 instead of AS2 again.
+      //   2. Same station_code appears multiple times (legacy multi-pass data).
+      const { resolvedStationCode, preComputed_station_order } = (() => {
+        const dc = String(distCode || '').toUpperCase();
+        const sc = String(station_code || '').toUpperCase();
+        const sortedAS = (AID_STATION_MAP[dc] || []).slice()
+          .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+
+        // Find the station_name for the selected code
+        const selStation = sortedAS.find(s => String(s.station_code || '').toUpperCase() === sc);
+        const selName = selStation ? String(selStation.station_name || '').trim().toLowerCase() : '';
+
+        // All stations in this distance that share the same display name
+        const sameNameList = selName
+          ? sortedAS.filter(s => String(s.station_name || '').trim().toLowerCase() === selName)
+          : [];
+
+        if (sameNameList.length > 1) {
+          // Multiple physical locations share the same name (different codes).
+          // Count IN passes already logged for ANY of those stations.
+          const nameCodes = new Set(sameNameList.map(s => String(s.station_code || '').toUpperCase()));
+          const passModeIsIn = String(pass_type || '').toUpperCase() === 'IN';
+          const inCount = entries.filter(prev =>
+            String(prev.bib_number || '').trim() === String(bib).trim() &&
+            nameCodes.has(String(prev.station_code || '').toUpperCase()) &&
+            String(prev.action || '').toUpperCase() === 'IN'
+          ).length;
+          const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
+          const match = sameNameList[occurrenceIdx] || sameNameList[sameNameList.length - 1];
+          return {
+            resolvedStationCode: String(match.station_code || sc).toUpperCase(),
+            preComputed_station_order: match?.station_order != null ? Number(match.station_order) : null
+          };
+        }
+
+        // Same station_code appearing multiple times (original multi-pass logic)
+        const matches = sortedAS.filter(s => String(s.station_code || '').toUpperCase() === sc);
+        if (matches.length > 1) {
+          const passModeIsIn = String(pass_type || '').toUpperCase() === 'IN';
+          const inCount = entries.filter(prev =>
+            String(prev.bib_number || '').trim() === String(bib).trim() &&
+            String(prev.station_code || '').toUpperCase() === sc &&
+            String(prev.action || '').toUpperCase() === 'IN'
+          ).length;
+          const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
+          const match = matches[occurrenceIdx] || matches[matches.length - 1];
+          return {
+            resolvedStationCode: sc,
+            preComputed_station_order: match?.station_order != null ? Number(match.station_order) : null
+          };
+        }
+
+        // Single-occurrence station (most common case)
+        const single = matches[0] || null;
+        return {
+          resolvedStationCode: sc,
+          preComputed_station_order: single?.station_order != null ? Number(single.station_order) : null
+        };
+      })();
+
+      // Update entry.station_code to the resolved code so that subsequent pass-count
+      // lookups in this session (for the same bib) see the correct code (e.g. AS14,
+      // not AS2, for Junction second pass) and correctly advance to the next occurrence.
+      entry.station_code = resolvedStationCode;
+
       const payload = {
         event_code: entry.eventName || "AZM-300-2026-0004",
         bib: parseInt(bib, 10),
         distance_code: distCode,
-        station_code: safeString(station_code).toUpperCase(),
+        station_code: resolvedStationCode,
         pass_type: safeString(pass_type).toUpperCase(),
         operator: operator || "Unknown",
-        note
+        note,
+        ...(preComputed_station_order != null ? { station_order: preComputed_station_order } : {})
       };
     
       // Sticky DNS/DNF warning (one-time per bib per click)
@@ -1310,9 +1657,40 @@ async function addEntry(action) {
         }
 
         // Restore Elapsed / Avg Pace / ETA Next for IN/OUT rows
-        const so = stationOrderFromCode(payload.station_code);
-        if (so != null && entry.pass_ts_utc && !entry.mismatch) {
-          const m = computeElapsedPaceEta(payload.distance_code, so, entry.pass_ts_utc);
+        // Look up the real station_order from AID_STATION_MAP (handles events like LD where
+        // START occupies order=1, so AS1 is order=2 — parsing the suffix would give wrong result).
+        // For courses where the same station_code appears more than once (e.g. Junction in the
+        // 20M Bishop Ultra), count previous IN passes for this bib at this station_code to
+        // select the correct occurrence in the path.
+        const so = (() => {
+          const dc = String(payload.distance_code || '').toUpperCase();
+          const sc = String(payload.station_code || '').toUpperCase();
+          const sorted = (AID_STATION_MAP[dc] || []).slice()
+            .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+          const matches = sorted.filter(s => String(s.station_code || '').toUpperCase() === sc);
+          if (matches.length > 1) {
+            // Determine which occurrence this pass belongs to:
+            // IN passes start a new occurrence; OUT/other passes share the most recent IN's.
+            const passModeIsIn = String(payload.pass_type || '').toUpperCase() === 'IN';
+            const inCount = entries.filter(e =>
+              String(e.bib_number || '').trim() === String(bib).trim() &&
+              String(e.station_code || '').toUpperCase() === sc &&
+              String(e.action || '').toUpperCase() === 'IN'
+            ).length;
+            const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
+            const match = matches[occurrenceIdx] || matches[matches.length - 1];
+            if (match?.station_order != null) return Number(match.station_order);
+          } else if (matches.length === 1 && matches[0].station_order != null) {
+            return Number(matches[0].station_order);
+          }
+          return stationOrderFromCode(payload.station_code); // fallback
+        })();
+        // Store station_order on the entry so Card C path-lookup in recomputeExpectedFromPrevForUI
+        // and computeExpectedFromPrev_PATH correctly handle courses where the same station_code
+        // appears more than once (e.g. Junction visited twice in the 20M course).
+        if (so != null) entry.station_order = so;
+        if (so != null && (entry.pass_ts_utc || entry.pass_ts) && !entry.mismatch) {
+          const m = computeElapsedPaceEta(payload.distance_code, so, entry.pass_ts_utc || entry.pass_ts);
           entry.elapsed_total = m.elapsed;
           entry.avg_pace = m.pace;
           entry.eta = m.eta_next;
@@ -1402,13 +1780,26 @@ function populateStationDropdownsFromMap(map, distanceCode) {
   const ev = String((typeof getEventCode === "function" ? getEventCode() : "") || "").toUpperCase();
   const isSOB = ev.includes("SOB"); // apply SOB-only filters/options only for SOB events
   
-  // Build station options from DB/map
+  // Build station options from DB/map.
+  // Multi-pass stations (e.g. Armstrong Pass appearing at mile 16 and mile 48) share
+  // the same station_name. Deduplicate by name so the dropdown shows each physical
+  // location once. The first occurrence (lowest station_order) is kept, so the volunteer
+  // selects the location name — pass numbering (1, 2…) is computed chronologically by
+  // the system and displayed in the log automatically.
+  const seenStationNames = new Set();
   let stationOpts = list
     .map(s => ({
       value: String(s.station_code || "").trim().toUpperCase(),
-      label: `📍 ${String(s.station_name || "").trim()}`
+      label: `📍 ${String(s.station_name || "").trim()}`,
+      _name: String(s.station_name || "").trim()
     }))
-    .filter(o => o.value);
+    .filter(o => {
+      if (!o.value) return false;
+      if (seenStationNames.has(o._name)) return false;
+      seenStationNames.add(o._name);
+      return true;
+    })
+    .map(({value, label}) => ({value, label}));
 
 // Added Feb 11 at 22:50 with Global helper
 window.addEventListener("load", () => setTimeout(persistDistanceForEvent, 400));
@@ -1460,7 +1851,7 @@ document.addEventListener("change", (e) => {
       ...autoOpts,
       ...(hasFinish ? [] : [{ value: "FINISH", label: "🏁 FINISH" }]),
     ],
-    append: hqExtras
+    append: []
   });
 
   // hqTarget (message target)
@@ -1484,6 +1875,24 @@ document.addEventListener("change", (e) => {
   console.log("Dropdowns populated for distance:", dist, "stations:", stationOpts.length);
   persistAidStationFromDropdown();
   persistDistanceForEvent();
+
+  // Correct the station label after the dropdown has been rebuilt with event-specific names.
+  // hq_inbox_poll.js captures TVEMC_STATION_LABEL on window.load (before this async call
+  // finishes) and can end up with the stale hardcoded SOB option text (e.g. "KANAN ROAD #1").
+  // Overwriting it here ensures the HQ Inbox title reflects the actual event's station name.
+  const aidEl = document.getElementById("aidStation");
+  if (aidEl) {
+    const freshLabel = (aidEl.selectedOptions?.[0]?.textContent || "").trim();
+    if (freshLabel) {
+      window.TVEMC_STATION_LABEL = freshLabel;
+      // Also update the live DOM title so it corrects immediately if messages were
+      // already displayed with the stale label.
+      const titleEl = document.getElementById("stationInboxTitle");
+      if (titleEl && titleEl.textContent.startsWith("HQ Inbox")) {
+        titleEl.textContent = "HQ Inbox — " + freshLabel;
+      }
+    }
+  }
 
 }
 
@@ -1547,18 +1956,17 @@ if (window.ResultsStrip?.update) {
   for (const e of list) {
   const tr = document.createElement("tr");
 
-    const stationLabelRaw = String(e.station_label || e.station || e.station_name || "");
-    const mPass = stationLabelRaw.match(/\(Pass\s+(\d+)\)/i);
-    const rawPassNum = mPass ? mPass[1] : "";
-    
-    // Only show Pass # for Corral/Kanan/Zuma rows
-    const showPass = !!stationGroupFromCode(e.station_code); // CORRAL/KANAN/ZUMA only
-    const passNum = showPass ? (e.pass_num || "") : "";
+    // Show Pass # only for stations that are part of a multi-pass group in AID_STATION_MAP.
+    // pass_num is already blank for single-pass stations (set during derivation above).
+    const passNum = e.pass_num || "";
 
-    // AUTO suffix: always for multi-pass station groups (stable, no dropdown dependency)
+    // AUTO suffix: only show for SOB events where CORRAL/KANAN/ZUMA auto groups are active.
+    // For non-SOB events (e.g. LD-100), no auto groups exist so never append "(AUTO)".
     const sc = safeString(e.station_code).toUpperCase();
-    const isAutoGroupStation = ["AS1","AS8","AS10","AS2","AS7","AS4","AS6"].includes(sc);
-    const autoSuffix = isAutoGroupStation ? " (AUTO)" : "";
+    const currentEventCode = String(typeof getEventCode === "function" ? getEventCode() : (localStorage.getItem("tvemc_eventName") || "")).toUpperCase();
+    const isSOBEvent = currentEventCode.includes("SOB") || currentEventCode.includes("KH_SOB");
+    const SOB_AUTO_STATIONS = new Set(["AS1","AS8","AS10","AS12","AS2","AS7","AS4","AS6"]);
+    const autoSuffix = (isSOBEvent && SOB_AUTO_STATIONS.has(sc)) ? " (AUTO)" : "";
 
 
     // Only show Pass # for Corral Canyon rows
@@ -1585,7 +1993,7 @@ if (window.ResultsStrip?.update) {
       <td>${e.gender_place || ""}</td>
       <td>${e.age_group || ""}</td>
       <td>${e.ag_place || ""}</td>
-      <td>${e.eta ?? "N/A"}</td>
+      <td>${e.eta_next != null ? e.eta_next : (e.eta ?? "N/A")}</td>
       <td>${e.date ?? ""}</td>
       <td>${e.first_name ?? "N/A"}</td>
       <td>${e.last_name ?? "N/A"}</td>
@@ -1654,7 +2062,10 @@ function editPass(pass_id) {
   if (newTime === null) return;
   const correctedLocal = newTime.trim();
 
-  const newNote = prompt("Edit Note:", entry.comment || "");
+  // Strip any legacy baked-in mismatch prefix so the user sees their original note only
+  const cleanedComment = String(entry.comment || "").replace(/^⚠️\s*RUNNER OFF COURSE\s*—[^.]*\.\s*/i, "").trim();
+
+  const newNote = prompt("Edit Note:", cleanedComment);
   if (newNote === null) return;
   const userNote = (newNote || "").trim();
 
@@ -1799,6 +2210,11 @@ function wireHeaderFieldPersistence() {
     localStorage.setItem("tvemc_eventName", e.target.value || "");
     updateSubject();
   });
+  // Also handle <select> change events (for the event picker dropdown)
+  document.getElementById("eventName")?.addEventListener("change", (e) => {
+    localStorage.setItem("tvemc_eventName", e.target.value || "");
+    updateSubject();
+  });
 
   document.getElementById("messageNum")?.addEventListener("input", (e) => {
     localStorage.setItem("tvemc_messageNum", e.target.value || "");
@@ -1822,7 +2238,17 @@ function wireHeaderFieldPersistence() {
   // Keep legacy/global (optional, but fine)
   localStorage.setItem("tvemc_aidStation", sc);
 
+  // Update the cached station immediately so the results strip 5-second interval
+  // uses the new station rather than the previous one (fixes stale-FINISH Card C bug).
+  window.__rs_lastStationCode = sc;
+
   updateSubject();
+
+  // Re-render Card C immediately for the newly selected station without waiting
+  // for the 10-second auto-refresh cycle.
+  if (window.ResultsStrip?.update) {
+    window.ResultsStrip.update(window.__rs_lastList || entries, sc);
+  }
 });
 }
 
@@ -2038,6 +2464,22 @@ async function updateDistance(e) {
   runner.previousDistance = runner.distance || runner.previousDistance || "N/A";
   runner.distance = newDist;
 
+  // Persist change to server so ALL stations see the updated distance immediately.
+  // Fire-and-forget: the pass submission already captures the note; this keeps the
+  // runners table in sync so runners_load.php returns the correct distance on reload.
+  try {
+    const _ec = (typeof cleanEventCode === "function" ? cleanEventCode : (s => s))(
+      (typeof getEventCode === "function" ? getEventCode() : "") || ""
+    );
+    fetch("runner_distance_update.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_code: _ec, bib: parseInt(bibStr, 10), new_distance: newDist })
+    }).catch(err => console.warn("runner_distance_update failed:", err));
+  } catch (_e) {
+    console.warn("runner_distance_update failed:", _e);
+  }
+
   updateBibInfo();
 
   const oldDist = runner.previousDistance || "N/A";
@@ -2089,18 +2531,6 @@ async function updateDistance(e) {
   if (showAlerts) alert(`Distance updated for Bib ${bibStr}: ${oldDist} → ${newDist}`);
 }
 
-
-let bibLogRefreshTimer = null;
-
-function startBibLogAutoRefresh() {
-  if (bibLogRefreshTimer) return; // prevents duplicates
-  bibLogRefreshTimer = setInterval(() => {
-    const table = document.getElementById("bibLogTable");
-    if (table && table.style.display !== "none") {
-      loadPassesFromServer().catch(() => {});
-    }
-  }, 15000);
-}
 
 async function exportBibCSV_v2() {
   try {
@@ -2624,11 +3054,25 @@ function importRadioWinlinkTxt() {
           START TIME 
 ----------------------------*/
 async function saveStartTimes() {
+  const btn = document.getElementById("saveStartTimesBtn");
+  const statusEl = document.getElementById("saveStartTimesStatus");
+
+  const setStatus = (msg, color) => {
+    if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color; }
+  };
+  const setBtnText = (txt) => { if (btn) btn.textContent = txt; };
+  const disableBtn = (d) => { if (btn) btn.disabled = d; };
+
+  setBtnText("Saving…");
+  disableBtn(true);
+  setStatus("", "");
+
   try {
     const event_code = cleanEventCode(getEventCode());
     const set_by = safeString(document.getElementById("operatorName")?.value || "HQ");
 
     const times = {
+      "20M":  localInputToDb(document.getElementById("start_20M")?.value),
       "30K":  localInputToDb(document.getElementById("start_30K")?.value),
       "26.2": localInputToDb(document.getElementById("start_26_2")?.value),
       "50K":  localInputToDb(document.getElementById("start_50K")?.value),
@@ -2655,6 +3099,11 @@ async function saveStartTimes() {
     const j = await res.json();
     if (!j.success) throw new Error(j.error || "Save failed");
 
+    setBtnText("Save Start Times");
+    disableBtn(false);
+    setStatus(`✓ Saved (${j.saved} time${j.saved !== 1 ? "s" : ""})`, "#00ff00");
+    setTimeout(() => setStatus("", ""), 5000);
+
     if (showAlerts) alert(`Start times saved to DB (${j.saved}).`);
 
     // Post-save refresh: reload config + reload passes + re-render
@@ -2679,6 +3128,10 @@ async function saveStartTimes() {
 
   } catch (e) {
     console.error("Save start times failed:", e);
+    setBtnText("Save Start Times");
+    disableBtn(false);
+    setStatus("✗ Save failed: " + e.message, "#ff4444");
+    setTimeout(() => setStatus("", ""), 8000);
     if (showAlerts) alert("Save start times failed: " + e.message);
   }
 }
@@ -2690,6 +3143,7 @@ function loadStartTimesIntoUI() {
 
   const times = getStartTimes();
   const setVal = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+  setVal("start_20M",  times["20M"]);
   setVal("start_30K",  times["30K"]);
   setVal("start_26_2", times["26.2"]);
   setVal("start_50K",  times["50K"]);
@@ -2728,6 +3182,7 @@ async function loadStartTimesFromDBIntoUI() {
       if (el && v) el.value = v;
     };
 
+    setVal("start_20M",  toLocalInput(map["20M"]));
     setVal("start_30K",  toLocalInput(map["30K"]));
     setVal("start_26_2", toLocalInput(map["26.2"]));
     setVal("start_50K",  toLocalInput(map["50K"]));
@@ -2744,7 +3199,19 @@ async function loadStartTimesFromDBIntoUI() {
 }
 
 let AID_STATION_MAP = {}; 
-// shape: { "26.2": [{station_order, station_code, station_name, mile}, ...], "30K": [...] }
+// shape: { "26.2": [{station_order, station_code, station_name, mile, lat, lon}, ...], "30K": [...] }
+
+// Haversine straight-line distance in miles between two lat/lon points.
+// Used as a fallback when aid stations have coordinates but no mile markers.
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 async function loadAidStationsFromServer() {
   const event_code = cleanEventCode(getEventCode());
@@ -2764,13 +3231,38 @@ async function loadAidStationsFromServer() {
       station_order: parseInt(r.station_order, 10),
       station_code: String(r.station_code || "").trim(),
       station_name: String(r.station_name || "").trim(),
-      mile: parseFloat(r.mile || "0")
+      mile: parseFloat(r.mile || "0"),
+      lat: r.lat != null ? parseFloat(r.lat) : null,
+      lon: r.lon != null ? parseFloat(r.lon) : null,
+      is_multi_pass: r.is_multi_pass != null ? (parseInt(r.is_multi_pass, 10) || 0) : 0,
+      multi_pass_group: r.multi_pass_group != null ? String(r.multi_pass_group) : null
     });
   }
 
   // sort
   for (const d of Object.keys(map)) {
     map[d].sort((a, b) => a.station_order - b.station_order);
+  }
+
+  // Haversine fallback: if a distance group has lat/lon for every station but
+  // no mile values on any non-START station, compute cumulative straight-line
+  // distances so the ETA formula has something to work with.
+  for (const d of Object.keys(map)) {
+    const stations = map[d];
+    const nonStart = stations.filter(s => s.station_order > 0);
+    const allMilesMissing = nonStart.length > 0 && nonStart.every(s => !s.mile);
+    const allHaveLatLon = stations.every(s => s.lat !== null && s.lon !== null);
+    if (allMilesMissing && allHaveLatLon) {
+      let cumMile = 0;
+      for (let i = 1; i < stations.length; i++) {
+        const prev = stations[i - 1];
+        const cur  = stations[i];
+        cumMile += haversineMiles(prev.lat, prev.lon, cur.lat, cur.lon);
+        cur.mile = parseFloat(cumMile.toFixed(3));
+      }
+      console.log(`[haversine-miles] No mile data for "${d}"; computed from lat/lon:`,
+        stations.map(s => `${s.station_code}=${s.mile}mi`).join(', '));
+    }
   }
 
   AID_STATION_MAP = map;
@@ -2790,16 +3282,29 @@ function parsePassTsUtcToDate(tsUtc) {
 /*----change 07012026-11:55 --*/
 function getStartTimeForDistance(distance_code) {
   const dc = String(distance_code || "").trim();
+  const canon = canonicalDistanceCode(dc);
+
+  // Helper: try a Map with both the raw key and canonical key
+  function mapGet(map, key) {
+    if (!map) return undefined;
+    if (map.has(key)) return map.get(key);
+    if (map.has(canon)) return map.get(canon);
+    // Also try every key through canonical lookup
+    for (const [k, v] of map.entries()) {
+      if (canonicalDistanceCode(k) === canon) return v;
+    }
+    return undefined;
+  }
 
   // Prefer ISO values loaded from results_config_load.php
-  const iso = window.TVEMC_startByDistance?.get(dc);
+  const iso = mapGet(window.TVEMC_startByDistance, dc);
   if (iso) {
     const d = new Date(iso);
     return isNaN(d.getTime()) ? null : d;
   }
 
   // Fallback: if we only have a raw DB string like "YYYY-MM-DD HH:MM:SS"
-  const raw = window.TVEMC_startByDistanceRaw?.get(dc);
+  const raw = mapGet(window.TVEMC_startByDistanceRaw, dc);
   if (raw) {
     const d2 = new Date(String(raw).replace(" ", "T") + "-08:00"); // Jan race = PST
     return isNaN(d2.getTime()) ? null : d2;
@@ -2817,14 +3322,37 @@ function stationOrderFromCode(code) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+function _aidStationList(distance_code) {
+  // Direct lookup
+  if (AID_STATION_MAP[distance_code]) return AID_STATION_MAP[distance_code];
+  // Canonical fallback: find map key that canonicalizes to the same code
+  const canon = canonicalDistanceCode(distance_code);
+  for (const k of Object.keys(AID_STATION_MAP)) {
+    if (canonicalDistanceCode(k) === canon) return AID_STATION_MAP[k];
+  }
+  return [];
+}
+
 function lookupStationByOrder(distance_code, station_order) {
-  const list = AID_STATION_MAP[distance_code] || [];
+  const list = _aidStationList(distance_code);
   return list.find(s => s.station_order === station_order) || null;
 }
 
 function lookupNextStation(distance_code, station_order) {
-  const list = AID_STATION_MAP[distance_code] || [];
+  const list = _aidStationList(distance_code);
   return list.find(s => s.station_order > station_order) || null;
+}
+
+// Look up a station within a distance by exact station_name (case-insensitive).
+// Used as a fallback when a mismatch pass stores a station_id from a different
+// distance, so station_order from the DB JOIN doesn't exist in the runner's
+// distance map.  Returns null when no match is found.
+function lookupStationByName(distance_code, station_name) {
+  const list = _aidStationList(distance_code);
+  if (!list || !list.length) return null;
+  const name = String(station_name || "").trim().toLowerCase();
+  if (!name) return null;
+  return list.find(s => String(s.station_name || "").trim().toLowerCase() === name) || null;
 }
 
 function formatHMS(seconds) {
@@ -2837,7 +3365,7 @@ function formatHMS(seconds) {
   return `${pad(hh)}:${pad(mm)}:${pad(ss)}`;
 }
 
-function computeElapsedPaceEta(distance_code, station_order, pass_ts_utc) {
+function computeElapsedPaceEta(distance_code, station_order, pass_ts_utc, fallback_mile) {
   const start = getStartTimeForDistance(distance_code);
   if (!start) return { elapsed: "N/A", pace: "N/A", eta_next: "N/A" };
 
@@ -2846,18 +3374,23 @@ function computeElapsedPaceEta(distance_code, station_order, pass_ts_utc) {
   if (!isFinite(elapsedSec) || elapsedSec <= 0) return { elapsed: "N/A", pace: "N/A", eta_next: "N/A" };
 
   const cur = lookupStationByOrder(distance_code, station_order);
-  if (!cur || !isFinite(cur.mile) || cur.mile <= 0) {
+  // Use the station's configured mile; fall back to the mile carried on the pass row itself
+  // (which comes from the passes_load.php JOIN with aid_stations).
+  const curMile = (cur && isFinite(cur.mile) && cur.mile > 0)
+    ? cur.mile
+    : (isFinite(Number(fallback_mile)) && Number(fallback_mile) > 0 ? Number(fallback_mile) : 0);
+  if (curMile <= 0) {
     return { elapsed: formatHMS(elapsedSec), pace: "N/A", eta_next: "N/A" };
   }
 
   const elapsedHours = elapsedSec / 3600;
-  const mph = cur.mile / elapsedHours;
+  const mph = curMile / elapsedHours;
   const paceMinPerMile = mph > 0 ? (60 / mph) : null;
 
   const next = lookupNextStation(distance_code, station_order);
   let etaNext = "N/A";
-  if (next && isFinite(next.mile) && next.mile > cur.mile && mph > 0) {
-    const hrsToNext = (next.mile - cur.mile) / mph;
+  if (next && isFinite(next.mile) && next.mile > curMile && mph > 0) {
+    const hrsToNext = (next.mile - curMile) / mph;
     const etaDate = new Date(passDate.getTime() + hrsToNext * 3600 * 1000);
 
     // show local time HH:MM:SS
@@ -2979,15 +3512,21 @@ function sortBibTable(col) {
 
 // Timing Module Jan 7 11:56
 async function loadResultsConfig() {
-  const eventCode = window.TVEMC_EVENT_CODE || document.getElementById("eventName")?.value;
+  const eventCode = cleanEventCode(getEventCode());
   const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, { cache: "no-store" });
   const data = await res.json();
   if (!data.success) throw new Error("Results config load failed");
 
   window.TVEMC_milesByDistance = new Map(Object.entries(data.distances || {}));
 
-  // ISO-preferred map (this is what getStartTimeForDistance uses)
-  window.TVEMC_startByDistance = new Map(Object.entries(data.start_times_iso || data.start_times || {}));
+  // Only replace TVEMC_startByDistance if the server returned actual start times.
+  // Don't clobber auto-derived start times (from Start Line passes) with an empty map.
+  const newStarts = new Map(Object.entries(data.start_times_iso || data.start_times || {}));
+  if (newStarts.size > 0) {
+    window.TVEMC_startByDistance = newStarts;
+  } else if (!window.TVEMC_startByDistance) {
+    window.TVEMC_startByDistance = new Map();
+  }
 
   // Optional raw fallback
   window.TVEMC_startByDistanceRaw = new Map(Object.entries(data.start_times || {}));
@@ -3038,7 +3577,7 @@ function shouldAutoFocusBib() {
 
 function stationGroupFromCode(station_code) {
   const sc = String(station_code || "").toUpperCase();
-  if (["AS1", "AS8", "AS10"].includes(sc)) return "CORRAL";
+  if (["AS1", "AS8", "AS10", "AS12"].includes(sc)) return "CORRAL";
   if (["AS2", "AS7"].includes(sc)) return "KANAN";
   if (["AS4", "AS6"].includes(sc)) return "ZUMA";
   return "";
@@ -3181,19 +3720,21 @@ function canonicalDistanceCode(d) {
   const x = String(d || "").trim();
   if (!x) return "";
 
-  // Normalize common human labels
-  const u = x.toUpperCase().replace(/\s+/g, " ").trim();
+  // Strip ALL internal whitespace so "50 K" → "50K", "50 M" → "50M", etc.
+  const u = x.toUpperCase().replace(/\s+/g, "");
 
-  if (u === "50 MILER" || u === "50MILER" || u === "50 MI" || u === "50M") return "50M";
+  if (u === "20M" || u === "20MI" || u === "20MILE" || u === "20MILES") return "20M";
+  if (u === "50MILER" || u === "50MI" || u === "50M") return "50M";
   if (u === "50K") return "50K";
   if (u === "30K") return "30K";
   if (u === "26.2" || u === "MARATHON") return "26.2";
   if (u === "100K") return "100K";
+  if (new Set(["100M","100MI","100MILE","100MILES","100MILER"]).has(u)) return "100M";
 
   // Optional future-proofing (AZM/Bigfoot/Moab style)
-  if (u === "200M" || u === "200 MI" || u === "200 MILE" || u === "200 MILES") return "200M";
-  if (u === "240M" || u === "240 MI" || u === "240 MILE" || u === "240 MILES") return "240M";
-  if (u === "300M" || u === "300 MI" || u === "300 MILE" || u === "300 MILES") return "300M";
+  if (u === "200M" || u === "200MI" || u === "200MILE" || u === "200MILES") return "200M";
+  if (u === "240M" || u === "240MI" || u === "240MILE" || u === "240MILES") return "240M";
+  if (u === "300M" || u === "300MI" || u === "300MILE" || u === "300MILES") return "300M";
 
   return x; // if already a code like "50M"
 }
@@ -3286,11 +3827,43 @@ async function loadRunnerRegistryFromServer() {
    Boot
 ----------------------------*/
 document.addEventListener("DOMContentLoaded", async () => {
+  // Strip ?hq=1 and ?event=... from the address bar immediately, storing state
+  // in sessionStorage so curious users cannot bookmark or share privileged URLs.
+  (function stripURLParams() {
+    const qs = new URLSearchParams(window.location.search);
+    const hq = qs.get("hq");
+    const event = qs.get("event");
+    if (hq === "1") {
+      sessionStorage.setItem("hq_mode", "1");
+    }
+    if (event) {
+      sessionStorage.setItem("tvemc_eventName", event);
+      localStorage.setItem("tvemc_eventName", event); // keep localStorage in sync
+    }
+    if (hq || event) {
+      history.replaceState(null, "", window.location.pathname);
+    }
+  })();
+
   loadData();
   setupFastTabAndAlerts();
   setupHighContrastToggle();
   restoreHeaderFields();
   wireHeaderFieldPersistence();
+
+  // Populate event picker dropdown before restoring fields so the saved value can be selected
+  try {
+    await loadEventListIntoDropdown();
+  } catch (e) {
+    console.warn("Event list dropdown load skipped:", e.message);
+  }
+
+  // Load event-specific documents (PDFs / CSVs) for the bottom of the page.
+  try {
+    await loadEventDocs();
+  } catch (e) {
+    console.warn("loadEventDocs skipped:", e.message);
+  }
   
   // ✅ Data bootstrap (must be early)
   await loadEventMetaFromServer();
@@ -3319,8 +3892,9 @@ document.addEventListener("DOMContentLoaded", async () => {
  // updateSubject();
  // updateBibInfo();
 
-  // Attach listeners
+  // Attach listeners — support both "input" (text box) and "change" (select) on eventName
   document.getElementById("eventName")?.addEventListener("input", updateSubject);
+  document.getElementById("eventName")?.addEventListener("change", updateSubject);
   document.getElementById("aidStation")?.addEventListener("change", updateSubject);
   document.getElementById("messageNum")?.addEventListener("input", updateSubject);
   document.getElementById("bibNumber")?.addEventListener("input", updateBibInfo);
@@ -3342,13 +3916,35 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("Aid station map load failed:", e.message);
   }
 
-  // Refresh Bib Log periodically ONLY when it is visible (single timer)
+  // Load results config (start times + distances) so computeElapsedPaceEta works
+  // without requiring the user to manually save start times first.
+  try {
+    await loadResultsConfig();
+  } catch (e) {
+    console.warn("Results config load skipped:", e.message);
+  }
+
+  // Initial pass load now that start times are in memory.
+  // This ensures elapsed/pace/ETA are computed correctly on the first open.
+  try {
+    await loadPassesFromServer();
+  } catch (e) {
+    console.warn("Initial passes load skipped:", e.message);
+  }
+
+  // Refresh Bib Log periodically — only when the table is open (saves bandwidth when hidden)
   setInterval(() => {
-//    const table = document.getElementById("bibLogTable");
-//    if (table && table.style.display !== "none") {
+    const table = document.getElementById("bibLogTable");
+    if (table && table.style.display !== "none") {
       loadPassesFromServer().catch(() => {});
-//    }
-  }, 10000);
+    }
+  }, 15000);
+
+  // Refresh runner registry periodically so distance changes made at other stations
+  // are reflected in the All Runners Roster and Bib Log distance/prev_distance columns.
+  setInterval(() => {
+    loadRunnerRegistryFromServer().catch(() => {});
+  }, 60000);
 
   // Periodic offline sync
   setInterval(syncOfflineEntries, 30000);
@@ -3393,6 +3989,192 @@ function loadDataButton() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FIELD MODE – dark full-screen mobile bib-entry overlay
+// ═══════════════════════════════════════════════════════════════
+(function () {
+  "use strict";
+
+  // Internal bib digit buffer
+  let _fmBib = "";
+
+  function _fmUpdateDisplay() {
+    const digitsEl = document.getElementById("fm-bib-digits");
+    const hintEl   = document.getElementById("fm-bib-hint");
+    if (!digitsEl) return;
+    if (_fmBib.length === 0) {
+      digitsEl.textContent = "\u2014"; // em dash
+      digitsEl.classList.add("fm-bib-empty");
+      if (hintEl) hintEl.style.visibility = "visible";
+    } else {
+      digitsEl.textContent = _fmBib;
+      digitsEl.classList.remove("fm-bib-empty");
+      if (hintEl) hintEl.style.visibility = "hidden";
+    }
+  }
+
+  function _fmFlashStatus(msg, isErr) {
+    const el = document.getElementById("fm-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = isErr ? "#ff6b6b" : "#00e5ff";
+    clearTimeout(el._fmTimer);
+    el._fmTimer = setTimeout(() => { el.textContent = ""; }, 2200);
+  }
+
+  window.openFieldMode = function openFieldMode() {
+    const modal = document.getElementById("fieldModeModal");
+    if (!modal) return;
+
+    // Populate header with event name and station
+    const eventCode = (typeof getEventCode === "function") ? getEventCode() : "";
+    const stationInfo = (typeof getStationNameAndCode === "function")
+      ? getStationNameAndCode()
+      : { station_name: "", station_code: "" };
+
+    const eventLabel   = document.getElementById("fm-event-label");
+    const stationChip  = document.getElementById("fm-station-chip");
+
+    if (eventLabel)  eventLabel.textContent  = eventCode || "";
+    if (stationChip) {
+      const name = stationInfo.station_name || stationInfo.station_code || "—";
+      stationChip.textContent = "\uD83D\uDCCD " + name; // 📍
+    }
+
+    // Sync distance picker options with the main-page dropdown
+    const mainSel = document.getElementById("distanceSelect");
+    const fmSel   = document.getElementById("fm-dist-select");
+    if (mainSel && fmSel && mainSel.options.length > 0) {
+      const currentVal = mainSel.value;
+      fmSel.innerHTML = mainSel.innerHTML;
+      fmSel.value = currentVal;
+    }
+
+    // Reset bib buffer and status
+    _fmBib = "";
+    _fmUpdateDisplay();
+    const statusEl = document.getElementById("fm-status");
+    if (statusEl) statusEl.textContent = "";
+
+    // Hide distance picker in case it was left open
+    fieldHideDistancePicker();
+
+    // Show modal
+    modal.classList.add("fm-open");
+    document.body.style.overflow = "hidden";
+  };
+
+  window.closeFieldMode = function closeFieldMode() {
+    const modal = document.getElementById("fieldModeModal");
+    if (!modal) return;
+    modal.classList.remove("fm-open");
+    document.body.style.overflow = "";
+    fieldHideDistancePicker();
+  };
+
+  window.fieldKeyPress = function fieldKeyPress(digit) {
+    if (_fmBib.length >= 6) return; // max 6 digits
+    _fmBib += digit;
+    _fmUpdateDisplay();
+  };
+
+  window.fieldBackspace = function fieldBackspace() {
+    if (_fmBib.length === 0) return;
+    _fmBib = _fmBib.slice(0, -1);
+    _fmUpdateDisplay();
+  };
+
+  window.fieldSubmit = async function fieldSubmit(action) {
+    if (!_fmBib) {
+      _fmFlashStatus("Enter a bib number first", true);
+      return;
+    }
+
+    // Copy bib into the main form's bib input so addEntry() works normally
+    const bibEl = document.getElementById("bibNumber");
+    if (!bibEl) {
+      _fmFlashStatus("Error: bib input not found", true);
+      return;
+    }
+    bibEl.value = _fmBib;
+
+    // Refresh time to now before submit
+    if (typeof setCurrentTime === "function") setCurrentTime(false);
+
+    // Clear any leftover comment so a fresh note isn't added accidentally
+    // (leave it alone – operators may want a pre-filled comment)
+
+    try {
+      await addEntry(action);
+      _fmFlashStatus("\u2713 " + action + " – Bib " + _fmBib + " recorded");
+      _fmBib = "";
+      _fmUpdateDisplay();
+    } catch (err) {
+      _fmFlashStatus("Submit error: " + (err.message || err), true);
+    }
+  };
+
+  window.fieldShowDistancePicker = function fieldShowDistancePicker() {
+    if (!_fmBib) {
+      _fmFlashStatus("Enter a bib number first", true);
+      return;
+    }
+    const picker = document.getElementById("fm-dist-picker");
+    if (picker) picker.classList.add("fm-dist-open");
+  };
+
+  window.fieldHideDistancePicker = function fieldHideDistancePicker() {
+    const picker = document.getElementById("fm-dist-picker");
+    if (picker) picker.classList.remove("fm-dist-open");
+  };
+
+  window.fieldUpdateDistance = async function fieldUpdateDistance() {
+    if (!_fmBib) {
+      _fmFlashStatus("Enter a bib number first", true);
+      fieldHideDistancePicker();
+      return;
+    }
+
+    const fmSel   = document.getElementById("fm-dist-select");
+    const mainSel = document.getElementById("distanceSelect");
+    const bibEl   = document.getElementById("bibNumber");
+
+    if (!fmSel || !bibEl) {
+      fieldHideDistancePicker();
+      return;
+    }
+
+    const newDist = fmSel.value;
+    bibEl.value = _fmBib;
+
+    // Sync selection to the main distance select so updateDistance() reads it
+    if (mainSel) mainSel.value = newDist;
+
+    // Close picker first (updateDistance may show its own alerts)
+    fieldHideDistancePicker();
+
+    // Re-use the main updateDistance() function (already handles DNS, overrides, etc.)
+    if (typeof updateDistance === "function") {
+      try {
+        await updateDistance(null);
+        _fmFlashStatus("\u2713 Distance updated – Bib " + _fmBib);
+        _fmBib = "";
+        _fmUpdateDisplay();
+      } catch (err) {
+        _fmFlashStatus("Distance error: " + (err.message || err), true);
+      }
+    }
+  };
+
+  // Close modal on Escape key (desktop fallback)
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      const modal = document.getElementById("fieldModeModal");
+      if (modal && modal.classList.contains("fm-open")) closeFieldMode();
+    }
+  });
+})();
+
 // Expose functions used by HTML buttons
 window.saveStartTimes = saveStartTimes;
 
@@ -3403,6 +4185,16 @@ window.updateSubject = updateSubject;
 window.showDistancePopup = showDistancePopup;
 window.closeDistancePopup = closeDistancePopup;
 window.updateDistance = updateDistance;
+
+// Field Mode modal
+window.openFieldMode          = window.openFieldMode;          // already assigned in IIFE
+window.closeFieldMode         = window.closeFieldMode;
+window.fieldKeyPress          = window.fieldKeyPress;
+window.fieldBackspace         = window.fieldBackspace;
+window.fieldSubmit            = window.fieldSubmit;
+window.fieldShowDistancePicker= window.fieldShowDistancePicker;
+window.fieldHideDistancePicker= window.fieldHideDistancePicker;
+window.fieldUpdateDistance    = window.fieldUpdateDistance;
 
 window.updateBibInfo = updateBibInfo;
 window.filterBibLog = filterBibLog;

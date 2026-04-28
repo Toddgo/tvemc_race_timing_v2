@@ -6,7 +6,33 @@
 // ==============================
 (function () {
   const seenHqMessageIds = new Set();
-    
+
+  // Convert a MySQL UTC datetime string ("YYYY-MM-DD HH:MM:SS") to a human-readable
+  // local time string in America/Los_Angeles.
+  // fetch_hq_messages.php and fetch_hq_log.php both set SET time_zone='+00:00' so all
+  // timestamps arrive as UTC.
+  // Exposed as window.formatHqTimestamp so hq_log.js can share the same implementation.
+  function formatHqTimestamp(ts) {
+    if (!ts) return "";
+    var s = String(ts).trim();
+    var isoUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)
+      ? s.replace(" ", "T") + "Z"
+      : s;
+    var d = new Date(isoUtc);
+    if (isNaN(d.getTime())) return ts;
+    return d.toLocaleString("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    });
+  }
+  window.formatHqTimestamp = formatHqTimestamp;
+
     // Aid Station: show a new message from HQ (Pending inbox UI + ACK)
 window.showHqMessageAtStation = function (msg) {
   // msg can be a string OR an object { text, channel, created_at, operator, id, station_label }
@@ -49,7 +75,7 @@ window.showHqMessageAtStation = function (msg) {
     messageId = msg.id || null; // DB id from fetch_hq_messages.php
   }
 
-  const ts = created || new Date().toLocaleTimeString();
+  const ts = (created ? formatHqTimestamp(created) : null) || new Date().toLocaleTimeString();
   
   if (messageId && seenHqMessageIds.has(messageId)) return;
   if (messageId) seenHqMessageIds.add(messageId);
@@ -350,7 +376,7 @@ window.addEventListener("load", function () {
         div.style.borderBottom = "1px solid #444";
         div.style.padding = "2px 0";
 
-        const time = msg.created_at || "";
+        const time = msg.created_at ? formatHqTimestamp(msg.created_at) : "";
         const text = msg.message_text || "";
         const channel = (msg.channel || "").toUpperCase();
         const operator = msg.operator || "";
@@ -366,8 +392,8 @@ window.addEventListener("load", function () {
 
   // Start polling when page is loaded (aid station view)
   window.addEventListener("load", function () {
-    // Do NOT poll in HQ mode (?hq=1)
-    if (window.location.search.includes("hq=1")) return;
+    // Do NOT poll in HQ mode (state stored in sessionStorage, not URL)
+    if (sessionStorage.getItem("hq_mode") === "1") return;
 
     // ✅ The dropdown value is the station ID (AS2). Use it directly.
     const stationSelect = document.getElementById("aidStation");
@@ -402,8 +428,20 @@ window.addEventListener("load", function () {
     const stored = localStorage.getItem("TVEMC_lastHqMessageId_" + stationId);
     if (stored) lastHqMessageId = parseInt(stored, 10) || 0;
 
+    // Show the "Send to HQ" compose panel now that we know the station id
+    const sendToHqBox = document.getElementById("stationSendToHQ");
+    if (sendToHqBox) {
+      sendToHqBox.style.display = "block";
+    }
+
     pollHqMessagesForStation();
     loadStationHistory();
+
+    // Wire up the "Refresh History" button on the station history box
+    const reloadBtn = document.getElementById("stationHistoryReload");
+    if (reloadBtn) {
+      reloadBtn.addEventListener("click", loadStationHistory);
+    }
 
     setInterval(pollHqMessagesForStation, 30000);
     setInterval(loadStationHistory, 30000);
