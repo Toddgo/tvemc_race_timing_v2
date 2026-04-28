@@ -1737,13 +1737,26 @@ function populateStationDropdownsFromMap(map, distanceCode) {
   const ev = String((typeof getEventCode === "function" ? getEventCode() : "") || "").toUpperCase();
   const isSOB = ev.includes("SOB"); // apply SOB-only filters/options only for SOB events
   
-  // Build station options from DB/map
+  // Build station options from DB/map.
+  // Multi-pass stations (e.g. Armstrong Pass appearing at mile 16 and mile 48) share
+  // the same station_name. Deduplicate by name so the dropdown shows each physical
+  // location once. The first occurrence (lowest station_order) is kept, so the volunteer
+  // selects the location name — pass numbering (1, 2…) is computed chronologically by
+  // the system and displayed in the log automatically.
+  const seenStationNames = new Set();
   let stationOpts = list
     .map(s => ({
       value: String(s.station_code || "").trim().toUpperCase(),
-      label: `📍 ${String(s.station_name || "").trim()}`
+      label: `📍 ${String(s.station_name || "").trim()}`,
+      _name: String(s.station_name || "").trim()
     }))
-    .filter(o => o.value);
+    .filter(o => {
+      if (!o.value) return false;
+      if (seenStationNames.has(o._name)) return false;
+      seenStationNames.add(o._name);
+      return true;
+    })
+    .map(({value, label}) => ({value, label}));
 
 // Added Feb 11 at 22:50 with Global helper
 window.addEventListener("load", () => setTimeout(persistDistanceForEvent, 400));
@@ -3177,7 +3190,9 @@ async function loadAidStationsFromServer() {
       station_name: String(r.station_name || "").trim(),
       mile: parseFloat(r.mile || "0"),
       lat: r.lat != null ? parseFloat(r.lat) : null,
-      lon: r.lon != null ? parseFloat(r.lon) : null
+      lon: r.lon != null ? parseFloat(r.lon) : null,
+      is_multi_pass: r.is_multi_pass != null ? (parseInt(r.is_multi_pass, 10) || 0) : 0,
+      multi_pass_group: r.multi_pass_group != null ? String(r.multi_pass_group) : null
     });
   }
 
