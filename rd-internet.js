@@ -65,8 +65,7 @@ async function logHqMessageToServer(payload) {
   // Prefer event_code (server resolves event_id safely)
   const eventCode =
     (typeof getEventCode === "function" ? getEventCode() : "") ||
-    (window.TVEMC_EVENT_CODE || "") ||
-    "KH_SOB_2026_0003";
+    (window.TVEMC_EVENT_CODE || "");
 
   // Legacy fallback (only used if present & numeric)
   const eventIdRaw =

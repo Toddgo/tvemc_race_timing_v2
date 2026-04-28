@@ -2,7 +2,7 @@
    Minimal safe baseline (no top-level return)
 */
 
-const CACHE_NAME = "tvemc-rtv2-cache-v1";
+const CACHE_NAME = "tvemc-rtv2-cache-v2";
 const APP_SCOPE_PREFIX = "/tvemc_race_timing_v2/";
 
 // If you want to temporarily disable caching without breaking registration:

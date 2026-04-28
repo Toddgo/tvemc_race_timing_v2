@@ -309,7 +309,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Show HQ box if ?hq=1
-if (new URLSearchParams(window.location.search).get("hq") === "1") {
-  const hqBox = document.getElementById("hqRadioBox");
-  if (hqBox) hqBox.style.display = "block";
+function _showHqBoxIfNeeded() {
+  if (new URLSearchParams(window.location.search).get("hq") === "1") {
+    const hqBox = document.getElementById("hqRadioBox");
+    if (hqBox) hqBox.style.display = "block";
+  }
 }
+// Run now (scripts are at bottom of body so DOM is ready)
+_showHqBoxIfNeeded();
+// Safety net: run again after full page load in case anything reset it
+document.addEventListener("DOMContentLoaded", _showHqBoxIfNeeded);

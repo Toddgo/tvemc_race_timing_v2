@@ -11,7 +11,6 @@ return [
       'http://localhost',
       'http://127.0.0.1'
   ],
-  'race_title'  => 'KH Races – Race Timing',
   'hq_password' => 'Jesse2026!'
 ];
 
