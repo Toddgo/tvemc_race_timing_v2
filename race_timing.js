@@ -1477,16 +1477,47 @@ async function addEntry(action) {
       
       const distCode = canonicalDistanceCode(safeString(distance_code || ""));
 
-      // Pre-compute station_order before the server call so we can tell passes_submit.php
-      // exactly which occurrence of a repeated station (e.g. Junction visited twice in the
-      // 20M course) this pass belongs to.  Without this hint the server always picks the
-      // first matching station_id, storing the wrong station_order in the DB and breaking
-      // Card C path computation after a page reload.
-      const preComputed_station_order = (() => {
+      // Resolve the correct station code and order for this pass. Handles two cases:
+      //   1. Same station_name appears multiple times with DIFFERENT codes in this distance
+      //      (e.g. "Junction" = AS2 @ mile 4.70 and AS14 @ mile 32.60 in Bishop Ultra 100K).
+      //      The dropdown deduplicates by name and always shows the first occurrence's code
+      //      (AS2). We count IN passes for ANY station sharing that name to route the second
+      //      visit to AS14 instead of AS2 again.
+      //   2. Same station_code appears multiple times (legacy multi-pass data).
+      const { resolvedStationCode, preComputed_station_order } = (() => {
         const dc = String(distCode || '').toUpperCase();
         const sc = String(station_code || '').toUpperCase();
         const sortedAS = (AID_STATION_MAP[dc] || []).slice()
           .sort((a, b) => Number(a.station_order) - Number(b.station_order));
+
+        // Find the station_name for the selected code
+        const selStation = sortedAS.find(s => String(s.station_code || '').toUpperCase() === sc);
+        const selName = selStation ? String(selStation.station_name || '').trim().toLowerCase() : '';
+
+        // All stations in this distance that share the same display name
+        const sameNameList = selName
+          ? sortedAS.filter(s => String(s.station_name || '').trim().toLowerCase() === selName)
+          : [];
+
+        if (sameNameList.length > 1) {
+          // Multiple physical locations share the same name (different codes).
+          // Count IN passes already logged for ANY of those stations.
+          const nameCodes = new Set(sameNameList.map(s => String(s.station_code || '').toUpperCase()));
+          const passModeIsIn = String(pass_type || '').toUpperCase() === 'IN';
+          const inCount = entries.filter(prev =>
+            String(prev.bib_number || '').trim() === String(bib).trim() &&
+            nameCodes.has(String(prev.station_code || '').toUpperCase()) &&
+            String(prev.action || '').toUpperCase() === 'IN'
+          ).length;
+          const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
+          const match = sameNameList[occurrenceIdx] || sameNameList[sameNameList.length - 1];
+          return {
+            resolvedStationCode: String(match.station_code || sc).toUpperCase(),
+            preComputed_station_order: match?.station_order != null ? Number(match.station_order) : null
+          };
+        }
+
+        // Same station_code appearing multiple times (original multi-pass logic)
         const matches = sortedAS.filter(s => String(s.station_code || '').toUpperCase() === sc);
         if (matches.length > 1) {
           const passModeIsIn = String(pass_type || '').toUpperCase() === 'IN';
@@ -1497,18 +1528,30 @@ async function addEntry(action) {
           ).length;
           const occurrenceIdx = passModeIsIn ? inCount : Math.max(0, inCount - 1);
           const match = matches[occurrenceIdx] || matches[matches.length - 1];
-          return (match?.station_order != null) ? Number(match.station_order) : null;
-        } else if (matches.length === 1 && matches[0].station_order != null) {
-          return Number(matches[0].station_order);
+          return {
+            resolvedStationCode: sc,
+            preComputed_station_order: match?.station_order != null ? Number(match.station_order) : null
+          };
         }
-        return null;
+
+        // Single-occurrence station (most common case)
+        const single = matches[0] || null;
+        return {
+          resolvedStationCode: sc,
+          preComputed_station_order: single?.station_order != null ? Number(single.station_order) : null
+        };
       })();
-      
+
+      // Update entry.station_code to the resolved code so that subsequent pass-count
+      // lookups in this session (for the same bib) see the correct code (e.g. AS14,
+      // not AS2, for Junction second pass) and correctly advance to the next occurrence.
+      entry.station_code = resolvedStationCode;
+
       const payload = {
         event_code: entry.eventName || "AZM-300-2026-0004",
         bib: parseInt(bib, 10),
         distance_code: distCode,
-        station_code: safeString(station_code).toUpperCase(),
+        station_code: resolvedStationCode,
         pass_type: safeString(pass_type).toUpperCase(),
         operator: operator || "Unknown",
         note,
