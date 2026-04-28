@@ -313,7 +313,27 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
   const event_code = cleanEventCode(getEventCode());
   try {
     const res = await fetch(`events_load.php?event_code=${encodeURIComponent(event_code)}`, { cache: "no-store" });
-    const meta = await res.json();
+
+    if (!res.ok) {
+      console.warn("events_load HTTP error:", res.status, res.statusText);
+      return null;
+    }
+
+    // Guard against empty or non-JSON responses before parsing
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      console.warn("events_load returned empty response for event_code:", event_code);
+      return null;
+    }
+
+    let meta;
+    try {
+      meta = JSON.parse(text);
+    } catch (parseErr) {
+      console.warn("events_load returned non-JSON (preview):", text.slice(0, 200));
+      return null;
+    }
+
     if (!meta || !meta.event_id) {
       console.warn("events_load returned empty/invalid:", meta);
       return null;
@@ -321,10 +341,16 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
 
     window.TVEMC_EVENT_META = meta;
 
-    // Ensure your timezone hook is DB-driven
+    // Ensure timezone hook is DB-driven
     window.TVEMC_getEventTimeZone = function() {
       return String((window.TVEMC_EVENT_META && window.TVEMC_EVENT_META.timezone) || "UTC");
     };
+
+    // Update the Event Name field so the UI always reflects the loaded event
+    const eventEl = document.getElementById("eventName");
+    if (eventEl && !eventEl.value.trim()) {
+      eventEl.value = meta.event_name || meta.event_code || event_code;
+    }
 
     console.log("Loaded event meta:", meta);
     return meta;
