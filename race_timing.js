@@ -263,19 +263,20 @@ function cleanEventCode(ec) {
 }
 
 window.getEventCode = function getEventCode() {
-  const qs = new URLSearchParams(window.location.search);
-
-  // ✅ Canonical is ?event=...
-  const fromQS = qs.get("event");
-
-  // Fallbacks
-  const fromLS = localStorage.getItem("tvemc_event_code") || "";
+  // Prefer the dropdown's current value — it reflects the user's active selection.
+  // The URL ?event= param is only used as a fallback when the dropdown isn't yet populated.
   const fromInput =
     document.getElementById("eventCode")?.value ||
     document.getElementById("eventName")?.value ||
     "";
+  if (fromInput) return cleanEventCode(fromInput);
 
-  return cleanEventCode(fromQS || fromInput || fromLS || "");
+  const qs = new URLSearchParams(window.location.search);
+  const fromQS = qs.get("event");
+  if (fromQS) return cleanEventCode(fromQS);
+
+  const fromLS = localStorage.getItem("tvemc_event_code") || "";
+  return cleanEventCode(fromLS || "");
 };
 
 async function loadEventListIntoDropdown() {
@@ -1841,6 +1842,7 @@ function wireHeaderFieldPersistence() {
       await loadAidStationsFromServer();
       populateStationDropdownsFromMap(AID_STATION_MAP);
       await loadEventMetaFromServer();
+      try { await loadStartTimesFromDBIntoUI(); } catch (e) { console.warn("Start times reload skipped:", e.message); }
       updateSubject();
     };
     ecEl.addEventListener("change", reloadForEvent);
@@ -2681,6 +2683,7 @@ async function saveStartTimes() {
 
     const times = {
       "30K":  localInputToDb(document.getElementById("start_30K")?.value),
+      "20M":  localInputToDb(document.getElementById("start_20M")?.value),
       "26.2": localInputToDb(document.getElementById("start_26_2")?.value),
       "50K":  localInputToDb(document.getElementById("start_50K")?.value),
       "50M":  localInputToDb(document.getElementById("start_50M")?.value),
@@ -2780,6 +2783,7 @@ async function loadStartTimesFromDBIntoUI() {
     };
 
     setVal("start_30K",  toLocalInput(map["30K"]));
+    setVal("start_20M",  toLocalInput(map["20M"]));
     setVal("start_26_2", toLocalInput(map["26.2"]));
     setVal("start_50K",  toLocalInput(map["50K"]));
     setVal("start_50M",  toLocalInput(map["50M"]));
