@@ -181,24 +181,7 @@
     <select id="hqTarget" style="padding: 8px; border-radius: 5px;">
       <option value="ALL">📡 Broadcast to ALL Stations</option>
       <option value="START">🏁 Start</option>
-      <option value="CORRAL_AUTO">📍 CORRAL CANYON (AUTO)</option>
-      <option value="KANAN_AUTO">📍 KANAN ROAD (AUTO)</option>
-      <option value="ZUMA_AUTO">📍 ZUMA (AUTO)</option>
-      <option value="AS1">📍CORRAL CANYON #1</option>
-      <option value="AS2">📍KANAN ROAD #1</option>
-      <option value="T30K">📍TURNAROUND SPOT (30K NO AID)</option>
-      <option value="AS4">📍ZUMA EDISION RIDGE MTWY #1</option>	
-      <option value="AS5">📍BONSALL</option>
-      <option value="AS6">📍ZUMA EDISON RIDGE MTWY #2 </option>
-      <option value="AS7">📍KANAN ROAD #2</option>
-      <option value="AS8">📍CORRAL CANYON #2 </option>
-      <option value="AS9">📍100K TURNAROUND - BULLDOG</option>
-      <option value="AS10">📍CORRAL CANYON #3</option>
-      <option value="AS11">📍PIUMA CREEK (NO AID)</option>
-      <option value="FINISH">🏁FINISH LINE</option>
-      <option value="SOBRD">SOB-RD</option>
-      <option value="AMANDABOSS">Amanda-Boss</option>
-      <option value="NETCONTROL">Net Control</option>
+      <option value="FINISH">🏁 Finish</option>
     </select>
 
     <input
@@ -222,25 +205,8 @@
       Station:
       <select id="hqLogStationFilter">
     <option value="">All</option>
-    <option value="START">🏁START</option>
-    <option value="CORRAL_AUTO">📍 CORRAL CANYON (AUTO)</option>
-    <option value="KANAN_AUTO">📍 KANAN ROAD (AUTO)</option>
-    <option value="ZUMA_AUTO">📍 ZUMA (AUTO)</option>
-    <option value="AS1">📍CORRAL CANYON #1</option>
-	<option value="AS2">📍KANAN ROAD #1</option>
-	<option value="T30K">📍TURNAROUND SPOT (30K NO AID)</option>
-    <option value="AS4">📍ZUMA EDISION RIDGE MTWY #1</option>
-    <option value="AS5">📍BONSALL</option>
-    <option value="AS6">📍ZUMA EDISON RIDGE MTWY #2</option>
-    <option value="AS7">📍KANAN ROAD #2</option>
-	<option value="AS8">📍CORRAL CANYON #2</option>
-	<option value="AS9">📍100K TURNAROUND - BULLDOG</option>
-    <option value="AS10">📍CORRAL CANYON #3</option>
-    <option value="AS11">📍PIUMA CREEK (NO AID)</option>
-    <option value="FINISH">🏁FINISH LINE</option>
-    <option value="SOBRD">SOB-RD</option>
-    <option value="AMANDABOSS">Amanda-Boss</option>
-    <option value="NETCONTROL">Net Control</option>
+    <option value="START">🏁 START</option>
+    <option value="FINISH">🏁 FINISH</option>
       </select>
     </label>
 
@@ -393,43 +359,27 @@
         <label for="highContrast">High Contrast Mode (for sunlight)</label>
           <button onclick="document.getElementById('hqPasswordGate').style.display='flex'" style="background:#000080;color:white;font-size:18px;padding:12px 24px;border-radius:12px;margin-left:20px;vertical-align:middle;">Enter HQ / Race Director Mode</button>
     <form id="raceForm">
-     <!--  <input type="hidden" id="eventCode" value="KH_SOB_2026_0003"> -->
-           <input type="hidden" id="eventCode" value="KH_SOB_2026_0003">
-
         <div class="section">
+            <label for="eventCode">Event Code:</label>
+            <input type="text" id="eventCode" name="eventCode" value="KH_SOB_2026_0003" tabindex="1"
+              title="Enter the event code (e.g. KH_SOB_2026_0003). Press Enter or Tab to reload stations."
+              style="width:260px;font-family:monospace;font-size:14px;"><br><br>
             <label for="eventName">Event Name:</label>
-            <input type="text" id="eventName" name="eventName" value="" tabindex="1"><br><br>
+            <input type="text" id="eventName" name="eventName" value="" tabindex="2"><br><br>
             <label for="messageNum">Message #:</label>
-            <input type="number" id="messageNum" name="messageNum" value="1" tabindex="2">
-            <button type="button" class="increment-button" onclick="incrementMessage()" tabindex="3" role="button" aria-label="Increment Message Number">Increment</button><br><br>
+            <input type="number" id="messageNum" name="messageNum" value="1" tabindex="3">
+            <button type="button" class="increment-button" onclick="incrementMessage()" tabindex="4" role="button" aria-label="Increment Message Number">Increment</button><br><br>
             <label for="operatorName">Operator Name:</label>
-            <input type="text" id="operatorName" name="operatorName" placeholder="e.g., John" required tabindex="4"><br><br>
+            <input type="text" id="operatorName" name="operatorName" placeholder="e.g., John" required tabindex="5"><br><br>
             <label for="sendTo">Send to:</label>
-            <input type="text" id="sendTo" name="sendTo" placeholder="e.g., Your Email Address" tabindex="5"><br><br>
+            <input type="text" id="sendTo" name="sendTo" placeholder="e.g., Your Email Address" tabindex="6"><br><br>
             <label for="aidStation">Aid Station:</label>
-            <select id="aidStation" name="aidStation" tabindex="6">
+            <select id="aidStation" name="aidStation" tabindex="7">
               <option value="START">🏁 START</option>
-              <option value="CORRAL_AUTO">📍 CORRAL CANYON (AUTO)</option>
-              <option value="KANAN_AUTO">📍 KANAN ROAD (AUTO)</option>
-              <option value="ZUMA_AUTO">📍 ZUMA (AUTO)</option>
-              <option value="AS1">📍 CORRAL CANYON #1</option>
-              <option value="AS2">📍 KANAN ROAD #1</option>
-              <option value="T30K">📍 TURNAROUND SPOT (30K NO AID)</option>
-              <option value="AS4">📍 ZUMA EDISION RIDGE MTWY #1</option>
-              <option value="AS5">📍 BONSALL</option>
-              <option value="AS6">📍 ZUMA EDISON RIDGE MTWY #2</option>
-              <option value="AS7">📍 KANAN ROAD #2</option>
-              <option value="AS8">📍 CORRAL CANYON #2</option>
-              <option value="AS9">📍 100K TURNAROUND - BULLDOG</option>
-              <option value="AS10">📍 CORRAL CANYON #3</option>
-              <option value="AS11">📍 PIUMA CREEK (NO AID)</option>
-              <option value="FINISH">🏁 FINISH LINE</option>
-              <option value="SOBRD">SOB-RD</option>
-              <option value="AMANDABOSS">Amanda-Boss</option>
-              <option value="NETCONTROL">Net Control</option>
+              <option value="FINISH">🏁 FINISH</option>
             </select><br><br>
             <label for="subject">Subject:</label>
-            <input type="text" id="subject" name="subject" readonly tabindex="7">
+            <input type="text" id="subject" name="subject" readonly tabindex="8">
         </div>
         <div class="section">
             <h2>Bib Data Entry</h2>
@@ -654,8 +604,9 @@
     if (__resultsConfigLoaded) return;
     const eventCode =
       (window.TVEMC_EVENT_CODE ||
+       document.getElementById("eventCode")?.value ||
        document.getElementById("eventName")?.value ||
-       "KH_SOB_2026_0003").toString().trim();
+       "").toString().trim();
 
     const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, {
       cache: "no-store"

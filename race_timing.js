@@ -3,7 +3,7 @@
 
 console.log("race_timing.js load", new Date().toISOString());
 
-var event_code = String(window.TVEMC_EVENT_CODE || window.event_code || "AZM-300-2026-0004").trim();
+var event_code = String(window.TVEMC_EVENT_CODE || window.event_code || "").trim();
 
 let __CACHED_FINISH_CODE = null;
 
@@ -46,43 +46,12 @@ function persistDistanceForEvent() {
   localStorage.setItem(key, JSON.stringify(blob));
 }
 
-// Run once after page settles (dropdowns are populated async)
-// Run once after page settles (dropdowns are populated async)
+// Persist station and distance after page fully loads
 window.addEventListener("load", () => {
   setTimeout(() => {
     persistAidStationFromDropdown();
-
-    // ✅ AZM: force correct default distance once
-    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
-    const distSel = document.getElementById("distanceSelect");
-
-    if (ec === "AZM-300-2026-0004" && distSel) {
-      distSel.value = "300M";
-    }
-
-    // Persist whichever distance is now selected (event-scoped)
     persistDistanceForEvent();
   }, 400);
-});
-
-
-// --- TEMP RACE-SAFE: lock distance per event (prevents defaulting to 30K) ---
-window.addEventListener("load", () => {
-  setTimeout(() => {
-    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
-    const distSel = document.getElementById("distanceSelect");
-
-    // AZM 300
-    if (ec === "AZM-300-2026-0004" && distSel) {
-      // pick the correct option if present
-      const wanted = "300M"; // <-- change if your actual code differs
-      const has = [...distSel.options].some(o => String(o.value).trim() === wanted);
-      if (has) distSel.value = wanted;
-    }
-
-    // After setting, persist to event-scoped storage
-    persistDistanceForEvent();
-  }, 900);
 });
 
 // Update whenever dropdowns change
@@ -346,9 +315,9 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
       return String((window.TVEMC_EVENT_META && window.TVEMC_EVENT_META.timezone) || "UTC");
     };
 
-    // Update the Event Name field so the UI always reflects the loaded event
+    // Always update the Event Name field so the UI reflects the loaded event
     const eventEl = document.getElementById("eventName");
-    if (eventEl && !eventEl.value.trim()) {
+    if (eventEl) {
       eventEl.value = meta.event_name || meta.event_code || event_code;
     }
 
@@ -607,7 +576,7 @@ async function isOnline() {
 ----------------------------*/
 function updateSubject() {
   try {
-    const eventName = document.getElementById("eventName")?.value || "AZM-300-2026-0004";
+    const eventName = document.getElementById("eventName")?.value || cleanEventCode(getEventCode()) || "";
     const msgNum = document.getElementById("messageNum")?.value || "1";
     const subjectInput = document.getElementById("subject");
     if (!subjectInput) return;
@@ -857,7 +826,7 @@ async function loadPassesFromServer() {
     const event_code = cleanEventCode(
       (typeof getEventCode === "function")
         ? getEventCode()
-        : (document.getElementById("eventName")?.value || "AZM-300-2026-0004").trim()
+        : (document.getElementById("eventCode")?.value || "").trim()
     );
 
     if (!event_code) return; // keep
@@ -1228,8 +1197,7 @@ async function addEntry(action) {
       const distCode = canonicalDistanceCode(safeString(distance_code || ""));
       
       const payload = {
-        event_code: entry.eventName || "AZM-300-2026-0004",
-        bib: parseInt(bib, 10),
+        event_code: entry.eventName || entry.event_code || cleanEventCode(getEventCode()),
         distance_code: distCode,
         station_code: safeString(station_code).toUpperCase(),
         pass_type: safeString(pass_type).toUpperCase(),
@@ -1750,8 +1718,7 @@ async function syncOfflineEntries() {
     const entry = offlineQueue[i];
 
     const payload = {
-      event_code: entry.eventName || "AZM-300-2026-0004",
-      bib: parseInt(entry.bib_number, 10),
+      event_code: entry.eventName || entry.event_code || cleanEventCode(getEventCode()),
       distance_code: canonicalDistanceCode(safeString(entry.distance_code || entry.distance || "")),
       station_code: safeString(entry.station_code || ""),
       pass_type: safeString(entry.action).toUpperCase(),
@@ -1773,11 +1740,11 @@ async function syncOfflineEntries() {
 }
 
 function restoreHeaderFields() {
-  // Event name: default if empty, but user can change it
+  // Event name: restore from localStorage if saved; otherwise leave blank (loadEventMetaFromServer will populate it)
   const eventEl = document.getElementById("eventName");
   if (eventEl) {
     const savedEvent = localStorage.getItem("tvemc_eventName");
-    eventEl.value = (savedEvent && savedEvent.trim()) ? savedEvent : (eventEl.value || "AZM-300-2026-0004");
+    if (savedEvent && savedEvent.trim()) eventEl.value = savedEvent;
   }
 
   // Message number (optional to persist right now)
@@ -1830,6 +1797,21 @@ function restoreHeaderFields() {
 }
 
 function wireHeaderFieldPersistence() {
+  // When the operator changes the Event Code field, reload stations for the new event
+  const ecEl = document.getElementById("eventCode");
+  if (ecEl) {
+    const reloadForEvent = async () => {
+      await loadAidStationsFromServer();
+      populateStationDropdownsFromMap(AID_STATION_MAP);
+      await loadEventMetaFromServer();
+      updateSubject();
+    };
+    ecEl.addEventListener("change", reloadForEvent);
+    ecEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); reloadForEvent(); }
+    });
+  }
+
   document.getElementById("eventName")?.addEventListener("input", (e) => {
     localStorage.setItem("tvemc_eventName", e.target.value || "");
     updateSubject();
@@ -2094,7 +2076,7 @@ async function updateDistance(e) {
 
         const input = prompt("Enter start time (YYYY-MM-DD HH:MM:SS)", suggested);
         if (input && input.trim()) {
-          const event_code = (window.TVEMC_EVENT_CODE || "AZM-300-2026-0004").trim();
+          const event_code = cleanEventCode(window.TVEMC_EVENT_CODE || getEventCode());
           const set_by = (document.getElementById("operatorName")?.value || "").trim() || "station";
           const reason = "Distance change";
 
