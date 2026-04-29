@@ -3421,7 +3421,7 @@ function _fmUpdateDisplay() {
   if (el) el.textContent = _fmBib || "--";
 }
 
-function fieldModeSubmit(action) {
+async function fieldModeSubmit(action) {
   if (!_fmBib) return;
 
   const submittedBib = _fmBib;
@@ -3433,8 +3433,33 @@ function fieldModeSubmit(action) {
     updateBibInfo();
   }
 
+  // For FINISH: addEntry blocks when station_code === "FINISH" && pass_type === "FINISH".
+  // Resolve the actual finish station code (e.g. "AS12") and temporarily switch the
+  // aidStation dropdown to it so the guard is bypassed, then restore it afterwards.
+  const stationSel = document.getElementById("aidStation");
+  const originalStation = stationSel ? stationSel.value : null;
+  let swappedStation = false;
+
+  if (action === "FINISH" && stationSel && stationSel.value.toUpperCase() === "FINISH") {
+    try {
+      const ec = (typeof getEventCode === "function") ? getEventCode() : (window.TVEMC_EVENT_CODE || "");
+      const realCode = await getFinishStationCode(ec);
+      if (realCode && realCode.toUpperCase() !== "FINISH") {
+        stationSel.value = realCode;
+        swappedStation = true;
+      }
+    } catch (e) {
+      console.warn("fieldModeSubmit: could not resolve finish station code", e);
+    }
+  }
+
   // Run addEntry — overlay stays open so the operator can enter the next bib
-  addEntry(action);
+  await addEntry(action);
+
+  // Restore dropdown if we swapped it
+  if (swappedStation && stationSel) {
+    stationSel.value = originalStation;
+  }
 
   // Show a brief "✓ BIB submitted" flash on the overlay then clear for next entry
   const disp = document.getElementById("fmBibDisplay");
