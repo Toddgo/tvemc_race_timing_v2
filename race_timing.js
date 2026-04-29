@@ -3376,6 +3376,69 @@ async function loadRunnerRegistryFromServer() {
 }
 
 /* ---------------------------
+   Field Mode (10-key numpad)
+----------------------------*/
+let _fmBib = "";
+
+function toggleFieldMode() {
+  const overlay = document.getElementById("fieldModeOverlay");
+  if (!overlay) return;
+
+  const isVisible = overlay.style.display === "flex";
+  if (isVisible) {
+    overlay.style.display = "none";
+    document.body.style.overflow = "";
+  } else {
+    _fmBib = "";
+    _fmUpdateDisplay();
+
+    // Populate event/station labels from main UI
+    const evtEl = document.getElementById("eventName");
+    const stEl  = document.getElementById("aidStation");
+    const fmEvt = document.getElementById("fmEventLabel");
+    const fmSt  = document.getElementById("fmStationLabel");
+    if (fmEvt) fmEvt.textContent = evtEl ? (evtEl.value || "") : "";
+    if (fmSt)  fmSt.textContent  = stEl  ? (stEl.selectedOptions?.[0]?.textContent || "") : "";
+
+    overlay.style.display = "flex";
+    document.body.style.overflow = "hidden";  // prevent scroll behind overlay
+  }
+}
+
+function fieldModeKey(digit) {
+  if (_fmBib.length >= 6) return;   // max bib length
+  _fmBib += digit;
+  _fmUpdateDisplay();
+}
+
+function fieldModeBackspace() {
+  _fmBib = _fmBib.slice(0, -1);
+  _fmUpdateDisplay();
+}
+
+function _fmUpdateDisplay() {
+  const el = document.getElementById("fmBibDisplay");
+  if (el) el.textContent = _fmBib || "--";
+}
+
+function fieldModeSubmit(action) {
+  if (!_fmBib) return;
+
+  // Push the bib into the main form's bib input, then call addEntry
+  const bibEl = document.getElementById("bibNumber");
+  if (bibEl) {
+    bibEl.value = _fmBib;
+    updateBibInfo();   // refresh the runner info table
+  }
+
+  // Close overlay so alerts and UI updates are visible on the main page
+  toggleFieldMode();
+
+  // Small delay to let the overlay close before the submit alert appears
+  setTimeout(() => addEntry(action), 80);
+}
+
+/* ---------------------------
    Boot
 ----------------------------*/
 document.addEventListener("DOMContentLoaded", async () => {

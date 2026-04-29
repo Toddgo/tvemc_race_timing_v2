@@ -406,7 +406,7 @@
             <input type="text" id="subject" name="subject" readonly tabindex="8">
         </div>
         <div class="section">
-            <h2>Bib Data Entry</h2>
+            <h2>Bib Data Entry <button type="button" id="fieldModeBtn" onclick="toggleFieldMode()" style="background:#222;color:#fff;font-size:13px;padding:4px 10px;border-radius:8px;border:1px solid #555;margin-left:10px;vertical-align:middle;cursor:pointer;">📱 Field Mode</button></h2>
             <input type="checkbox" id="fastMode" name="fastMode" tabindex="8">
             <label for="fastMode">Fast Tab Mode (Skip Time/Yesterday)</label><br><br>
 	<div>
@@ -601,7 +601,7 @@
 
 
 <!-- Load your local JS for dev -->
-<script src="race_timing.js?v=debug18b"></script>
+<script src="race_timing.js?v=debug18c"></script>
 <!--<script src="results_strip.js?v=1"></script> -->
 <script src="message-batches.js?v=dev1"></script>
 <script src="radio-system.js?v=2"></script>
@@ -808,6 +808,120 @@ async function enterHqMode() {
     });
   }
 </script>
+
+<!-- ===== FIELD MODE OVERLAY (full-screen numpad for mobile) ===== -->
+<div id="fieldModeOverlay" style="
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: #12122a;
+  color: #fff;
+  z-index: 99999;
+  flex-direction: column;
+  align-items: center;
+  font-family: sans-serif;
+  box-sizing: border-box;
+  padding: 12px 8px 8px;
+  overflow: hidden;
+">
+  <!-- Header row -->
+  <div style="display:flex; align-items:center; width:100%; max-width:420px; margin-bottom:6px;">
+    <button type="button" onclick="toggleFieldMode()" style="
+      background:none; border:none; color:#aaa; font-size:26px;
+      cursor:pointer; padding:4px 10px 4px 0; line-height:1;
+    ">&#8592;</button>
+    <div style="flex:1; text-align:center;">
+      <div id="fmEventLabel" style="font-size:11px; color:#aaa; letter-spacing:1px; text-transform:uppercase;"></div>
+      <div style="font-size:18px; font-weight:bold; color:#fff; letter-spacing:1px;">Bib Entry</div>
+    </div>
+    <div style="width:44px;"></div><!-- spacer to balance back arrow -->
+  </div>
+
+  <!-- Station name -->
+  <div id="fmStationLabel" style="
+    font-size:13px; color:#7ec8ff; letter-spacing:1px; margin-bottom:10px;
+    text-align:center; text-transform:uppercase;
+  "></div>
+
+  <!-- Bib display -->
+  <div style="
+    width:100%; max-width:420px;
+    background:#1e1e40;
+    border-radius:12px;
+    padding:14px 20px;
+    margin-bottom:12px;
+    display:flex; align-items:center; gap:8px;
+  ">
+    <span style="color:#7ec8ff; font-size:22px; font-weight:bold;">#</span>
+    <span id="fmBibDisplay" style="font-size:32px; font-weight:bold; color:#fff; flex:1; letter-spacing:3px; min-height:40px;">--</span>
+  </div>
+
+  <!-- Numpad grid -->
+  <div style="
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:10px;
+    width:100%; max-width:360px;
+    margin-bottom:12px;
+  ">
+    <button type="button" onclick="fieldModeKey('1')" class="fm-key">1</button>
+    <button type="button" onclick="fieldModeKey('2')" class="fm-key">2</button>
+    <button type="button" onclick="fieldModeKey('3')" class="fm-key">3</button>
+    <button type="button" onclick="fieldModeKey('4')" class="fm-key">4</button>
+    <button type="button" onclick="fieldModeKey('5')" class="fm-key">5</button>
+    <button type="button" onclick="fieldModeKey('6')" class="fm-key">6</button>
+    <button type="button" onclick="fieldModeKey('7')" class="fm-key">7</button>
+    <button type="button" onclick="fieldModeKey('8')" class="fm-key">8</button>
+    <button type="button" onclick="fieldModeKey('9')" class="fm-key">9</button>
+    <button type="button" onclick="fieldModeBackspace()" class="fm-key" style="font-size:20px;">&#9003;</button>
+    <button type="button" onclick="fieldModeKey('0')" class="fm-key">0</button>
+    <button type="button" onclick="fieldModeSubmit('IN')" class="fm-key" style="background:#1a6b3a; font-size:20px;">&#9166;</button>
+  </div>
+
+  <!-- Action buttons -->
+  <div style="
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+    width:100%; max-width:360px;
+  ">
+    <button type="button" onclick="fieldModeSubmit('IN')"     class="fm-action" style="background:#1a6b3a;">SEEN</button>
+    <button type="button" onclick="fieldModeSubmit('FINISH')" class="fm-action" style="background:#1a5a6b;">FINISH</button>
+    <button type="button" onclick="fieldModeSubmit('DNF')"    class="fm-action" style="background:#6b1a1a;">DNF</button>
+    <button type="button" onclick="fieldModeSubmit('DNS')"    class="fm-action" style="background:#5a4a1a;">DNS</button>
+  </div>
+</div>
+
+<style>
+.fm-key {
+  background: #2a2a50;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 26px;
+  font-weight: bold;
+  padding: 18px 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.fm-key:active { background: #4a4a80; }
+.fm-action {
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  padding: 18px 0;
+  cursor: pointer;
+  letter-spacing: 2px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.fm-action:active { opacity: 0.75; }
+</style>
+<!-- ===== END FIELD MODE OVERLAY ===== -->
 
 
 </body>
