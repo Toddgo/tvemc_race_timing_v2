@@ -259,8 +259,13 @@ window.addEventListener("load", function () {
 
     try {
       const urlObj = new URL("fetch_hq_messages.php", window.location.href);
-      urlObj.searchParams.set("event_code",(typeof getEventCode === "function" && getEventCode()) || "AZM-300-2026-0004");
-         // urlObj.searchParams.set("event_code", "KH_SOB_2026_01");   // KH_SOB_2026_01
+      const eventCode = (typeof getEventCode === "function" && getEventCode()) ||
+                        localStorage.getItem("tvemc_event_code") || "";
+      if (!eventCode) {
+        console.warn("hq_inbox_poll: event code not ready yet, skipping poll");
+        return;
+      }
+      urlObj.searchParams.set("event_code", eventCode);
       urlObj.searchParams.set("station", stationId);
       if (lastHqMessageId > 0) urlObj.searchParams.set("since_id", String(lastHqMessageId));
       const url = urlObj.toString();
@@ -313,8 +318,13 @@ window.addEventListener("load", function () {
 
     try {
       const urlObj = new URL("fetch_hq_log.php", window.location.href);
-      // urlObj.searchParams.set("event_code", "KH_SOB_2026_01");   /// WAS  KH_SOB_TEST
-      urlObj.searchParams.set("event_code",(typeof getEventCode === "function" && getEventCode()) || "AZM-300-2026-0004");
+      const eventCode = (typeof getEventCode === "function" && getEventCode()) ||
+                        localStorage.getItem("tvemc_event_code") || "";
+      if (!eventCode) {
+        console.warn("hq_inbox_poll (history): event code not ready yet, skipping");
+        return;
+      }
+      urlObj.searchParams.set("event_code", eventCode);
 
       urlObj.searchParams.set("station", stationId);
       urlObj.searchParams.set("limit", "10");
@@ -364,52 +374,110 @@ window.addEventListener("load", function () {
     }
   }
 
+  // Helper: read/normalize a station code from any source
+  function resolveStationId() {
+    // 1. Try the live dropdown (populated after async station load)
+    const stationSelect = document.getElementById("aidStation");
+    if (stationSelect) {
+      const val = (stationSelect.value || "").trim().toUpperCase();
+      if (
+        /^AS\d+$/i.test(val) ||
+        val === "START" ||
+        val === "FINISH" ||
+        val === "ALL" ||
+        val === "T30K" ||
+        /_AUTO$/i.test(val)
+      ) {
+        window.TVEMC_STATION_ID = val;
+        const label = (stationSelect.selectedOptions?.[0]?.textContent || "").trim();
+        if (label) window.TVEMC_STATION_LABEL = label;
+        return val;
+      }
+      const mapped = stationNameToId(val);
+      if (mapped) {
+        window.TVEMC_STATION_ID = mapped;
+        const label = (stationSelect.selectedOptions?.[0]?.textContent || "").trim();
+        if (label) window.TVEMC_STATION_LABEL = label;
+        return mapped;
+      }
+    }
+
+    // 2. Fall back to what race_timing.js persisted in storage
+    const fromStorage = (
+      sessionStorage.getItem("tvemc_aidStation") ||
+      localStorage.getItem("tvemc_aidStation") ||
+      ""
+    ).trim().toUpperCase();
+
+    if (fromStorage) {
+      window.TVEMC_STATION_ID = fromStorage;
+      return fromStorage;
+    }
+
+    // 3. Use whatever was already set on window (e.g. by a previous call)
+    return getStationId();
+  }
+
+  let _pollIntervalSet = false;
+
+  function initStationPolling() {
+    const stationId = resolveStationId();
+    if (!stationId) return false; // not ready yet
+
+    if (!_pollIntervalSet) {
+      _pollIntervalSet = true;
+
+      const stored = localStorage.getItem("TVEMC_lastHqMessageId_" + stationId);
+      if (stored) lastHqMessageId = parseInt(stored, 10) || 0;
+
+      pollHqMessagesForStation();
+      loadStationHistory();
+
+      setInterval(pollHqMessagesForStation, 30000);
+      setInterval(loadStationHistory, 30000);
+
+      setInterval(function () {
+        localStorage.setItem("TVEMC_lastHqMessageId_" + stationId, String(lastHqMessageId));
+      }, 60000);
+    }
+
+    return true;
+  }
+
   // Start polling when page is loaded (aid station view)
   window.addEventListener("load", function () {
     // Do NOT poll in HQ mode (?hq=1)
     if (window.location.search.includes("hq=1")) return;
 
-    // ✅ The dropdown value is the station ID (AS2). Use it directly.
+    // Try immediately — dropdown may already have a value from localStorage restore
+    if (initStationPolling()) return;
+
+    // The aidStation dropdown is populated asynchronously. Retry every 2 s for
+    // up to 30 s (15 attempts) to give the station load time to finish.
+    let attempts = 0;
+    const retryTimer = setInterval(function () {
+      attempts++;
+      if (initStationPolling() || attempts >= 15) {
+        clearInterval(retryTimer);
+        if (attempts >= 15 && !_pollIntervalSet) {
+          console.warn("hq_inbox_poll: could not determine station ID after retries — inbox polling skipped.");
+        }
+      }
+    }, 2000);
+
+    // Also listen for the station dropdown to change so polling adapts live
     const stationSelect = document.getElementById("aidStation");
     if (stationSelect) {
-      const val = (stationSelect.value || "").trim();
-
-      // if val is already AS-code or START/FINISH/ALL, use it
-      if (
-      /^AS\d+$/i.test(val) ||
-      val === "START" ||
-      val === "FINISH" ||
-      val === "ALL" ||
-      val === "T30K" ||
-      /_AUTO$/i.test(val)        // ✅ accept AUTO codes directly
-    ) {
-      window.TVEMC_STATION_ID = val;
-    } else {
-
-        // fallback: treat val as label/name
-        const mapped = stationNameToId(val);
-        if (mapped) window.TVEMC_STATION_ID = mapped;
-      }
-
-      // store label for pretty UI (optional)
-      const label = (stationSelect.selectedOptions?.[0]?.textContent || "").trim();
-      if (label) window.TVEMC_STATION_LABEL = label;
+      stationSelect.addEventListener("change", function () {
+        resolveStationId();
+        if (!_pollIntervalSet) {
+          initStationPolling();
+        } else {
+          // Station changed mid-session: do an immediate refresh with new target
+          pollHqMessagesForStation();
+          loadStationHistory();
+        }
+      });
     }
-
-    const stationId = getStationId();
-    if (!stationId) return;
-
-    const stored = localStorage.getItem("TVEMC_lastHqMessageId_" + stationId);
-    if (stored) lastHqMessageId = parseInt(stored, 10) || 0;
-
-    pollHqMessagesForStation();
-    loadStationHistory();
-
-    setInterval(pollHqMessagesForStation, 30000);
-    setInterval(loadStationHistory, 30000);
-
-    setInterval(function () {
-      localStorage.setItem("TVEMC_lastHqMessageId_" + stationId, String(lastHqMessageId));
-    }, 60000);
   });
 })();

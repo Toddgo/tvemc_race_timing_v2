@@ -151,6 +151,12 @@
       logBox.style.display = "block";
     }
 
+    // Explicitly hide aid-station panels that should never show on the HQ page
+    ["stationHistory", "stationInbox", "receiveArea"].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    });
+
     const stationFilter = document.getElementById("hqLogStationFilter");
     const ackFilter = document.getElementById("hqLogAckFilter");
     const refreshBtn = document.getElementById("hqLogRefreshBtn");
@@ -164,6 +170,9 @@
     if (refreshBtn) {
       refreshBtn.addEventListener("click", loadHqLog);
     }
+
+    // Expose globally so rd-internet.js can trigger a refresh after sending
+    window.loadHqLog = loadHqLog;
 
     // Initial load
     loadHqLog();

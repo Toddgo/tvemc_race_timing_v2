@@ -149,6 +149,11 @@ async function logHqMessageToServer(payload) {
     setTimeout(() => (hqStatus.textContent = "Status: Ready"), 3000);
   }
 
+  // Refresh the HQ message log table immediately so the new message appears
+  if (typeof window.loadHqLog === "function") {
+    setTimeout(window.loadHqLog, 500);
+  }
+
   // Log first id if returned
   console.log("Internet HQ message logged:", results);
 };
