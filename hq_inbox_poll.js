@@ -472,10 +472,6 @@ window.addEventListener("load", function () {
       const stored = localStorage.getItem("TVEMC_lastHqMessageId_" + stationId);
       if (stored) lastHqMessageId = parseInt(stored, 10) || 0;
 
-      // Show the reply box now that we know which station this is
-      const replyBox = document.getElementById("stationReplyBox");
-      if (replyBox) replyBox.style.display = "block";
-
       pollHqMessagesForStation();
       loadStationHistory();
 
@@ -494,6 +490,12 @@ window.addEventListener("load", function () {
   window.addEventListener("load", function () {
     // Do NOT poll in HQ mode (?hq=1)
     if (window.location.search.includes("hq=1")) return;
+
+    // Show the reply box immediately on aid station pages — no timing dependency.
+    // sendStationReplyToHQ() calls resolveStationId() at click-time, so it is safe
+    // to show the box before the station dropdown is fully populated.
+    const replyBox = document.getElementById("stationReplyBox");
+    if (replyBox) replyBox.style.display = "block";
 
     // Try immediately — dropdown may already have a value from localStorage restore
     if (initStationPolling()) return;
@@ -516,9 +518,6 @@ window.addEventListener("load", function () {
     if (stationSelect) {
       stationSelect.addEventListener("change", function () {
         resolveStationId();
-        // Show reply box as soon as a station is chosen
-        const replyBox = document.getElementById("stationReplyBox");
-        if (replyBox) replyBox.style.display = "block";
         if (!_pollIntervalSet) {
           initStationPolling();
         } else {
