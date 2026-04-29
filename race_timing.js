@@ -3424,18 +3424,31 @@ function _fmUpdateDisplay() {
 function fieldModeSubmit(action) {
   if (!_fmBib) return;
 
-  // Push the bib into the main form's bib input, then call addEntry
+  const submittedBib = _fmBib;
+
+  // Push the bib into the main form's bib input and call addEntry
   const bibEl = document.getElementById("bibNumber");
   if (bibEl) {
-    bibEl.value = _fmBib;
-    updateBibInfo();   // refresh the runner info table
+    bibEl.value = submittedBib;
+    updateBibInfo();
   }
 
-  // Close overlay so alerts and UI updates are visible on the main page
-  toggleFieldMode();
+  // Run addEntry — overlay stays open so the operator can enter the next bib
+  addEntry(action);
 
-  // Small delay to let the overlay close before the submit alert appears
-  setTimeout(() => addEntry(action), 80);
+  // Show a brief "✓ BIB submitted" flash on the overlay then clear for next entry
+  const disp = document.getElementById("fmBibDisplay");
+  const flash = document.getElementById("fmFlash");
+  if (disp) disp.textContent = "✓ " + submittedBib;
+  if (flash) {
+    flash.textContent = action + " logged";
+    flash.style.opacity = "1";
+  }
+  setTimeout(() => {
+    _fmBib = "";
+    _fmUpdateDisplay();
+    if (flash) flash.style.opacity = "0";
+  }, 1000);
 }
 
 /* ---------------------------
