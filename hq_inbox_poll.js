@@ -228,24 +228,21 @@ window.addEventListener("load", function () {
     }
   }
 
-  // Get station target used for DB filtering (AS2/START/FINISH/ALL)
+  // Get station target used for DB filtering.
+  // The value comes from the aidStation dropdown, whose options are already station_code
+  // values from the database. Accept any non-empty, non-emoji string directly.
   function getStationId() {
     const raw = (window.TVEMC_STATION_ID || "").trim();
     if (!raw) return "";
 
-    // already an ID?
-    if (
-      /^AS\d+$/i.test(raw) ||
-      raw === "START" ||
-      raw === "FINISH" ||
-      raw === "ALL" ||
-      raw === "T30K" ||
-      /_AUTO$/i.test(raw)        // ✅ allow CORRAL_AUTO / KANAN_AUTO / ZUMA_AUTO
-    ) {
+    // If it looks like a DB station code (no spaces, no emoji) trust it as-is.
+    // This covers AS\d+, START, FINISH, ALL, T30K, _AUTO codes, and any
+    // custom codes the event DB uses (e.g. INTAKE_TWO, REGISTRATION, etc.).
+    if (!/\s/.test(raw) && !/[\u{1F300}-\u{1FFFF}]/u.test(raw)) {
       return raw;
     }
 
-    // fallback mapping from label/name
+    // Fallback: try to map from a human-readable label
     return stationNameToId(raw);
   }
 
@@ -376,29 +373,17 @@ window.addEventListener("load", function () {
 
   // Helper: read/normalize a station code from any source
   function resolveStationId() {
-    // 1. Try the live dropdown (populated after async station load)
+    // 1. Try the live dropdown (populated after async station load).
+    //    The option value is already the station_code from the DB — trust it directly.
     const stationSelect = document.getElementById("aidStation");
     if (stationSelect) {
-      const val = (stationSelect.value || "").trim().toUpperCase();
-      if (
-        /^AS\d+$/i.test(val) ||
-        val === "START" ||
-        val === "FINISH" ||
-        val === "ALL" ||
-        val === "T30K" ||
-        /_AUTO$/i.test(val)
-      ) {
-        window.TVEMC_STATION_ID = val;
+      const val = (stationSelect.value || "").trim();
+      if (val) {
+        // Store upper-cased for consistent comparison in getStationId()
+        window.TVEMC_STATION_ID = val.toUpperCase();
         const label = (stationSelect.selectedOptions?.[0]?.textContent || "").trim();
         if (label) window.TVEMC_STATION_LABEL = label;
-        return val;
-      }
-      const mapped = stationNameToId(val);
-      if (mapped) {
-        window.TVEMC_STATION_ID = mapped;
-        const label = (stationSelect.selectedOptions?.[0]?.textContent || "").trim();
-        if (label) window.TVEMC_STATION_LABEL = label;
-        return mapped;
+        return window.TVEMC_STATION_ID;
       }
     }
 
