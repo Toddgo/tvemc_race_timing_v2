@@ -1242,6 +1242,7 @@ async function addEntry(action) {
       
       const payload = {
         event_code: entry.eventName || entry.event_code || cleanEventCode(getEventCode()),
+        bib: parseInt(bib, 10),
         distance_code: distCode,
         station_code: safeString(station_code).toUpperCase(),
         pass_type: safeString(pass_type).toUpperCase(),
@@ -1763,6 +1764,7 @@ async function syncOfflineEntries() {
 
     const payload = {
       event_code: entry.eventName || entry.event_code || cleanEventCode(getEventCode()),
+      bib: parseInt(entry.bib_number || entry.bib || 0, 10),
       distance_code: canonicalDistanceCode(safeString(entry.distance_code || entry.distance || "")),
       station_code: safeString(entry.station_code || ""),
       pass_type: safeString(entry.action).toUpperCase(),
