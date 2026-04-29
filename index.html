@@ -601,7 +601,7 @@
 
 
 <!-- Load your local JS for dev -->
-<script src="race_timing.js?v=debug17a"></script>
+<script src="race_timing.js?v=debug18a"></script>
 <!--<script src="results_strip.js?v=1"></script> -->
 <script src="message-batches.js?v=dev1"></script>
 <script src="radio-system.js?v=2"></script>
@@ -622,15 +622,18 @@
 <script type="module">
   import { computeResultsForRows } from "./results_engine.js";
 
-  let __resultsConfigLoaded = false;
+  let __resultsConfigEventCode = "";
 
   async function loadResultsConfigOnce() {
-    if (__resultsConfigLoaded) return;
-    const eventCode =
-      (window.TVEMC_EVENT_CODE ||
-       document.getElementById("eventCode")?.value ||
-       document.getElementById("eventName")?.value ||
-       "").toString().trim();
+    // Always use the event_code SELECT dropdown (not eventName which is the human-readable name)
+    const eventCode = (
+      document.getElementById("eventCode")?.value ||
+      new URLSearchParams(window.location.search).get("event") ||
+      ""
+    ).toString().trim();
+
+    // Re-load if the event changed (so switching events refreshes start times)
+    if (eventCode === __resultsConfigEventCode && window.TVEMC_startByDistance?.size > 0) return;
 
     const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, {
       cache: "no-store"
@@ -642,7 +645,7 @@
     window.TVEMC_startByDistance = new Map(Object.entries(data.start_times_iso || {}));
     window.TVEMC_runnerStartByBib = new Map(Object.entries(data.runner_starts_iso || {}));
 
-    __resultsConfigLoaded = true;
+    __resultsConfigEventCode = eventCode;
   }
 
   // Hook called by race_timing.js after it loads bib log rows
@@ -651,8 +654,8 @@
 
     return computeResultsForRows({
       rows,
-      runnerStartByBib: window.TVEMC_runnerStartByBib || new Map(),         // was runnerStartByBib
-      startByDistance: window.TVEMC_startByDistance || new Map(),   // was startByDistance
+      runnerStartByBib: window.TVEMC_runnerStartByBib || new Map(),
+      startByDistance: window.TVEMC_startByDistance || new Map(),
       milesByDistance: window.TVEMC_milesByDistance || new Map(),
       finishStationCode: "FINISH"
     });

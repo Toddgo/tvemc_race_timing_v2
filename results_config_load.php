@@ -50,22 +50,25 @@ while ($r = $res->fetch_assoc()) {
 }
 
 /* Start times */
-    $starts = [];
+    $starts     = [];
+    $starts_iso = [];
     $res = $conn->query("SELECT distance_code, start_ts FROM event_start_times WHERE event_id=$event_id");
     while ($r = $res->fetch_assoc()) {
       $code = $r['distance_code'];
       $ts   = $r['start_ts'];
     
-      $starts[$code] = $ts;              // keep raw (backward compatible)
-      $starts_iso[$code] = toIsoLA($ts); // ✅ new ISO-safe value
+      $starts[$code]     = $ts;              // keep raw (backward compatible)
+      $starts_iso[$code] = toIsoLA($ts);     // ✅ ISO with correct LA offset
 
 }
 
 /* Runner overrides */
-$runnerStarts = [];
+$runnerStarts     = [];
+$runnerStartsIso  = [];
 $res = $conn->query("SELECT bib, start_ts_actual FROM runner_starts WHERE event_id=$event_id");
 while ($r = $res->fetch_assoc()) {
-  $runnerStarts[(string)$r['bib']] = $r['start_ts_actual'];
+  $runnerStarts[(string)$r['bib']]    = $r['start_ts_actual'];
+  $runnerStartsIso[(string)$r['bib']] = toIsoLA($r['start_ts_actual']);
 }
 
 $conn->close();
@@ -74,8 +77,8 @@ echo json_encode([
   "success" => true,
   "event_id" => $event_id,
   "distances" => $dist,
-  "start_times" => $starts,          // existing behavior
-  "start_times_iso" => $starts_iso,  // ✅ new, correct
+  "start_times" => $starts,          // raw strings (backward compat)
+  "start_times_iso" => $starts_iso,  // ✅ ISO with correct timezone offset
   "runner_starts" => $runnerStarts,
-  "runner_starts_iso" => $runnerStarts_iso
+  "runner_starts_iso" => $runnerStartsIso
 ]);

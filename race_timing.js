@@ -263,18 +263,18 @@ function cleanEventCode(ec) {
 }
 
 window.getEventCode = function getEventCode() {
-  // Prefer the dropdown's current value — it reflects the user's active selection.
-  // The URL ?event= param is only used as a fallback when the dropdown isn't yet populated.
-  const fromInput =
-    document.getElementById("eventCode")?.value ||
-    document.getElementById("eventName")?.value ||
-    "";
-  if (fromInput) return cleanEventCode(fromInput);
+  // Prefer the SELECT dropdown's current value — it holds the actual event_code (e.g. "TAH200-2026-0007").
+  // NOTE: do NOT fall back to #eventName — that field shows the human-readable event name,
+  // not the event_code, and would cause DB queries to fail.
+  const fromDropdown = document.getElementById("eventCode")?.value || "";
+  if (fromDropdown) return cleanEventCode(fromDropdown);
 
+  // Fallback: URL param (used before the dropdown is populated on first load)
   const qs = new URLSearchParams(window.location.search);
   const fromQS = qs.get("event");
   if (fromQS) return cleanEventCode(fromQS);
 
+  // Last resort: localStorage
   const fromLS = localStorage.getItem("tvemc_event_code") || "";
   return cleanEventCode(fromLS || "");
 };
@@ -1841,7 +1841,7 @@ function restoreHeaderFields() {
 }
 
 function wireHeaderFieldPersistence() {
-  // When the operator changes the Event dropdown, persist and reload stations
+  // When the operator changes the Event dropdown, persist and reload everything
   const ecEl = document.getElementById("eventCode");
   if (ecEl) {
     const reloadForEvent = async () => {
@@ -1849,6 +1849,8 @@ function wireHeaderFieldPersistence() {
       await loadAidStationsFromServer();
       populateStationDropdownsFromMap(AID_STATION_MAP);
       await loadEventMetaFromServer();
+      await loadRunnerRegistryFromServer();
+      updateBibInfo();
       try { await loadStartTimesFromDBIntoUI(); } catch (e) { console.warn("Start times reload skipped:", e.message); }
       updateSubject();
     };
@@ -2777,11 +2779,38 @@ async function loadStartTimesFromDBIntoUI() {
     const map = {};
     for (const r of rows) {
       const dc = String(r.distance_code || "").trim();
-      const ts = String(r.start_ts || "").trim(); // "YYYY-MM-DD HH:MM:SS"
+      const ts = String(r.start_ts || "").trim(); // "YYYY-MM-DD HH:MM:SS" (stored as local time)
       if (dc && ts) map[dc] = ts;
     }
 
-    // Convert "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM" for datetime-local
+    // Also populate window.TVEMC_startByDistance so computeElapsedPaceEta() works immediately.
+    // Convert "YYYY-MM-DD HH:MM:SS" to a Date by appending the event timezone offset.
+    // The event timezone is provided by TVEMC_getEventTimeZone() (defaults to America/Los_Angeles).
+    const isoMap = {};
+    for (const [dc, ts] of Object.entries(map)) {
+      // Treat stored value as local time in the event timezone.
+      // Approximate: parse as America/Los_Angeles using Intl to get the ISO offset.
+      try {
+        const raw = ts.replace(" ", "T");
+        // Get the UTC offset for this specific datetime in the event timezone
+        const tz = (typeof window.TVEMC_getEventTimeZone === "function")
+          ? window.TVEMC_getEventTimeZone()
+          : "America/Los_Angeles";
+        const d = new Date(raw); // treat as local browser time temporarily
+        // Re-parse as the correct timezone using a known-good trick
+        const localeStr = new Date(raw).toLocaleString("en-US", { timeZone: tz });
+        const offset = (new Date(raw).getTime() - new Date(localeStr).getTime());
+        const utcMs = new Date(raw).getTime() + offset;
+        isoMap[dc] = new Date(utcMs).toISOString();
+      } catch {
+        isoMap[dc] = ts; // fallback: store raw string
+      }
+    }
+    window.TVEMC_startByDistance = new Map(Object.entries(isoMap));
+    window.TVEMC_startByDistanceRaw = new Map(Object.entries(map));
+    console.log("Start times loaded into map:", [...window.TVEMC_startByDistance.keys()]);
+
+    // Convert "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM" for datetime-local inputs
     const toLocalInput = (ts) => ts ? ts.replace(" ", "T").slice(0, 16) : "";
 
     const setVal = (id, v) => {
@@ -3041,7 +3070,7 @@ function sortBibTable(col) {
 
 // Timing Module Jan 7 11:56
 async function loadResultsConfig() {
-  const eventCode = window.TVEMC_EVENT_CODE || document.getElementById("eventName")?.value;
+  const eventCode = cleanEventCode(getEventCode());
   const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, { cache: "no-store" });
   const data = await res.json();
   if (!data.success) throw new Error("Results config load failed");
