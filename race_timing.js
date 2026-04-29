@@ -3451,6 +3451,48 @@ function fieldModeSubmit(action) {
   }, 1000);
 }
 
+function fieldModeChangeDist() {
+  if (!_fmBib) { alert("Enter a Bib Number first."); return; }
+  const label = document.getElementById("fmDistBibLabel");
+  if (label) label.textContent = "Bib #" + _fmBib;
+  const panel = document.getElementById("fmDistPanel");
+  if (panel) { panel.style.display = "flex"; }
+}
+
+function fieldModeCancelDist() {
+  const panel = document.getElementById("fmDistPanel");
+  if (panel) panel.style.display = "none";
+}
+
+async function fieldModeConfirmDist() {
+  const newDist = (document.getElementById("fmDistSel")?.value || "").trim();
+  if (!newDist) return;
+
+  // Populate main form fields that updateDistance() reads
+  const bibEl = document.getElementById("bibNumber");
+  if (bibEl) { bibEl.value = _fmBib; updateBibInfo(); }
+  const distSel = document.getElementById("distanceSelect");
+  if (distSel) distSel.value = newDist;
+
+  // Hide the picker panel first
+  fieldModeCancelDist();
+
+  // Run the existing updateDistance logic
+  await updateDistance();
+
+  // Flash confirmation
+  const flash = document.getElementById("fmFlash");
+  if (flash) {
+    flash.textContent = "Dist → " + newDist + " saved";
+    flash.style.opacity = "1";
+  }
+  setTimeout(() => {
+    _fmBib = "";
+    _fmUpdateDisplay();
+    if (flash) flash.style.opacity = "0";
+  }, 1200);
+}
+
 /* ---------------------------
    Boot
 ----------------------------*/
@@ -3584,3 +3626,11 @@ window.exportBibWinlinkTxt_v2 = exportBibWinlinkTxt_v2;
 window.importCSV = importCSV;
 window.importBibList = importBibList;
 window.importRadioWinlinkTxt = importRadioWinlinkTxt;
+
+window.toggleFieldMode      = toggleFieldMode;
+window.fieldModeKey         = fieldModeKey;
+window.fieldModeBackspace   = fieldModeBackspace;
+window.fieldModeSubmit      = fieldModeSubmit;
+window.fieldModeChangeDist  = fieldModeChangeDist;
+window.fieldModeConfirmDist = fieldModeConfirmDist;
+window.fieldModeCancelDist  = fieldModeCancelDist;

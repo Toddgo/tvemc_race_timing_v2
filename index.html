@@ -601,7 +601,7 @@
 
 
 <!-- Load your local JS for dev -->
-<script src="race_timing.js?v=debug18d"></script>
+<script src="race_timing.js?v=debug18e"></script>
 <!--<script src="results_strip.js?v=1"></script> -->
 <script src="message-batches.js?v=dev1"></script>
 <script src="radio-system.js?v=2"></script>
@@ -885,17 +885,63 @@ async function enterHqMode() {
     <button type="button" onclick="fieldModeSubmit('IN')" class="fm-key" style="background:#1a6b3a; font-size:20px;">&#9166;</button>
   </div>
 
-  <!-- Action buttons -->
+  <!-- Action buttons: IN / OUT / FINISH / DNF / CHANGE DIST -->
   <div style="
     display:grid;
     grid-template-columns: 1fr 1fr;
     gap:10px;
     width:100%; max-width:360px;
   ">
-    <button type="button" onclick="fieldModeSubmit('IN')"     class="fm-action" style="background:#1a6b3a;">SEEN</button>
-    <button type="button" onclick="fieldModeSubmit('FINISH')" class="fm-action" style="background:#1a5a6b;">FINISH</button>
-    <button type="button" onclick="fieldModeSubmit('DNF')"    class="fm-action" style="background:#6b1a1a;">DNF</button>
-    <button type="button" onclick="fieldModeSubmit('DNS')"    class="fm-action" style="background:#5a4a1a;">DNS</button>
+    <button type="button" onclick="fieldModeSubmit('IN')"      class="fm-action" style="background:#1a6b3a;">IN</button>
+    <button type="button" onclick="fieldModeSubmit('OUT')"     class="fm-action" style="background:#2a5a2a;">OUT</button>
+    <button type="button" onclick="fieldModeSubmit('FINISH')"  class="fm-action" style="background:#1a5a6b;">FINISH</button>
+    <button type="button" onclick="fieldModeSubmit('DNF')"     class="fm-action" style="background:#6b1a1a;">DNF</button>
+    <button type="button" onclick="fieldModeChangeDist()"      class="fm-action" style="grid-column:1/-1; background:#5a3a00;">CHANGE DIST</button>
+  </div>
+
+  <!-- Inline distance picker (shown when CHANGE DIST is tapped) -->
+  <div id="fmDistPanel" style="
+    display:none;
+    position:absolute; inset:0;
+    background:rgba(0,0,0,0.92);
+    z-index:10;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:18px;
+    padding:30px 20px;
+  ">
+    <div style="color:#fff; font-size:20px; font-weight:bold; text-align:center;">
+      Change Distance<br>
+      <span id="fmDistBibLabel" style="font-size:14px; color:#aaa;"></span>
+    </div>
+    <select id="fmDistSel" style="
+      font-size:22px; padding:10px 16px; border-radius:10px;
+      width:100%; max-width:300px; background:#222; color:#fff; border:1px solid #555;
+    ">
+      <option value="30K">30K</option>
+      <option value="26.2">26.2</option>
+      <option value="50K">50K</option>
+      <option value="50M">50M</option>
+      <option value="100K">100K</option>
+      <option value="100M">100 mile</option>
+      <option value="200M">200 mile</option>
+      <option value="240M">240 mile</option>
+      <option value="300M">300 mile</option>
+      <option value="DNS">DNS</option>
+    </select>
+    <div style="display:flex; gap:16px; width:100%; max-width:300px;">
+      <button type="button" onclick="fieldModeConfirmDist()" style="
+        flex:1; padding:16px; font-size:18px; font-weight:bold;
+        background:#1a6b3a; color:#fff; border:none; border-radius:12px;
+        touch-action:manipulation; cursor:pointer;
+      ">✓ Confirm</button>
+      <button type="button" onclick="fieldModeCancelDist()" style="
+        flex:1; padding:16px; font-size:18px; font-weight:bold;
+        background:#444; color:#fff; border:none; border-radius:12px;
+        touch-action:manipulation; cursor:pointer;
+      ">✕ Cancel</button>
+    </div>
   </div>
 </div>
 
