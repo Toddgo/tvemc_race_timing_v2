@@ -124,7 +124,6 @@
       const operatorText = msg.operator || "";
 
       const acked = Number(msg.acknowledged || 0) === 1;
-      const ackText = acked ? "✅" : (isReply ? "—" : "⏳");
       const ackTimeText = acked && msg.ack_time ? msg.ack_time : "";
 
       row.appendChild(td(timeText));
@@ -132,8 +131,65 @@
       row.appendChild(td(channelText));
       row.appendChild(td(messageText));
       row.appendChild(td(operatorText));
-      row.appendChild(td(ackText));
-      row.appendChild(td(ackTimeText));
+
+      // ACK cell — interactive checkbox for unacked rows, static ✅ for acked
+      const ackCell = document.createElement("td");
+      ackCell.style.borderBottom = "1px solid #eee";
+      ackCell.style.padding = "4px";
+      ackCell.style.textAlign = "center";
+      ackCell.style.whiteSpace = "nowrap";
+
+      const ackTimeCell = td(ackTimeText);
+
+      if (acked) {
+        ackCell.textContent = "✅";
+      } else {
+        const msgId = msg.id ? Number(msg.id) : 0;
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.title = "Mark acknowledged";
+        cb.style.cursor = "pointer";
+        cb.style.width = "18px";
+        cb.style.height = "18px";
+        cb.disabled = !msgId;
+
+        cb.addEventListener("change", async function () {
+          if (!cb.checked) return;
+          cb.disabled = true;
+
+          try {
+            const res = await fetch("hq_ack_message.php", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: msgId })
+            });
+            const data = await res.json().catch(function () { return null; });
+
+            if (!res.ok || !data || !data.success) {
+              cb.checked = false;
+              cb.disabled = false;
+              alert("ACK failed: " + (data && data.error ? data.error : "HTTP " + res.status));
+              return;
+            }
+
+            // Update the row in-place
+            ackCell.innerHTML = "";
+            ackCell.textContent = "✅";
+            const now = new Date().toLocaleString();
+            ackTimeCell.textContent = now;
+            row.style.background = "";
+          } catch (err) {
+            cb.checked = false;
+            cb.disabled = false;
+            alert("ACK error: " + err.message);
+          }
+        });
+
+        ackCell.appendChild(cb);
+      }
+
+      row.appendChild(ackCell);
+      row.appendChild(ackTimeCell);
 
       tbody.appendChild(row);
     });
