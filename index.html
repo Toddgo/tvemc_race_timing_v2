@@ -359,6 +359,31 @@
   </div>
 </div>
 
+<!-- Aid Station: Reply to HQ -->
+<div id="stationReplyBox"
+     style="display: none;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 8px;
+            margin: 0 0 10px 0;
+            border-radius: 6px;
+            border: 1px solid #4444aa;">
+  <h4 style="margin: 0 0 6px 0; color: #aaaaff; font-size: 15px;">📤 Send Message to HQ</h4>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+    <input type="text"
+           id="stationReplyText"
+           placeholder="Type your reply to HQ..."
+           style="flex: 1; min-width: 200px; padding: 6px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; font-size: 14px;" />
+    <button type="button"
+            id="stationReplyBtn"
+            onclick="sendStationReplyToHQ()"
+            style="background: #4444ff; color: #fff; font-weight: bold;
+                   padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">
+      Send to HQ
+    </button>
+  </div>
+  <div id="stationReplyStatus" style="font-size: 12px; color: #aaa; margin-top: 4px;"></div>
+</div>
 
 
 <!-- Black Receive Area for Incoming HQ Messages -->
@@ -592,14 +617,14 @@
 
 
 <!-- Load your local JS for dev -->
-<script src="race_timing.js?v=debug18g"></script>
+<script src="race_timing.js?v=debug19"></script>
 <!--<script src="results_strip.js?v=1"></script> -->
 <script src="message-batches.js?v=dev1"></script>
 <script src="radio-system.js?v=2"></script>
 <script src="rd-internet.js?v=2"></script>
 <script src="general_comments.js?v=1"></script>
-<script src="hq_inbox_poll.js?v=debug3"></script>
-<script src="hq_log.js?v=4"></script>
+<script src="hq_inbox_poll.js?v=debug4"></script>
+<script src="hq_log.js?v=5"></script>
 <script src="results_strip.js?v=11"></script>
 <script src="results_strip_modes.js?v=3"></script>
 <script src="station_autopass.js?v=1"></script>

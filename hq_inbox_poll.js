@@ -152,6 +152,63 @@ async function sendHqAckToServer(messageId) {
 }
 
 
+// Aid station sends a reply message to HQ
+window.sendStationReplyToHQ = async function () {
+  const textEl  = document.getElementById("stationReplyText");
+  const btn     = document.getElementById("stationReplyBtn");
+  const statusEl = document.getElementById("stationReplyStatus");
+
+  const text = (textEl ? textEl.value : "").trim();
+  if (!text) { if (statusEl) statusEl.textContent = "Type a message first."; return; }
+
+  const stationId    = resolveStationId();
+  const stationLabel = window.TVEMC_STATION_LABEL || stationId || "Unknown Station";
+  const operator     = (document.getElementById("operatorName")?.value || "").trim();
+  const eventCode    = (typeof getEventCode === "function" && getEventCode()) ||
+                       localStorage.getItem("tvemc_event_code") || "";
+
+  if (!eventCode) { alert("No event selected."); return; }
+
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = "Sending…";
+
+  try {
+    const payload = {
+      event_code:     eventCode,
+      station_target: "HQ",                                     // "addressed to HQ"
+      channel:        "internet",
+      message_text:   `[FROM ${stationLabel}] ${text}`,
+      operator:       operator || stationLabel,
+      msg_number:     null,
+    };
+
+    const res  = await fetch("hq_log_message.php", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !(data && data.success)) {
+      const err = (data && data.error) ? data.error : ("HTTP " + res.status);
+      if (statusEl) statusEl.textContent = "Error: " + err;
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    if (textEl) textEl.value = "";
+    if (statusEl) {
+      statusEl.textContent = "Sent to HQ ✓";
+      setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 3000);
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Error: " + err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+
 // Start flashing the inbox
 function startHqInboxFlash() {
   const inbox = document.getElementById("stationInbox");
@@ -250,7 +307,7 @@ window.addEventListener("load", function () {
 
   // Pending inbox polling: only NOT ACKed messages
   async function pollHqMessagesForStation() {
-    const stationId = getStationId();
+    const stationId = resolveStationId();  // always read the live dropdown value
     console.log("HQ inbox polling as stationId =", stationId);
     if (!stationId) return;
 
@@ -306,7 +363,7 @@ window.addEventListener("load", function () {
 
   // History loader: last 10 messages for this station (including broadcasts)
   async function loadStationHistory() {
-    const stationId = getStationId();
+    const stationId = resolveStationId();  // always read the live dropdown value
     if (!stationId) return;
 
     const historyBox = document.getElementById("stationHistory");
@@ -415,6 +472,10 @@ window.addEventListener("load", function () {
       const stored = localStorage.getItem("TVEMC_lastHqMessageId_" + stationId);
       if (stored) lastHqMessageId = parseInt(stored, 10) || 0;
 
+      // Show the reply box now that we know which station this is
+      const replyBox = document.getElementById("stationReplyBox");
+      if (replyBox) replyBox.style.display = "block";
+
       pollHqMessagesForStation();
       loadStationHistory();
 
@@ -455,6 +516,9 @@ window.addEventListener("load", function () {
     if (stationSelect) {
       stationSelect.addEventListener("change", function () {
         resolveStationId();
+        // Show reply box as soon as a station is chosen
+        const replyBox = document.getElementById("stationReplyBox");
+        if (replyBox) replyBox.style.display = "block";
         if (!_pollIntervalSet) {
           initStationPolling();
         } else {

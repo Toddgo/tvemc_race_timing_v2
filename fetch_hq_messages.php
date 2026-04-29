@@ -87,9 +87,14 @@ $targets = array_values(array_unique($targets));
 // 4) Query pending messages
 $limit = 10;
 
+// Optional: only fetch messages NEWER than the last one the client already has
+$since_id = isset($_GET['since_id']) ? (int)$_GET['since_id'] : 0;
+
 // Build placeholders for IN clause
 // Example: station_target IN (?, ?, ?, ?)
 $inPlaceholders = implode(',', array_fill(0, count($targets), '?'));
+
+$sinceClause = $since_id > 0 ? "AND id > ?" : "";
 
 $sql = "
   SELECT
@@ -108,6 +113,7 @@ $sql = "
     event_id = ?
     AND station_target IN ($inPlaceholders)
     AND acknowledged = 0
+    $sinceClause
   ORDER BY id ASC
   LIMIT ?
 ";
@@ -120,9 +126,17 @@ if (!$stmt) {
     exit;
 }
 
-// Bind params dynamically: event_id (int) + targets (strings...) + limit (int)
-$types = "i" . str_repeat("s", count($targets)) . "i";
-$params = array_merge([$event_id], $targets, [$limit]);
+// Bind params dynamically: event_id (int) + targets (strings...) + [since_id (int)] + limit (int)
+$types = "i" . str_repeat("s", count($targets));
+$params = array_merge([$event_id], $targets);
+
+if ($since_id > 0) {
+    $types .= "i";
+    $params[] = $since_id;
+}
+
+$types .= "i";
+$params[] = $limit;
 
 // mysqli bind_param needs references
 $bindNames = [];

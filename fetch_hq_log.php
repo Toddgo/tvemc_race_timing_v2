@@ -47,10 +47,12 @@ $types = "i";
 $args = [$event_id];
 
 if ($station !== '' && strtoupper($station) !== 'ALL') {
-  $where .= " AND (station_target = ? OR station_target = 'ALL')";
+  // Include messages targeted to the station, ALL broadcasts, and station→HQ replies
+  $where .= " AND (station_target = ? OR station_target = 'ALL' OR station_target = 'HQ')";
   $types .= "s";
   $args[] = $station;
 }
+// When no station filter (ALL), return everything including HQ replies
 
 if ($ack === "0" || $ack === "1") {
   $where .= " AND acknowledged = ?";

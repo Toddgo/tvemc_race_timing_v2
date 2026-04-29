@@ -101,24 +101,30 @@
     }
 
     messages.forEach(function (msg) {
+      const isReply = String(msg.station_target || "").toUpperCase() === "HQ";
       const row = document.createElement("tr");
+      if (isReply) {
+        row.style.background = "#e8f4ff"; // light blue tint for station→HQ replies
+      }
 
       function td(text) {
         const c = document.createElement("td");
         c.style.borderBottom = "1px solid #eee";
         c.style.padding = "4px";
+        if (isReply) c.style.fontStyle = "italic";
         c.textContent = text;
         return c;
       }
 
       const timeText = msg.created_at || "";
-      const stationText = prettyStationLabel(msg.station_target || "");
+      // For HQ replies show "→ HQ" so the table is readable
+      const stationText = isReply ? "→ HQ" : prettyStationLabel(msg.station_target || "");
       const channelText = (msg.channel || "").toUpperCase();
       const messageText = msg.message_text || "";
       const operatorText = msg.operator || "";
 
       const acked = Number(msg.acknowledged || 0) === 1;
-      const ackText = acked ? "✅" : "⏳";
+      const ackText = acked ? "✅" : (isReply ? "—" : "⏳");
       const ackTimeText = acked && msg.ack_time ? msg.ack_time : "";
 
       row.appendChild(td(timeText));
@@ -152,7 +158,7 @@
     }
 
     // Explicitly hide aid-station panels that should never show on the HQ page
-    ["stationHistory", "stationInbox", "receiveArea"].forEach(function (id) {
+    ["stationHistory", "stationInbox", "stationReplyBox", "receiveArea"].forEach(function (id) {
       const el = document.getElementById(id);
       if (el) el.style.display = "none";
     });

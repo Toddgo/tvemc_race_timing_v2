@@ -1524,6 +1524,23 @@ function populateStationDropdownsFromMap(map) {
   });
 
   console.log("Dropdowns populated event-wide:", eventCode, "stations:", stationOpts.length, stationOpts.map(o => o.label));
+
+  // Restore the user's station selection NOW that the options actually exist.
+  // restoreHeaderFields() ran earlier (before these options existed) so the value
+  // assignment silently failed there.  We do it here so the dropdown shows the
+  // correct station and so persistAidStationFromDropdown() saves the right code.
+  const _asEl = document.getElementById("aidStation");
+  if (_asEl) {
+    const _savedAS = String(
+      sessionStorage.getItem("tvemc_aidStation") ||
+      localStorage.getItem("tvemc_aidStation") ||
+      ""
+    ).trim().toUpperCase();
+    if (_savedAS) {
+      _asEl.value = _savedAS; // silently a no-op if the option doesn't exist
+    }
+  }
+
   persistAidStationFromDropdown();
   persistDistanceForEvent();
 
