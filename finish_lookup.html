@@ -163,12 +163,18 @@
   <div class="container">
     <div class="page-header">
       <div class="header-logo left">
-        <img src="assets/SOB_2023.png" alt="Sean O'Brien">
+        <img src="assets/SOB_2023.png" alt="Race Logo" id="headerLogoLeft">
       </div>
     
       <div class="header-title">
-        <div class="race-name">SEAN O’BRIEN 50K ~ MARATHON ~ 30K</div>
+        <div class="race-name" id="raceNameTitle">Runner Lookup</div>
         <div class="page-name">Runner Lookup Aid Station</div>
+        <div style="margin-top:6px;">
+          <label for="eventSelect" style="font-size:14px; font-weight:600; color:#004c99;">Event:</label>
+          <select id="eventSelect" style="font-size:14px; padding:4px 8px; border-radius:4px; border:1px solid #aaa; margin-left:6px;">
+            <option value="">Loading events…</option>
+          </select>
+        </div>
       </div>
     
       <div class="header-logo right">
@@ -213,6 +219,65 @@
       <!-- table is injected here -->
     </div>
   </div>
+
+<script>
+// ============================
+// Event dropdown + header init
+// ============================
+(async function initEventDropdown() {
+  const params = new URLSearchParams(window.location.search);
+  const currentCode = params.get('event_code') || '';
+
+  const sel = document.getElementById('eventSelect');
+  const titleEl = document.getElementById('raceNameTitle');
+
+  // Load all events for the dropdown
+  try {
+    const resp = await fetch('events_load.php?list=1', { cache: 'no-store' });
+    const events = await resp.json();
+    if (Array.isArray(events) && events.length) {
+      sel.innerHTML = '';
+      events.forEach(ev => {
+        const opt = document.createElement('option');
+        opt.value = ev.event_code;
+        opt.textContent = ev.event_name;
+        if (ev.event_code === currentCode) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.warn('Could not load event list', e);
+    sel.innerHTML = '<option value="">— unavailable —</option>';
+  }
+
+  // Update header title from the selected event name, or fetch it
+  function updateTitle() {
+    const chosen = sel.options[sel.selectedIndex];
+    if (chosen && chosen.value) {
+      titleEl.textContent = chosen.textContent;
+    }
+  }
+
+  // On dropdown change: redirect with new event_code
+  sel.addEventListener('change', function () {
+    const code = sel.value;
+    if (!code) return;
+    window.location.href = 'finish_lookup.html?event_code=' + encodeURIComponent(code);
+  });
+
+  // Set title immediately after list loads
+  updateTitle();
+
+  // If no match yet (list may still be loading), fetch individual event name
+  if (currentCode && titleEl.textContent === 'Runner Lookup') {
+    try {
+      const r = await fetch(`events_load.php?event_code=${encodeURIComponent(currentCode)}`, { cache: 'no-store' });
+      const ev = await r.json();
+      if (ev && ev.event_name) titleEl.textContent = ev.event_name;
+    } catch (e) { /* ignore */ }
+  }
+})();
+</script>
 
 <script>
     // ============================
