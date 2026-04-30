@@ -3485,7 +3485,7 @@ function toggleFieldMode() {
 }
 
 function fieldModeKey(digit) {
-  if (_fmBib.length >= 6) return;   // max bib length
+  if (_fmBib.length >= 6) return;   // Field Mode is single-bib only (numpad overlay); 6-digit max covers all bib numbers
   _fmBib += digit;
   _fmUpdateDisplay();
 }
