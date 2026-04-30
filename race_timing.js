@@ -1213,7 +1213,7 @@ async function addEntry(action) {
     
       // Registry safety (distance missing) — always alert, regardless of showAlerts
       if (!distance_code || distance_code === "N/A") {
-        alert(`Bib ${bib}: Distance is missing from the runner registry. Update the registry with a Distance column and reload.`);
+        alert(`Bib ${bib}: Distance is not populated in the runner registry. Ensure the Distance column is filled in for this bib and reload the registry.`);
         continue; // skip this bib
       }
     
