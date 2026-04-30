@@ -1,8 +1,8 @@
 {
-  "name": "KH Races – Timing Station",
+  "name": "TVEMC Race Timing",
   "short_name": "Race Timing",
-  "description": "Offline-first race timing log",
-  "start_url": "index.html?hq=1",
+  "description": "Offline-first race timing and aid station log",
+  "start_url": "index.html",
   "display": "standalone",
   "background_color": "#000",
   "theme_color": "#0f0",

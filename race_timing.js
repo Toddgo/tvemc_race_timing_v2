@@ -3382,6 +3382,16 @@ async function loadRunnerRegistryFromServer() {
   bibList = rows;
   window.bibList = bibList;
   console.log("Runner registry loaded:", bibList.length);
+
+  // Cache roster to localStorage so bib lookup works if page reloads while offline
+  try {
+    localStorage.setItem(
+      `tvemc_runnerRoster_${ec}`,
+      JSON.stringify({ saved_at: new Date().toISOString(), runners: rows })
+    );
+  } catch (e) {
+    console.warn("Runner roster cache save failed:", e.message);
+  }
 }
 
 /* ---------------------------
@@ -3545,11 +3555,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("messageNum")?.addEventListener("input", updateSubject);
   document.getElementById("bibNumber")?.addEventListener("input", updateBibInfo);
 
-  // Pull runners from DB if online
+  // Pull runners from DB if online; fall back to cached roster if offline
   try {
     if (await isOnline()) {
       await loadRunnerRegistryFromServer();
       updateBibInfo();
+    } else {
+      // Offline: restore runner roster from localStorage cache so bib lookup still works
+      const ec = (typeof getEventCode === "function") ? getEventCode() : "";
+      if (ec) {
+        try {
+          const cached = JSON.parse(localStorage.getItem(`tvemc_runnerRoster_${ec}`) || "null");
+          if (cached && Array.isArray(cached.runners) && cached.runners.length) {
+            bibList = cached.runners;
+            window.bibList = bibList;
+            console.log(`Runner roster restored from cache (${bibList.length} runners, saved ${cached.saved_at})`);
+            updateBibInfo();
+          }
+        } catch (e) {
+          console.warn("Runner roster cache restore failed:", e.message);
+        }
+      }
     }
   } catch (e) {
     console.warn("Runners auto-load skipped:", e.message);
