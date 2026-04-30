@@ -665,17 +665,60 @@ function updateBibInfo() {
       }
     }
   
-    const bib = (document.getElementById("bibNumber")?.value || "").trim();
+    const rawInput = (document.getElementById("bibNumber")?.value || "").trim();
     const tbody = document.querySelector("#bibInfoTable tbody");
     const table = document.getElementById("bibInfoTable");
     if (!tbody || !table) return;
 
     tbody.innerHTML = "";
 
-    if (!bib || bibList.length === 0) {
+    if (!rawInput || bibList.length === 0) {
       table.style.display = "none";
       return;
     }
+
+    // Multi-bib mode: if commas present, show a summary row for each bib found
+    if (rawInput.includes(",")) {
+      const bibs = rawInput.split(",").map(s => s.trim()).filter(Boolean);
+      const found = bibs.map(b => bibList.find(r =>
+        String(r?.bib ?? r?.bib_number ?? "").trim() === b
+      ));
+      const allFound = found.filter(Boolean);
+
+      if (allFound.length === 0) {
+        table.style.display = "none";
+        return;
+      }
+
+      // Show one row per bib found
+      allFound.forEach(runner => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${runner?.bib ?? runner?.bib_number ?? "N/A"}</td>
+          <td>${runner?.firstName ?? runner?.first_name ?? "N/A"}</td>
+          <td>${runner?.lastName ?? runner?.last_name ?? "N/A"}</td>
+          <td>${runner?.age ?? "N/A"}</td>
+          <td>${runner?.gender ?? runner?.Gender ?? "N/A"}</td>
+          <td>${runner?.distance_code ?? runner?.distance ?? "N/A"}</td>
+          <td>${runner?.previousDistance ?? runner?.previous_distance ?? "N/A"}</td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      // Show count if some bibs were not in registry
+      if (allFound.length < bibs.length) {
+        const missing = bibs.length - allFound.length;
+        const noteRow = document.createElement("tr");
+        noteRow.innerHTML = `<td colspan="7" style="color:#f90;font-size:12px;">⚠️ ${missing} bib(s) not found in registry</td>`;
+        tbody.appendChild(noteRow);
+      }
+
+      table.style.display = "table";
+      return;
+    }
+
+    // Single bib mode
+    const bib = rawInput;
     console.log("bibList sample:", bibList[0]);
 
     const runner = bibList.find(r =>
@@ -1288,6 +1331,15 @@ async function addEntry(action) {
         offlineQueue.push(entry);
         entries.unshift(entry);
         saveData();
+        // Clear bib box on first queued offline entry so operator is ready for next
+        try {
+          const bibEl = document.getElementById("bibNumber");
+          if (bibEl) { bibEl.value = ""; bibEl.focus(); }
+          const table = document.getElementById("bibInfoTable");
+          if (table) table.style.display = "none";
+          timeLockedByBib = false;
+          if (typeof filterBibLog === "function") filterBibLog();
+        } catch (_) {}
         if (showAlerts) alert("Offline: saved locally and queued.");
         continue;
       }
@@ -1990,11 +2042,19 @@ function setupFastTabAndAlerts() {
     });
   }
 
-  // ===== Intercept TAB from Bib Number =====
+  // ===== Intercept TAB and ENTER from Bib Number =====
   const bibEl = document.getElementById("bibNumber");
   if (!bibEl) return;
 
   bibEl.addEventListener("keydown", (e) => {
+    // Enter key: always submit as IN (numpad Enter, keyboard Enter)
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addEntry("IN");
+      return;
+    }
+
+    // Tab key (fast mode): move focus to IN button
     if (!fastTabOn) return;
     if (e.key !== "Tab") return;
     if (e.shiftKey) return;     // keep Shift+Tab normal

@@ -414,7 +414,7 @@
         <input type="checkbox" id="highContrast" name="highContrast" tabindex="0">
         <label for="highContrast">High Contrast Mode (for sunlight)</label>
           <button onclick="document.getElementById('hqPasswordGate').style.display='flex'" style="background:#000080;color:white;font-size:18px;padding:12px 24px;border-radius:12px;margin-left:20px;vertical-align:middle;">Enter HQ / Race Director Mode</button>
-    <form id="raceForm">
+    <form id="raceForm" novalidate>
         <div class="section">
             <label for="eventCode">Event:</label>
             <select id="eventCode" name="eventCode" tabindex="1" style="min-width:260px;font-size:14px;">
@@ -445,7 +445,7 @@
 	    <label><input type="checkbox" id="showAlerts" checked> Show confirmation pop-ups</label>
 	   </div> 		
             <label for="bibNumber">Bib Number:</label>
-            <input type="text" id="bibNumber" name="bibNumber" maxlength="25" oninput="updateBibInfo()" autocomplete="off" tabindex="9" inputmode="numeric" pattern="[0-9]*"><br>
+            <input type="text" id="bibNumber" name="bibNumber" maxlength="100" oninput="updateBibInfo()" autocomplete="off" tabindex="9" inputmode="text" placeholder="Bib # or 23,24,25"><br>
             <table id="bibInfoTable" style="display: none;">
                 <thead>
                     <tr>
