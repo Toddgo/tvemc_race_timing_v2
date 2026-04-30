@@ -219,7 +219,12 @@ if (!empty($_SESSION['operator_access'])) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pin: pin })
     })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      return r.text().then(function(txt) {
+        try { return JSON.parse(txt); }
+        catch(e) { throw new Error('Server response: ' + txt.substring(0, 120)); }
+      });
+    })
     .then(function(data) {
       if (data.success) {
         window.location.replace('index.php');
@@ -228,8 +233,8 @@ if (!empty($_SESSION['operator_access'])) {
         showError('Incorrect PIN — try again');
       }
     })
-    .catch(function() {
-      showError('Connection error — please retry');
+    .catch(function(e) {
+      showError(e && e.message ? e.message : 'Connection error — please retry');
     });
   }
 
