@@ -693,14 +693,17 @@ function updateBibInfo() {
       // Show one row per bib found
       allFound.forEach(runner => {
         const row = document.createElement("tr");
+        const rDist = runner?.distance_code || runner?.distance || "N/A";
+        const rPrev = runner?.previousDistance || runner?.previous_distance || "N/A";
+        const rDistStyle = (rDist === "N/A") ? ' style="color:#f90;"' : '';
         row.innerHTML = `
           <td>${runner?.bib ?? runner?.bib_number ?? "N/A"}</td>
           <td>${runner?.firstName ?? runner?.first_name ?? "N/A"}</td>
           <td>${runner?.lastName ?? runner?.last_name ?? "N/A"}</td>
           <td>${runner?.age ?? "N/A"}</td>
           <td>${runner?.gender ?? runner?.Gender ?? "N/A"}</td>
-          <td>${runner?.distance_code ?? runner?.distance ?? "N/A"}</td>
-          <td>${runner?.previousDistance ?? runner?.previous_distance ?? "N/A"}</td>
+          <td${rDistStyle}>${rDist}</td>
+          <td>${rPrev}</td>
         `;
         tbody.appendChild(row);
       });
@@ -739,8 +742,9 @@ function updateBibInfo() {
     const ln   = runner?.lastName ?? runner?.last_name ?? "N/A";
     const age  = runner?.age ?? "N/A";
     const gen  = runner?.gender ?? runner?.Gender ?? "N/A";
-    const dist = runner?.distance_code ?? runner?.distance ?? "N/A";
-    const prev = runner?.previousDistance ?? runner?.previous_distance ?? "N/A";
+    const dist = runner?.distance_code || runner?.distance || "N/A";
+    const prev = runner?.previousDistance || runner?.previous_distance || "N/A";
+    const distStyle = (dist === "N/A") ? ' style="color:#f90;"' : '';
     
     row.innerHTML = `
       <td>${rbib}</td>
@@ -748,7 +752,7 @@ function updateBibInfo() {
       <td>${ln}</td>
       <td>${age}</td>
       <td>${gen}</td>
-      <td>${dist}</td>
+      <td${distStyle}>${dist}</td>
       <td>${prev}</td>
     `;
     tbody.appendChild(row);
@@ -1176,6 +1180,8 @@ async function addEntry(action) {
     const subjectInput = document.getElementById("subject");
     if (subjectInput) subjectInput.value = `${event_code} ${station_name} Message #${messageNum}`;
     
+    let bibsSubmitted = 0;  // track how many bibs made it through without being skipped
+
     for (const bib of bibs) {
       const runner = bibList.find(r => String(r.bib).trim() === String(bib).trim()) || null;
     
@@ -1205,15 +1211,16 @@ async function addEntry(action) {
           : (runner?.previousDistance || "")
       );
     
-      // Registry safety (distance missing)
+      // Registry safety (distance missing) — always alert, regardless of showAlerts
       if (!distance_code || distance_code === "N/A") {
-        if (showAlerts) alert("Bib not found in registry (distance missing). Load registry or check bib.");
+        alert(`Bib ${bib}: Distance is missing from the runner registry. Update the registry with a Distance column and reload.`);
         continue; // skip this bib
       }
     
       if (!station_code) {
-       if (showAlerts) alert("Station Code missing — cannot submit. Re-select Aid Station.");
-       continue; // skip this bib safely
+        // Always alert on station missing — this is a blocking operator error
+        alert("Station Code missing — cannot submit. Re-select Aid Station.");
+        continue; // skip this bib safely
       }
     
       // Auto-pass routing for multi-pass stations (Corral/Kanan/Zuma)
@@ -1270,6 +1277,7 @@ async function addEntry(action) {
         console.log("AUTO FLAG CHECK:", { selectedStationCode, auto_base, station_code, station_name, entry });
         entries.unshift(entry);
         saveData();
+        bibsSubmitted++;
         continue;
       }
       
@@ -1331,6 +1339,7 @@ async function addEntry(action) {
         offlineQueue.push(entry);
         entries.unshift(entry);
         saveData();
+        bibsSubmitted++;
         // Clear bib box on first queued offline entry so operator is ready for next
         try {
           const bibEl = document.getElementById("bibNumber");
@@ -1366,10 +1375,10 @@ async function addEntry(action) {
       if (typeof filterBibLog === "function") filterBibLog();
       } catch (_) {}    
 
-        // True validation failure (rare now): do not save as a pass
+        // True validation failure (rare now): do not save as a pass — always alert so operator knows
         if (result && result.success === false) {
           const errMsg = String(result.error || "");
-          if (showAlerts) alert("Submit rejected: " + (errMsg || "Unknown server rejection"));
+          alert("Submit rejected: " + (errMsg || "Unknown server rejection"));
            continue;
     
         }
@@ -1409,6 +1418,7 @@ async function addEntry(action) {
         entries.unshift(entry);
         saveData();
         recomputeStickyStatusSets();
+        bibsSubmitted++;
 
         // Undo/Switch (only if enabled + server gave pass_id)
         if (ENABLE_UNDO_SWITCH && isAuto && result?.pass_id && window.TvemcAutoPassUndo?.show) {
@@ -1447,17 +1457,24 @@ async function addEntry(action) {
           continue;
         }
 
-        // Other errors: do not queue
+        // Other errors: always alert so operator knows
         console.warn("Online submit failed:", em);
-        if (showAlerts) alert("Submit failed: " + em);
+        alert("Submit failed: " + em);
         continue;
       }
       
     }    // ✅ END for (const bib of bibs)
 
+    // Belt-and-suspenders: if every bib was skipped (distance/station errors silenced
+    // the individual alerts but nothing succeeded), give the operator one final summary.
+    // The individual error alerts above now always fire, so this is a last-resort safety net.
+    if (bibsSubmitted === 0 && bibs.length > 0 && action !== "GENERAL") {
+      console.warn("addEntry: 0 bibs submitted out of", bibs.length);
+    }
+
   } catch (e) {
     console.error("Error adding entry:", e);
-    if (showAlerts) alert("Failed to add entry: " + (e?.message || e));
+    alert("Failed to add entry: " + (e?.message || e));
   } finally {
     isSubmitting = false;
     focusBibBox();   // ✅ always restore focus after any submit attempt
@@ -2073,7 +2090,7 @@ function showDistancePopup() {
 
   const bib = (document.getElementById("bibNumber")?.value || "").trim();
   if (!bib) {
-    if (showAlerts) alert("Enter a Bib Number first, then Change Distance.");
+    alert("Enter a Bib Number first, then Change Distance.");
     return;
   }
 
@@ -2110,13 +2127,13 @@ async function updateDistance(e) {
   
 
   if (!bibStr || !newDist) {
-    if (showAlerts) alert("Missing Bib Number or Distance selection.");
+    alert("Missing Bib Number or Distance selection.");
     return;
   }
 
   const runner = bibList.find(r => String(r.bib).trim() === String(bibStr).trim());
   if (!runner) {
-    if (showAlerts) alert("Bib not found in runner list.");
+    alert("Bib not found in runner list.");
     return;
   }
   
