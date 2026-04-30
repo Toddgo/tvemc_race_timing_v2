@@ -2124,119 +2124,115 @@ async function updateDistance(e) {
 
   const bibStr = (document.getElementById("bibNumber")?.value || "").trim();
   const newDist = (document.getElementById("distanceSelect")?.value || "").trim();
-  
 
   if (!bibStr || !newDist) {
     alert("Missing Bib Number or Distance selection.");
     return;
   }
 
-  const runner = bibList.find(r => String(r.bib).trim() === String(bibStr).trim());
-  if (!runner) {
-    alert("Bib not found in runner list.");
+  // Support comma-separated multi-bib input (e.g. "5,6,7,8")
+  const bibs = bibStr.split(",").map(s => s.trim()).filter(Boolean);
+
+  // DNS is a STATUS (pass_type), NOT a distance — delegate to addEntry which handles multi-bib.
+  if (newDist.toUpperCase() === "DNS") {
+    // Pre-fill note box once (addEntry will see it)
+    const noteBox = document.getElementById("comment");
+    if (noteBox && !noteBox.value.trim()) {
+      noteBox.value = "DNS (Did Not Start)";
+    }
+
+    await addEntry("DNS");
+
+    // Force UI + cards to refresh after DNS submit (race-safe)
+    try {
+      const bibEl = document.getElementById("bibNumber");
+      if (bibEl) bibEl.value = "";
+      if (typeof clearRunnerInfoPanel === "function") clearRunnerInfoPanel();
+
+      setTimeout(async () => {
+        try { if (typeof renderBibLog === "function") await renderBibLog(); } catch {}
+        try { if (typeof loadPasses === "function") await loadPasses(); } catch {}
+        try { if (typeof refreshStatusOverrides === "function") await refreshStatusOverrides(); } catch {}
+        try { if (typeof refreshCards === "function") await refreshCards(); } catch {}
+      }, 0);
+    } catch {}
+
+    closeDistancePopup();
+    if (showAlerts) alert(`DNS recorded for Bib(s) ${bibStr}`);
     return;
   }
-  
-// DNS is a STATUS (pass_type), NOT a distance.
-// Do NOT set runner.distance = "DNS".
-    if (newDist.toUpperCase() === "DNS") {
-      const oldDist = runner.distance || runner.previousDistance || "N/A";
-    
-      // Put a helpful note if blank
-      const noteBox = document.getElementById("comment");
-      if (noteBox && !noteBox.value.trim()) {
-        noteBox.value = `DNS (Did Not Start) — distance ${oldDist}`;
-      }
-    
-              // Safety: prevent addEntry from crashing if sticky helper is missing   Jan 25 at 19:33
-              // function getStickyStatusForBib(bib) {
-              // return { dns: false, dnf: false, finish: false, note: "" };
-              // }
-    
-      // Submit a DNS pass entry
-      await addEntry("DNS");
-    
-     // Force UI + cards to refresh after DNS submit (race-safe)
-      try {
-        // Clear the runner panel and bib input (prevents operator confusion)
-        const bibEl = document.getElementById("bibNumber");
-        if (bibEl) bibEl.value = "";
-        if (typeof clearRunnerInfoPanel === "function") clearRunnerInfoPanel();
 
-        // Let the browser repaint before heavy reloads
-        setTimeout(async () => {
-          try {
-            if (typeof renderBibLog === "function") await renderBibLog();
-          } catch {}
-          try {
-            if (typeof loadPasses === "function") await loadPasses();
-          } catch {}
-          try {
-            if (typeof refreshStatusOverrides === "function") await refreshStatusOverrides();
-          } catch {}
-          try {
-            if (typeof refreshCards === "function") await refreshCards();
-          } catch {}
-        }, 0);
-      } catch {}
+  // Non-DNS distance change: update each bib's runner record in bibList
+  const notFound = [];
+  const updated  = [];
 
-      closeDistancePopup();
-      if (showAlerts) alert(`DNS recorded for Bib ${bibStr} (${oldDist})`);
-      return;
+  for (const bib of bibs) {
+    const runner = bibList.find(r => String(r.bib).trim() === bib);
+    if (!runner) {
+      notFound.push(bib);
+      continue;
+    }
+    runner.previousDistance = runner.distance || runner.previousDistance || "N/A";
+    runner.distance = newDist;
+    updated.push(bib);
   }
-    
-  runner.previousDistance = runner.distance || runner.previousDistance || "N/A";
-  runner.distance = newDist;
+
+  if (notFound.length) {
+    alert(`Bib(s) not found in runner list: ${notFound.join(", ")}`);
+  }
+
+  if (!updated.length) {
+    return;
+  }
 
   updateBibInfo();
 
-  const oldDist = runner.previousDistance || "N/A";
   const noteBox = document.getElementById("comment");
   if (noteBox && !noteBox.value.trim()) {
-    noteBox.value = `Distance changed ${oldDist} → ${newDist}`;
+    noteBox.value = updated.length === 1
+      ? `Distance changed → ${newDist}`
+      : `Distance changed → ${newDist} for bibs ${updated.join(", ")}`;
   }
 
-  // Optional: set manual runner start override (per bib)
-  try {
-    const bibNum = parseInt(bibStr || "0", 10);
-    if (bibNum > 0) {
-      const doOverride = confirm("Override start time for this runner? (OK = yes, Cancel = no)");
-      if (doOverride) {
-        const suggested =
-          (window.TVEMC_runnerStartByBib?.get(String(bibNum)) ||
-           window.TVEMC_startByDistance?.get(String(newDist)) ||
-           "");
+  // Start-time override only makes sense for a single bib
+  if (updated.length === 1) {
+    try {
+      const bibNum = parseInt(updated[0], 10);
+      if (bibNum > 0) {
+        const doOverride = confirm("Override start time for this runner? (OK = yes, Cancel = no)");
+        if (doOverride) {
+          const suggested =
+            (window.TVEMC_runnerStartByBib?.get(String(bibNum)) ||
+             window.TVEMC_startByDistance?.get(String(newDist)) ||
+             "");
 
-        const input = prompt("Enter start time (YYYY-MM-DD HH:MM:SS)", suggested);
-        if (input && input.trim()) {
-          const event_code = cleanEventCode(window.TVEMC_EVENT_CODE || getEventCode());
-          const set_by = (document.getElementById("operatorName")?.value || "").trim() || "station";
-          const reason = "Distance change";
+          const input = prompt("Enter start time (YYYY-MM-DD HH:MM:SS)", suggested);
+          if (input && input.trim()) {
+            const event_code = cleanEventCode(window.TVEMC_EVENT_CODE || getEventCode());
+            const set_by = (document.getElementById("operatorName")?.value || "").trim() || "station";
 
-          await window.saveRunnerStartOverride({
-            event_code,
-            bib: bibNum,
-            start_ts_actual: input.trim(),
-            reason,
-            set_by
-          });
+            await window.saveRunnerStartOverride({
+              event_code,
+              bib: bibNum,
+              start_ts_actual: input.trim(),
+              reason: "Distance change",
+              set_by
+            });
 
-          // Update local map so results update immediately
-          if (window.TVEMC_runnerStartByBib) {
-            window.TVEMC_runnerStartByBib.set(String(bibNum), input.trim());
-            // optional: refresh config on next results compute
-            // (or call loadResultsConfig() if you want immediate refresh)
-           }
-          alert("Runner start override saved.");
+            if (window.TVEMC_runnerStartByBib) {
+              window.TVEMC_runnerStartByBib.set(String(bibNum), input.trim());
+            }
+            alert("Runner start override saved.");
+          }
         }
       }
+    } catch (err) {
+      alert("Start override failed: " + err.message);
     }
-  } catch (err) {
-    alert("Start override failed: " + err.message);
   }
 
   closeDistancePopup();
-  if (showAlerts) alert(`Distance updated for Bib ${bibStr}: ${oldDist} → ${newDist}`);
+  if (showAlerts) alert(`Distance updated for Bib(s) ${updated.join(", ")} → ${newDist}`);
 }
 
 
