@@ -11,7 +11,8 @@ return [
       'http://localhost',
       'http://127.0.0.1'
   ],
-  'hq_password' => 'Jesse2026!'
+  'hq_password'   => 'Jesse2026!',
+  'operator_pin'  => '7291'
 ];
 
 

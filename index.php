@@ -1,3 +1,7 @@
+<?php
+session_start();
+if (empty($_SESSION['operator_access'])) { header('Location: access.php'); exit; }
+?>
 <script type="text/javascript">
         var gk_isXlsx = false;
         var gk_xlsxFileLookup = {};
