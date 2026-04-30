@@ -1941,7 +1941,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || window.entries || [];
                 let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if ((window.TVEMC_isHQ?.() || false)) {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
@@ -1956,7 +1956,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || [];
                 let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if ((window.TVEMC_isHQ?.() || false)) {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;

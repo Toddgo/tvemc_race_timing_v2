@@ -51,6 +51,22 @@
    <!--Was and will be; KH_SOB_2026_0003 For event_id = 1-->
     <title>KH_SOB_2026_0003 Race Tracker with Bib Info</title>  
 
+<script>
+// ── HQ Mode: read ?hq=1 from URL (or sessionStorage), then strip the param ──
+(function () {
+  var qs = new URLSearchParams(window.location.search);
+  if (qs.get('hq') === '1') {
+    sessionStorage.setItem('tvemc_hq_mode', '1');
+    qs.delete('hq');
+    var newSearch = qs.toString() ? '?' + qs.toString() : '';
+    history.replaceState(null, '', window.location.pathname + newSearch + window.location.hash);
+  }
+  window.TVEMC_isHQ = function () {
+    return sessionStorage.getItem('tvemc_hq_mode') === '1';
+  };
+})();
+</script>
+
 <style>
   /* Flashing highlight when new HQ messages arrive */
   .hq-inbox-new {
@@ -716,7 +732,8 @@ async function enterHqMode() {
     return;
   }
   localStorage.setItem('hq_auth_token', 'valid');
-  location.href = '?hq=1';
+  sessionStorage.setItem('tvemc_hq_mode', '1');
+  location.href = location.pathname;
 }
 </script>
 

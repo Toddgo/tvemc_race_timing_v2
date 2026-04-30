@@ -310,7 +310,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Show HQ box if ?hq=1
 function _showHqBoxIfNeeded() {
-  if (new URLSearchParams(window.location.search).get("hq") === "1") {
+  if (window.TVEMC_isHQ?.() || false) {
     const hqBox = document.getElementById("hqRadioBox");
     if (hqBox) hqBox.style.display = "block";
   }

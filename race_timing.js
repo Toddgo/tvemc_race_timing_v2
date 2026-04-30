@@ -429,8 +429,7 @@ function loadData() {
 }
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = (window.TVEMC_isHQ?.() || false);
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -510,7 +509,7 @@ function updateFinishButtonVisibility() {
   const btn = document.getElementById("finishBtn");
   if (!btn) return;
 
-  const isHq = window.location.search.includes("hq=1");
+  const isHq = (window.TVEMC_isHQ?.() || false);
   btn.style.display = isHq ? "inline-block" : "none";
 }
 
@@ -518,8 +517,7 @@ window.addEventListener("load", updateFinishButtonVisibility);
 updateFinishButtonVisibility();
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = (window.TVEMC_isHQ?.() || false);
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");

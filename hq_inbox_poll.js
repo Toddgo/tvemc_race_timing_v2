@@ -489,7 +489,7 @@ window.addEventListener("load", function () {
   // Start polling when page is loaded (aid station view)
   window.addEventListener("load", function () {
     // Do NOT poll in HQ mode (?hq=1)
-    if (window.location.search.includes("hq=1")) return;
+    if (window.TVEMC_isHQ?.() || false) return;
 
     // Show the reply box immediately on aid station pages — no timing dependency.
     // sendStationReplyToHQ() calls resolveStationId() at click-time, so it is safe

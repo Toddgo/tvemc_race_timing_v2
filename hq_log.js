@@ -204,7 +204,7 @@
 
   window.addEventListener("load", function () {
     // Only show and run the HQ log in HQ mode
-    if (!window.location.search.includes("hq=1")) {
+    if (!(window.TVEMC_isHQ?.() || false)) {
       return;
     }
 
