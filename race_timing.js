@@ -647,6 +647,17 @@ function incrementMessage() {
   }
 }
 
+function refreshResultsStripForCurrentStation() {
+  try {
+    if (!window.ResultsStrip?.update) return;
+    const stationCode = String(document.getElementById("aidStation")?.value || "").trim().toUpperCase();
+    const list = Array.isArray(entries) ? entries : [];
+    window.ResultsStrip.update(list, stationCode);
+  } catch (e) {
+    console.warn("Results strip refresh on station change failed:", e?.message || e);
+  }
+}
+
 /* ---------------------------
    Runners info pop-up under bib box
 ----------------------------*/
@@ -1938,6 +1949,7 @@ function restoreHeaderFields() {
       try { sessionStorage.setItem("tvemc_aidStation", sc); } catch (err) {}
       localStorage.setItem("tvemc_aidStation", sc);
       updateSubject();
+      refreshResultsStripForCurrentStation();
     });
   }
 }
@@ -1992,6 +2004,7 @@ function wireHeaderFieldPersistence() {
   localStorage.setItem("tvemc_aidStation", sc);
 
   updateSubject();
+  refreshResultsStripForCurrentStation();
 });
 }
 
@@ -3651,7 +3664,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Attach listeners
   document.getElementById("eventName")?.addEventListener("input", updateSubject);
-  document.getElementById("aidStation")?.addEventListener("change", updateSubject);
+  document.getElementById("aidStation")?.addEventListener("change", () => {
+    updateSubject();
+    refreshResultsStripForCurrentStation();
+  });
   document.getElementById("messageNum")?.addEventListener("input", updateSubject);
   document.getElementById("bibNumber")?.addEventListener("input", updateBibInfo);
 
