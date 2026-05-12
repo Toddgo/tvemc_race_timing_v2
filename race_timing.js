@@ -190,12 +190,16 @@ const STATION_NAME_TO_CODE = {
 
   "📍ZUMA EDISION RIDGE MTWY #1": "AS4",
   "ZUMA EDISION RIDGE MTWY #1": "AS4",
+  "📍ZUMA EDISON RIDGE MTWY #1": "AS4",
+  "ZUMA EDISON RIDGE MTWY #1": "AS4",
 
   "📍BONSALL": "AS5",
   "BONSALL": "AS5",
 
   "📍ZUMA EDISION RIDGE MTWY #2": "AS6",
   "ZUMA EDISION RIDGE MTWY #2": "AS6",
+  "📍ZUMA EDISON RIDGE MTWY #2": "AS6",
+  "ZUMA EDISON RIDGE MTWY #2": "AS6",
 
   "📍KANAN ROAD #2": "AS7",
   "KANAN ROAD #2": "AS7",
@@ -1496,6 +1500,26 @@ function displayTimeForEntry(e) {
   return corrected || (e.time ?? "");
 }
 
+// Infer the canonical station code from a station name when the DB station_code is NULL.
+// This mirrors the text-matching logic in results_strip.js safeStationCode() so that
+// the dropdown value is always consistent with how bib-log entries are tagged.
+function inferStationCodeFromName(name) {
+  const st = String(name || "").toUpperCase().trim();
+  if (st.includes("CORRAL CANYON #1")) return "AS1";
+  if (st.includes("KANAN ROAD #1"))    return "AS2";
+  if (st.includes("ZUMA") && st.includes("#1")) return "AS4";
+  if (st.includes("BONSALL"))           return "AS5";
+  if (st.includes("ZUMA") && st.includes("#2")) return "AS6";
+  if (st.includes("KANAN ROAD #2"))    return "AS7";
+  if (st.includes("CORRAL CANYON #2")) return "AS8";
+  if (st.includes("BULLDOG") || st.includes("100K TURNAROUND")) return "AS9";
+  if (st.includes("CORRAL CANYON #3")) return "AS10";
+  if (st.includes("PIUMA") || st.includes("PUMA")) return "AS11";
+  if (st.includes("FINISH LINE") || st === "FINISH") return "FINISH";
+  if (st.includes("TURNAROUND") && st.includes("30K")) return "T30K";
+  return "";
+}
+
 function populateStationDropdownsFromMap(map) {
   const eventCode = String(
     (typeof getEventCode === "function" ? getEventCode() : "") || ""
@@ -1532,13 +1556,16 @@ function populateStationDropdownsFromMap(map) {
     return ao - bo;
   });
 
-  // Build options: value = station_code when available (backend key), else station_name
+  // Build options: value = station_code when available (backend key), else infer from
+  // station name (so the dropdown value matches what safeStationCode() returns for entries),
+  // falling back to the raw station name only if no code can be inferred.
   const stationOpts = uniqueStations
     .map(s => {
       const code = String(s.station_code || "").trim().toUpperCase();
       const name = String(s.station_name || "").trim();
+      const resolvedCode = code || inferStationCodeFromName(name);
       return {
-        value: code || name,
+        value: resolvedCode || name,
         label: `📍 ${name}`
       };
     })
