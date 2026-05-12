@@ -1307,8 +1307,9 @@ function stationNameFromCode(code) {
       const out = [];
       for (const [bib, eFrom] of fromLatest.entries()) {
         // ✅ ADD THESE 4 LINES RIGHT HERE (first thing inside the for loop):
-        if (config.use_out_for_expected && eFrom.pass_type !== 'OUT') {
-          console.log(`  - SKIP bib ${bib}: pass_type="${eFrom.pass_type}" (needs OUT)`);
+        const fromAction = safeAction(eFrom);
+        if (config.use_out_for_expected && fromAction !== "OUT") {
+          console.log(`  - SKIP bib ${bib}: action="${fromAction}" (needs OUT)`);
           continue; // Skip IN passes for events that require OUT
         }
         
