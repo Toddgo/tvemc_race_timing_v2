@@ -44,7 +44,19 @@ function buildPathFromAidStationMap(distance) {
 // stationNameFromCode — prefer dynamic lookup from in-memory AID_STATION_MAP
 function stationNameFromCode(code) {
   const c = String(code || "").toUpperCase();
-  
+
+  // Prefer live AID_STATION_MAP so non-SOB/AZM events (e.g. Bishop Ultra) get correct names
+  try {
+    const aidMap = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+    for (const dist of Object.keys(aidMap)) {
+      for (const s of (aidMap[dist] || [])) {
+        if (String(s.station_code || '').toUpperCase() === c && s.station_name) {
+          return s.station_name;
+        }
+      }
+    }
+  } catch (_) {}
+
   const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
   const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
   
@@ -550,7 +562,19 @@ window.getCurrentStationContext = function () {
 // FEB20 2026 Updated for multi-event support (SOB vs AZM-300)
 function stationNameFromCode(code) {
   const c = String(code || "").toUpperCase();
-  
+
+  // Prefer live AID_STATION_MAP so non-SOB/AZM events (e.g. Bishop Ultra) get correct names
+  try {
+    const aidMap = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+    for (const dist of Object.keys(aidMap)) {
+      for (const s of (aidMap[dist] || [])) {
+        if (String(s.station_code || '').toUpperCase() === c && s.station_name) {
+          return s.station_name;
+        }
+      }
+    }
+  } catch (_) {}
+
   // Determine which event we're running
   const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
   const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
@@ -1457,8 +1481,10 @@ function stationNameFromCode(code) {
           out.push({
             bib,
             last_station: stationNameFromCode(lastCode),
+            last_station_code: lastCode,
             last_time: safePassTs(e),
             next_station: stationNameFromCode(nextCode),
+            next_station_code: nextCode,
             distance: dist,
             _ts: parseTsToMs(safePassTs(e))
           });

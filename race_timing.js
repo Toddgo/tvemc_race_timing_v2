@@ -1057,7 +1057,7 @@ async function loadPassesFromServer() {
 
   for (const e of chron) {
     const bib = String(e.bib_number || "");
-    const group = stationGroupFromCode(e.station_code);
+    const group = stationGroupFromCode(e.station_code) || String(e.station_code || "").toUpperCase();
               // const baseStation = stripPassSuffix(e.station);
               // const group = stationGroupFromName(baseStation);
     if (!bib || !group) continue;
@@ -1076,7 +1076,7 @@ async function loadPassesFromServer() {
   }
 
   for (const e of entries) {
-    const group = stationGroupFromCode(e.station_code);
+    const group = stationGroupFromCode(e.station_code) || String(e.station_code || "").toUpperCase();
     if (!group) continue;
 
     const n = passLabelByPassId[e.pass_id];
@@ -1731,9 +1731,8 @@ if (window.ResultsStrip?.update) {
     const mPass = stationLabelRaw.match(/\(Pass\s+(\d+)\)/i);
     const rawPassNum = mPass ? mPass[1] : "";
     
-    // Only show Pass # for Corral/Kanan/Zuma rows
-    const showPass = !!stationGroupFromCode(e.station_code); // CORRAL/KANAN/ZUMA only
-    const passNum = showPass ? (e.pass_num || "") : "";
+    // Show Pass # for all stations that have a pass_num
+    const passNum = e.pass_num || "";
 
     // AUTO suffix: always for multi-pass station groups (stable, no dropdown dependency)
     const sc = safeString(e.station_code).toUpperCase();
