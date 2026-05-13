@@ -632,8 +632,8 @@ function stationNameFromCode(code) {
         const nameKey = normalizeStationNameKey(name);
         const codeKey = normalizeStationNameKey(sc);
         if (nameKey === target || codeKey === target) return sc;
-        // Loose fallback for variants like "CDF (Pass 1)" vs "CDF".
-        if (Math.min(nameKey.length, target.length) >= 3 && (nameKey.includes(target) || target.includes(nameKey))) return sc;
+        // Conservative fallback for prefixed/suffixed variants after normalization.
+        if (Math.min(nameKey.length, target.length) >= 4 && (nameKey.startsWith(target) || target.startsWith(nameKey))) return sc;
       }
     }
     return "";
