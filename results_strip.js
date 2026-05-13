@@ -1455,6 +1455,25 @@ function stationNameFromCode(code) {
       return out;
     }
 
+    // Shared Expected-From-Previous filter so Card C and popup always match.
+    function filterExpectedPrevRowsForStation(rows, stationCodes, stationLabel) {
+      const src = Array.isArray(rows) ? rows : [];
+      const codes = new Set((stationCodes || []).map(s => String(s || "").toUpperCase()));
+      const label = String(stationLabel || "").toUpperCase();
+
+      return src.filter(r => {
+        const bib = String(r?.bib ?? "").trim();
+        if (!bib) return false;
+
+        const nextCode = String(r?.next_station_code || "").toUpperCase();
+        const nextName = String(r?.next_station || "").toUpperCase();
+        const codeMatch = nextCode && codes.has(nextCode);
+        const nameMatch = !!(label && nextName && label.includes(nextName));
+
+        return codeMatch || nameMatch;
+      });
+    }
+
   // ---------- Main render ----------
   let lastList = [];
   let lastStationCode = "";
@@ -1868,12 +1887,18 @@ function stationNameFromCode(code) {
         try {
           localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
             rows: window.__rs_expectedPrevRows || [],
-            stationCodes: [stationUpper],
+            stationCodes: stationCodes || [stationUpper],
             stationLabel: stationLabel || ''
           }));
         } catch (e) {
           console.warn("Failed to update localStorage expectedPrevRows:", e);
         }
+
+      const expectedPrevRowsForCurrentStation = filterExpectedPrevRowsForStation(
+        window.__rs_expectedPrevRows || expectedPrevRows || [],
+        stationCodes,
+        stationLabel
+      );
           
       // Render UI (cards)
       updateUI({
@@ -1889,7 +1914,7 @@ function stationNameFromCode(code) {
     
         // Card C - CHANGE THIS LINE:
         cLabel: `Card C — Expected From Previous`,
-        cVal: `${Math.max(0, (window.__rs_expectedPrevRows || expectedPrevRows || []).length - seenHereSet.size)}`,  // ✅ NEW
+        cVal: `${expectedPrevRowsForCurrentStation.length}`,
         cSub: isPersonnelStation(stationUpper)
           ? `Personnel view (no station expectations)`
           : (stationUpper === "FINISH"
@@ -2080,18 +2105,8 @@ function stationNameFromCode(code) {
               const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
               const popupCodes = parsed && Array.isArray(parsed.stationCodes) ? parsed.stationCodes : [];
               const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : '';
-              
-              const filtered = (rows || []).filter(r => {
-                const bib = String(r?.bib ?? "").trim();
-                if (!bib) return false;
-            
-                const nextCode = String(r?.next_station_code || "").toUpperCase();
-                const nextName = String(r?.next_station || "").toUpperCase();
-              
-               const codeMatch = popupCodes.includes(nextCode);
-               const nameMatch = popupLabel && nextName && popupLabel.includes(nextName);
-               return codeMatch || nameMatch;
-             });
+
+              const filtered = filterExpectedPrevRowsForStation(rows, popupCodes, popupLabel);
               
               // Remove code-only columns so popup only shows human-readable station names
               for (const r of filtered) {
