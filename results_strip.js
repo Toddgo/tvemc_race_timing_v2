@@ -120,11 +120,6 @@ function buildPathFromAidStationMap(distance) {
 function recomputeExpectedFromPrevForUI() {
   try {
     const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
-    const distKey = Object.keys(map)[0] || '300M';
-    const stations = (map[distKey] || []).slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
-    const path = stations.map(s => String(s.station_code || s.code || s.value || '').toUpperCase());
-
-    // latest pass per bib from the in-memory lastList
     const list = window.__rs_lastList || [];
     const latestByBib = new Map();
     for (const e of list) {
@@ -135,60 +130,123 @@ function recomputeExpectedFromPrevForUI() {
       if (!prev || ts > (Date.parse(prev.pass_ts || prev.time) || 0)) latestByBib.set(bib, e);
     }
 
-    // helper: normalize simple strings for fuzzy compare
+    const tsMs = s => {
+      const raw = String(s || '').trim();
+      if (!raw) return 0;
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+        return Date.parse(raw.replace(' ', 'T') + 'Z') || 0;
+      }
+      return Date.parse(raw) || 0;
+    };
     const norm = s => String(s || '').toUpperCase().trim();
     const normLoose = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const stripPassToken = s => normLoose(s).replace(/PASS\d+/g, '');
+    const normalizeDistance = raw => {
+      const u = norm(raw).replace(/\s+/g, ' ');
+      if (u === '50M' || u === '50 M' || u === '50MILE' || u === '50 MILE' || u === '50 MILES' || u === '50 MILER') return '50M';
+      if (u === '100K' || u === '100 K' || u === '100KM' || u === '100 KM') return '100K';
+      if (u === '50K' || u === '50 K' || u === '50KM') return '50K';
+      if (u === '30K' || u === '30 K' || u === '30KM') return '30K';
+      if (u === '26.2' || u.includes('MARATHON')) return '26.2';
+      if (u === '100M' || u === '100 MI' || u === '100 MILE' || u === '100 MILES' || u === '100MILE') return '100M';
+      if (u === '200M' || u === '200 MI' || u === '200 MILE' || u === '200 MILES' || u === '200MILE') return '200M';
+      if (u === '240M' || u === '240 MI' || u === '240 MILE' || u === '240 MILES' || u === '240MILE') return '240M';
+      if (u === '300M' || u === '300 MI' || u === '300 MILE' || u === '300 MILES' || u === '300MILE') return '300M';
+      return String(raw || '').trim();
+    };
+    const pathsByDist = {};
+    const stationNameByCode = new Map();
+    for (const dist of Object.keys(map)) {
+      const stations = (map[dist] || []).slice().sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
+      pathsByDist[dist] = stations
+        .map(s => String(s.station_code || s.code || s.value || '').toUpperCase())
+        .filter(Boolean);
+      for (const s of stations) {
+        const code = String(s.station_code || s.code || s.value || '').toUpperCase();
+        const name = String(s.station_name || s.text || s.name || '').trim();
+        if (code && name && !stationNameByCode.has(code)) stationNameByCode.set(code, name);
+      }
+    }
+    const resolveDistanceKey = raw => {
+      const direct = String(raw || '').trim();
+      if (direct && pathsByDist[direct]?.length) return direct;
+      const normalized = normalizeDistance(raw);
+      if (normalized && pathsByDist[normalized]?.length) return normalized;
+      return '';
+    };
+    const inferStationCode = e => {
+      const rawCode = norm(e.station_code || e.code || e.value || '');
+      const stationText = String(e.station || e.station_name || e.station_label || '').trim();
+      const passNumFromField = parseInt(String(e.pass_num || e.pass || ''), 10);
+      const passMatch = stationText.match(/\(Pass\s+(\d+)\)/i);
+      const passNumFromText = passMatch ? parseInt(passMatch[1], 10) : NaN;
+      const passNum = Number.isFinite(passNumFromField) ? passNumFromField : passNumFromText;
+      const stationUpper = stationText.toUpperCase();
+
+      if ((rawCode === 'CORRAL_AUTO' || stationUpper.includes('CORRAL CANYON')) && Number.isFinite(passNum)) {
+        if (passNum === 1) return 'AS1';
+        if (passNum === 2) return 'AS8';
+        if (passNum === 3) return 'AS10';
+      }
+      if ((rawCode === 'KANAN_AUTO' || stationUpper.includes('KANAN ROAD')) && Number.isFinite(passNum)) {
+        if (passNum === 1) return 'AS2';
+        if (passNum === 2) return 'AS7';
+      }
+      if ((rawCode === 'ZUMA_AUTO' || stationUpper.includes('ZUMA')) && Number.isFinite(passNum)) {
+        if (passNum === 1) return 'AS4';
+        if (passNum === 2) return 'AS6';
+      }
+      if (rawCode === 'START' || rawCode === 'FINISH' || rawCode === 'T30K' || /^AS\d+$/.test(rawCode)) {
+        return rawCode;
+      }
+      if (stationUpper.includes('FINISH')) return 'FINISH';
+      if (stationUpper.includes('TURNAROUND') && stationUpper.includes('30K')) return 'T30K';
+
+      const target = stripPassToken(stationText);
+      if (!target) return rawCode;
+      for (const [code, name] of stationNameByCode.entries()) {
+        const nameLoose = stripPassToken(name);
+        const codeLoose = stripPassToken(code);
+        if (nameLoose === target || codeLoose === target) return code;
+        if (Math.min(nameLoose.length, target.length) >= 4 && (nameLoose.startsWith(target) || target.startsWith(nameLoose))) {
+          return code;
+        }
+      }
+      return rawCode;
+    };
 
     const out = [];
     for (const [bib, e] of latestByBib.entries()) {
-      // find station code for last station: prefer explicit code; otherwise match by name (exact or fuzzy)
-      const rawLast = e.station_code || e.station || e.station_name || '';
-      const lastRawNorm = norm(rawLast);
-      let matchedStation = stations.find(s => {
-        const sc = String(s.station_code || s.code || s.value || '').toUpperCase().trim();
-        const sname = String(s.station_name || s.text || s.name || '').toUpperCase().trim();
-        return sc === lastRawNorm || sname === lastRawNorm;
-      });
+      const action = norm(e.action || e.pass_type);
+      if (action === 'DNS' || action === 'DNF' || action === 'FINISH') continue;
 
-      if (!matchedStation && lastRawNorm) {
-        const target = normLoose(lastRawNorm);
-        const targetNoPass = stripPassToken(lastRawNorm);
-        matchedStation = stations.find(s => {
-          const snameLoose = normLoose(s.station_name || s.text || s.name || '');
-          const scLoose = normLoose(s.station_code || s.code || s.value || '');
-          const snameNoPass = stripPassToken(s.station_name || s.text || s.name || '');
-          const scNoPass = stripPassToken(s.station_code || s.code || s.value || '');
-          return (
-            snameLoose === target ||
-            scLoose === target ||
-            snameNoPass === targetNoPass ||
-            scNoPass === targetNoPass
-          );
-        });
+      const lastStationCode = inferStationCode(e);
+      if (!lastStationCode) continue;
+
+      const distKey = resolveDistanceKey(e.distance_code || e.distance);
+      let path = distKey ? (pathsByDist[distKey] || []) : [];
+      if (!path.length || !path.includes(lastStationCode)) {
+        const fallbackDist = Object.keys(pathsByDist).find(dist => (pathsByDist[dist] || []).includes(lastStationCode));
+        path = fallbackDist ? (pathsByDist[fallbackDist] || []) : path;
       }
+      if (!path.length) continue;
 
-      // canonical last station code (use matched station code if available, otherwise use normalized raw)
-      const lastStationCode = matchedStation ? String(matchedStation.station_code || matchedStation.code || matchedStation.value || '').toUpperCase() : lastRawNorm;
       const idx = path.indexOf(lastStationCode);
-
-      // Only include if we can find the downstream station in the path
       if (idx < 0) continue;
+
       const nextCode = path[idx + 1];
       if (!nextCode) continue;
 
-      const sObj = stations.find(s => String(s.station_code || s.code || s.value || '').toUpperCase() === nextCode) || {};
-
       out.push({
         bib: String(bib),
-        last_station: e.station_name || (matchedStation ? matchedStation.station_name : (e.station || e.station_name || '')),
+        last_station: stationNameByCode.get(lastStationCode) || e.station_name || e.station || lastStationCode,
         last_station_code: lastStationCode || '',
         last_time: e.pass_ts || e.time || '',
         nextArriving_time: e.pass_ts || e.time || '',
-        eta_utc_ms: Date.parse(e.pass_ts || e.time) || 0,
-        next_station: sObj.station_name || nextCode || '',
+        eta_utc_ms: tsMs(e.pass_ts || e.time),
+        next_station: stationNameByCode.get(nextCode) || nextCode || '',
         next_station_code: nextCode || '',
-        distance: e.distance_code || e.distance || distKey
+        distance: distKey || normalizeDistance(e.distance_code || e.distance || '')
       });
     }
 
@@ -927,6 +985,7 @@ function stationNameFromCode(code) {
             <option value="not_finished">Not Finished</option>
             <option value="not_seen">Not Seen (this station)</option>
             <option value="last10_here">Last 10 Seen Here</option>
+            <option value="all_seen_here">All Through Selected Aid Station</option>
             <option value="expected_prev">Expected From Previous</option>
             <option value="corral_nonstart">Corral Reconciliation (Non-Start)</option>
           </select>
@@ -1305,7 +1364,7 @@ function stationNameFromCode(code) {
     }
 
      // NOTE: AUTO groups collapse physical stations (AS4/AS6) into a single operator-facing label
-     function last10SeenHere(list, stationCodes, expectedStationName) {
+    function last10SeenHere(list, stationCodes, expectedStationName) {
       const codes = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
       const src = Array.isArray(list) ? list : [];
 
@@ -1392,6 +1451,73 @@ function stationNameFromCode(code) {
       // Remove internal sort key so it doesn't show as a popup column
       rows.forEach(r => delete r._ts);
      
+      return rows;
+    }
+
+    function allSeenHere(list, stationCodes, expectedStationName) {
+      const src = Array.isArray(list) ? list : [];
+      const codes = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
+      const nameFilter = String(expectedStationName || '').toUpperCase().trim();
+      const stationIsFinish = codes.has('FINISH');
+      const wantAction = stationIsFinish ? 'FINISH' : 'IN';
+      const latest = new Map();
+
+      for (const e of src) {
+        const act = String(e.action || e.pass_type || '').toUpperCase();
+        if (act === 'DNS' || act === 'DNF' || act !== wantAction) continue;
+        if (!stationIsFinish) {
+          const direct = String(e.station_code || '').toUpperCase().trim();
+          const inferred = String(safeStationCode(e) || '').toUpperCase();
+          const codeMatch = (direct && codes.has(direct)) || (inferred && codes.has(inferred));
+          if (!codeMatch) continue;
+          if (nameFilter) {
+            const entryName = String(e.station_name || '').toUpperCase().trim();
+            if (entryName && entryName !== nameFilter) continue;
+          }
+        }
+
+        const bib = String(e.bib_number ?? e.bib ?? '').trim();
+        if (!bib) continue;
+        const ts = parseTsToMs(safePassTs(e));
+        const prev = latest.get(bib);
+        if (!prev || ts >= prev._tsMs) latest.set(bib, { e, _tsMs: ts });
+      }
+
+      const rows = Array.from(latest.values())
+        .map(({ e, _tsMs }) => {
+          const inferred = String((e.station_code || safeStationCode(e) || '')).toUpperCase().trim();
+          let stationDisplay =
+            String(e.station_name || '').trim() ||
+            stationNameFromCode(inferred) ||
+            inferred;
+
+          const codeSet = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
+          const isCorralAuto = codeSet.has('AS1') && codeSet.has('AS8') && codeSet.has('AS10');
+          const isKananAuto  = codeSet.has('AS2') && codeSet.has('AS7');
+          const isZumaAuto   = codeSet.has('AS4') && codeSet.has('AS6');
+          const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+          const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
+
+          if (isSOB) {
+            if (isCorralAuto && ['AS1', 'AS8', 'AS10'].includes(inferred)) stationDisplay = 'Corral Canyon (AUTO)';
+            if (isKananAuto  && ['AS2', 'AS7'].includes(inferred)) stationDisplay = 'Kanan Road (AUTO)';
+            if (isZumaAuto   && ['AS4', 'AS6'].includes(inferred)) stationDisplay = 'Zuma (AUTO)';
+          }
+          const p = Number(e?.pass_num || 0);
+          if (stationDisplay.includes('(AUTO)') && p > 0) stationDisplay += ` Pass-${p}`;
+
+          return {
+            bib: String(e.bib_number ?? e.bib ?? '').trim(),
+            _tsMs,
+            time: formatLocalDateTime(safePassTs(e)),
+            station: stationDisplay,
+            distance: normalizeDistance(e.distance_code || e.distance || ''),
+            operator: e.operator || ''
+          };
+        })
+        .sort((a, b) => (b._tsMs || 0) - (a._tsMs || 0));
+
+      rows.forEach(r => delete r._tsMs);
       return rows;
     }
     
@@ -2119,7 +2245,18 @@ function stationNameFromCode(code) {
             { refreshMs: 5000 }
           );
         }
-    
+
+        if (v === "all_seen_here") {
+          return openListWindow(
+            `All Through Selected Aid Station — ${stationLabel}`,
+            () => {
+              const list = window.__rs_lastList || lastList || [];
+              return allSeenHere(list, stationCodes, stationLabel);
+            },
+            { refreshMs: 5000 }
+          );
+        }
+     
           if (v === "corral_nonstart") {
             return openListWindow(
               `Corral Reconciliation (Non-Start) — ${stationLabel}`,
