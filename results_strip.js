@@ -779,7 +779,10 @@ function stationNameFromCode(code) {
       if (st.includes("FINISH LINE") || st === "FINISH") return "FINISH";
       if (st.includes("TURNAROUND") && st.includes("30K")) return "T30K";
     
-      return "";
+      // No SOB/known-pattern match: fall back to the normalised station name itself.
+      // This lets non-SOB events (e.g. Bishop Ultra) whose stations have NULL station_code
+      // in the DB still be matched by name when the dropdown value equals the station name.
+      return st || "";
     }
 
   // ---------- Fetch entrants (DB runners count) ----------
