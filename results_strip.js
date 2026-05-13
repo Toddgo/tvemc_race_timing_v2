@@ -1378,15 +1378,23 @@ function stationNameFromCode(code) {
         if (act === "DNS" || act === "DNF" || act === "FINISH") continue;
     
         const dist = normalizeDistance(e.distance_code || e.distance || "");
-        const path = DIST_PATHS[dist];
-        if (!path || !path.length) continue;
-    
-       // const lastCode = String(safeStationCode(e) || "").toUpperCase();  // Jan20 17:52 with New below
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
-        const idx = path.indexOf(lastCode);
-        if (idx < 0) continue;
+        // Try static DIST_PATHS first; fall back to dynamic path from AID_STATION_MAP.
+        // This lets non-SOB events (e.g. Bishop Ultra) whose stations use derived AS codes
+        // (from station_order) still appear in Card C / "Not Seen" open list.
+        let path = DIST_PATHS[dist];
+        let idx = (path && path.length) ? path.indexOf(lastCode) : -1;
+        if (idx < 0) {
+          try {
+            const built = buildPathFromAidStationMap(dist);
+            const dynPath = (built && built.path ? built.path : []).filter(Boolean);
+            const dynIdx = dynPath.indexOf(lastCode);
+            if (dynIdx >= 0) { path = dynPath; idx = dynIdx; }
+          } catch (_) {}
+        }
+        if (!path || !path.length || idx < 0) continue;
     
         const nextCode = path[idx + 1];
         if (!nextCode) continue;
@@ -2023,75 +2031,14 @@ function stationNameFromCode(code) {
             );
           }
     
-        // Last 10 Seen Here — robust per-station fetch and interval
+        // Last 10 Seen Here — computed from in-memory entries (no server round-trip needed)
         if (v === "last10_here") {
-          const ctxLocal = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-        
-          const scFromCtx = String(ctxLocal.station_code || "").trim();
-          const scFallback = String(sessionStorage.getItem("tvemc_aidStation") || localStorage.getItem("tvemc_aidStation") || "").trim();
-          const sc = scFromCtx || scFallback || "";
-        
-          // Normalize to explicit codes array using known helper if present
-          const codes = (typeof expandStationCodes === 'function' && sc) ? (expandStationCodes(sc) || []) : (sc ? [sc] : []);
-        
-          // Helper to fetch last10 rows from server and cache in window.__rs_last10HereRows
-          async function fetchLast10HereFromServer(eventCodeLocal, stationCodeLocal) {
-            try {
-              if (!eventCodeLocal || !stationCodeLocal) {
-                window.__rs_last10HereRows = window.__rs_last10HereRows || [];
-                return;
-              }
-              const url = `/tvemc_race_timing_v2/passes_last_seen.php?event_code=${encodeURIComponent(eventCodeLocal)}&station=${encodeURIComponent(stationCodeLocal)}`;
-              const resp = await fetch(url, { credentials: 'same-origin' });
-              const json = await resp.json();
-              if (json && json.success && Array.isArray(json.rows)) {
-                // store rows for THIS station only
-                window.__rs_last10HereRows = json.rows.map(r => {
-                  const out = Object.assign({}, r);
-                  out.bib = out.bib || out.bib_number || out.BIB || out.bib_no;
-                  out.pass_ts = out.pass_ts || out.time || out.pass_ts;
-                  out.pass_type = out.pass_type || out.action || out.pass_type;
-                  return out;
-                });
-              } else {
-                window.__rs_last10HereRows = [];
-              }
-            } catch (err) {
-              console.warn('fetchLast10HereFromServer error', err);
-              window.__rs_last10HereRows = window.__rs_last10HereRows || [];
-            }
-          }
-        
-          // if we have a code, start/ensure a per-station interval
-          if (codes && codes.length) {
-            const stationCodeLocal = String(codes[0]).trim();
-            const eventCodeLocal = (ctxLocal.event_code || (window._EVENT_META && window._EVENT_META.event_code) || '');
-        
-            // initial fetch once
-            if (eventCodeLocal) fetchLast10HereFromServer(eventCodeLocal, stationCodeLocal);
-        
-            // create per-station interval map so each station has its own timer
-            window.__rs_last10_fetch_intervals = window.__rs_last10_fetch_intervals || {};
-            if (!window.__rs_last10_fetch_intervals[stationCodeLocal]) {
-              window.__rs_last10_fetch_intervals[stationCodeLocal] = setInterval(() => {
-                // recompute event and station each tick (defensive)
-                const ctxTick = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: (window._EVENT_META && window._EVENT_META.event_code) || '' });
-                const ev = ctxTick?.event_code || (window._EVENT_META && window._EVENT_META.event_code) || '';
-                const st = stationCodeLocal; // keep the interval tied to the station that created it
-                if (ev && st) fetchLast10HereFromServer(ev, st);
-              }, 5000);
-            }
-          } else {
-            // no station codes: clear any global rows
-            window.__rs_last10HereRows = window.__rs_last10HereRows || [];
-          }
-        
           return openListWindow(
-            `Last 10 Seen Here — ${stationLabel || sc || "Station"}`,
-            () => (window.__rs_last10HereRows || []).filter(r => {
-              const a = String(r?.pass_type || r?.action || "").toUpperCase();
-              return a !== "DNS" && a !== "DNF";
-            }),
+            `Last 10 Seen Here — ${stationLabel}`,
+            () => {
+              const list = window.__rs_lastList || lastList || [];
+              return last10SeenHere(list, stationCodes);
+            },
             { refreshMs: 5000 }
           );
         }

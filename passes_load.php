@@ -65,7 +65,8 @@ $sql = "
     a.station_code AS station_code,
     a.station_name AS station_name,
     a.station_order AS station_order,
-    a.mile AS mile
+    a.mile AS mile,
+    a.is_finish AS is_finish
   FROM passes p
   LEFT JOIN aid_stations a
     ON a.station_id = p.station_id
@@ -93,6 +94,21 @@ while ($row = $res->fetch_assoc()) {
   $row['mismatch'] = (int)($row['mismatch'] ?? 0);
   $row['station_order'] = $row['station_order'] === null ? null : (int)$row['station_order'];
   $row['mile'] = $row['mile'] === null ? null : (float)$row['mile'];
+
+  // Derive station_code from station_order when null (consistent with aid_stations_load.php),
+  // so non-SOB events whose stations have NULL station_code in the DB still get consistent
+  // codes (e.g. "AS5") that match what the aid-station dropdown uses as option values.
+  if (($row['station_code'] === null || $row['station_code'] === '') && $row['station_id'] !== null) {
+    $order = (int)($row['station_order'] ?? -1);
+    if ($order === 0) {
+      $row['station_code'] = 'START';
+    } elseif ($order >= 999 || (int)($row['is_finish'] ?? 0) === 1) {
+      $row['station_code'] = 'FINISH';
+    } elseif ($order > 0) {
+      $row['station_code'] = 'AS' . $order;
+    }
+  }
+  unset($row['is_finish']); // internal only, don't expose to JS
 
   $out[] = $row;
 }
