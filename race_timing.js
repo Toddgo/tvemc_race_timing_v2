@@ -1660,6 +1660,11 @@ function populateStationDropdownsFromMap(map) {
   persistAidStationFromDropdown();
   persistDistanceForEvent();
 
+  // Trigger card refresh now that the correct station is restored.
+  // On fresh page load, restoreHeaderFields() runs before dropdown options exist,
+  // so the change event never fires. This ensures cards populate immediately.
+  refreshResultsStripForCurrentStation();
+
 }
 
 // small helper

@@ -31,6 +31,8 @@ console.log("✅ results_strip.js START");
   function getEventConfig(eventCode) {
     return EVENT_CONFIG[eventCode] || { use_out_for_expected: false };
   }
+  // Expose globally so the second IIFE (computeExpectedFromPrev_FLOW) can access it
+  window.getEventConfig = getEventConfig;
 
 // Build DIST_PATHS entry for a distance from AID_STATION_MAP (if DIST_PATHS missing/outdated)
 function buildPathFromAidStationMap(distance) {
@@ -355,12 +357,19 @@ window.getCurrentStationContext = function () {
    function getFlowPredecessors(currentStationCode, stationCodes) {
     const c = String(currentStationCode || "").toUpperCase();
 
-  // Detect what set of station codes this popup is operating on
+    // FLOW_PREV_MAP is only meaningful for SOB and AZM events.
+    // For other events (e.g. Bishop Ultra), station codes like AS5/AS9 refer to
+    // completely different physical locations — use PATH mode instead.
+    const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+    const isFlowEvent = eventCode.includes('SOB') || eventCode.includes('KH_SOB') || eventCode.includes('AZM');
+    if (!isFlowEvent) return null;
+
+    // Detect what set of station codes this popup is operating on
     const codeSet = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
 
-  // 30K Corral "ghost turnaround" case:
-  // When stationCodes contain AS1 + AS8 (but NOT AS10), we must use PATH mode.   
-  // FLOW would compare AS1 vs "toCodes including AS1" and never show anyone.
+    // 30K Corral "ghost turnaround" case:
+    // When stationCodes contain AS1 + AS8 (but NOT AS10), we must use PATH mode.
+    // FLOW would compare AS1 vs "toCodes including AS1" and never show anyone.
     if (c === "CORRAL_AUTO" && codeSet.has("AS1") && codeSet.has("AS8") && !codeSet.has("AS10")) {
      return null; // force PATH
    }
@@ -1329,24 +1338,22 @@ function stationNameFromCode(code) {
     }
     
     function computeExpectedFromPrev_FLOW(list, fromCodes, toCodes) {
-      // ✅ ADD THESE 4 LINES RIGHT HERE (after function starts, before any other code):
       const ctx = window.getCurrentStationContext ? window.getCurrentStationContext() : {};
       const eventCode = ctx.event_code || '';
-      const config = getEventConfig(eventCode);
-      console.log("🔍 FLOW Debug: eventCode =", eventCode, ", use_out_for_expected =", config.use_out_for_expected);    
-          
+      // Use globally-exposed getEventConfig (defined in the first IIFE, exposed via window)
+      const config = (typeof window.getEventConfig === "function")
+        ? window.getEventConfig(eventCode)
+        : { use_out_for_expected: false };
+
       const fromLatest = latestAtCodesByBib(list, expandCodesList(fromCodes));
       const toLatest   = latestAtCodesByBib(list, toCodes);
-      // ---- NEW: Distance eligibility filter ----
       // Only include runners whose distance path actually includes at least one of the "to" station codes.
       const toSet = new Set((toCodes || []).map(s => String(s).toUpperCase()));
 
       const out = [];
       for (const [bib, eFrom] of fromLatest.entries()) {
-        // ✅ ADD THESE 4 LINES RIGHT HERE (first thing inside the for loop):
         const fromAction = safeAction(eFrom);
         if (config.use_out_for_expected && fromAction !== "OUT") {
-          console.log(`  - SKIP bib ${bib}: action="${fromAction}" (needs OUT)`);
           continue; // Skip IN passes for events that require OUT
         }
         
@@ -1664,19 +1671,7 @@ function stationNameFromCode(code) {
         STATUS_OVERRIDES.dnsClearedAtMs = new Map();
         STATUS_OVERRIDES.dnfClearedAtMs = new Map();
       }
-      
-      // context & event
-     // const ctx = (window.getCurrentStationContext ? window.getCurrentStationContext() : { event_code: "AZM-300-2026-0004", station_code: "" });
-     // const eventCode = String(ctx.event_code || "AZM-300-2026-0004").trim();
-     // const IS_SOB = /SOB/i.test(eventCode);
-    
-      // ✅ ADD THIS DEBUG:
-      console.log("🔍 Event Context Debug:");
-      console.log("  - ctx.event_code:", ctx.event_code);
-      console.log("  - eventCode:", eventCode);
-      console.log("  - IS_SOB:", IS_SOB);
-      console.log("  - ctx.station_code:", ctx.station_code); 
-       
+
       // AUTHORITATIVE expected rows — attempt canonical recompute early (non-blocking fallback)
       try {
         // recomputeExpectedFromPrevForUI() should return canonical rows and write the global
@@ -1807,38 +1802,14 @@ function stationNameFromCode(code) {
         const roster = (typeof bibList !== "undefined" && Array.isArray(bibList)) ? bibList : [];
         const overrideRows = [];
         
-        // ✅ ADD THESE DEBUG LINES:
-        console.log("🔍 AS1 Override Debug:");
-        console.log("  - stationUpper:", stationUpper);
-        console.log("  - bibList exists?", typeof bibList !== "undefined");
-        console.log("  - bibList is array?", Array.isArray(bibList));
-        console.log("  - roster length:", roster.length);
-        console.log("  - seenAtAS1 size:", seenAtAS1.size);
-        
         for (const r of roster) {
           const bib = String(r?.bib ?? "").trim();
-          if (!bib) {
-            console.log("  - SKIP: empty bib");
-            continue;
-          }
-          if (seenAtAS1.has(bib)) {
-            console.log("  - SKIP bib", bib, ": already seen at AS1");
-            continue;
-          }
-          if (stickyStatusByBib?.dns?.has?.(bib)) {
-            console.log("  - SKIP bib", bib, ": DNS");
-            continue;
-          }
-          if (stickyStatusByBib?.dnf?.has?.(bib)) {
-            console.log("  - SKIP bib", bib, ": DNF");
-            continue;
-          }
-          if (finishedBibs.has(bib)) {
-            console.log("  - SKIP bib", bib, ": finished");
-            continue;
-          }
+          if (!bib) continue;
+          if (seenAtAS1.has(bib)) continue;
+          if (stickyStatusByBib?.dns?.has?.(bib)) continue;
+          if (stickyStatusByBib?.dnf?.has?.(bib)) continue;
+          if (finishedBibs.has(bib)) continue;
         
-          console.log("  ✅ ADDING bib", bib, "to overrideRows");
           overrideRows.push({
             bib,
             last_station: "START",
@@ -1851,15 +1822,7 @@ function stationNameFromCode(code) {
         }
         
         overrideRows.sort((a, b) => Number(a.bib) - Number(b.bib));
-        console.log("  - overrideRows created:", overrideRows.length);
-        // ✅ ADD THIS DEBUG:
-        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
-        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
-        
         if (overrideRows.length) expectedPrevRows = overrideRows;
-        // ✅ ADD THIS DEBUG:
-        console.log("  - expectedPrevRows after AS1 override:", expectedPrevRows.length);
-        console.log("  - Sample expectedPrevRows row:", expectedPrevRows[0]);
         }
       } // end if not personnel station
     
@@ -1876,48 +1839,30 @@ function stationNameFromCode(code) {
             return bib && !finishedBibs.has(bib);
           });
         }
-        // ✅ ADD THIS DEBUG BEFORE THE TRY-CATCH:
-        console.log("🔍 Before AUTHORITATIVE write:");
-        console.log("  - expectedPrevRows.length:", expectedPrevRows.length);
-        console.log("  - Sample:", expectedPrevRows[0]);
 
         // AUTHORITATIVE write: DON'T overwrite AS1 special override
         try {
-          console.log("🔍 INSIDE AUTHORITATIVE try block:");
-          console.log("  - expectedPrevRows.length BEFORE:", expectedPrevRows.length);
-          
-          // ✅ FIX: Skip recompute if we already have expectedPrevRows (AS1 START override)
+          // Skip recompute if we already have expectedPrevRows (e.g. AS1 START override)
           if (!expectedPrevRows || expectedPrevRows.length === 0) {
-            console.log("  - Calling recomputeExpectedFromPrevForUI()");
             const canonical = recomputeExpectedFromPrevForUI();
             window.__rs_expectedPrevRows = canonical || [];
-            console.log("  - window.__rs_expectedPrevRows set from canonical:", window.__rs_expectedPrevRows.length);
           } else {
-            // Use our override (AS1 START→Picket Post)
-            console.log("  - Using expectedPrevRows override (AS1)");
             window.__rs_expectedPrevRows = expectedPrevRows;
-            console.log("  - window.__rs_expectedPrevRows set from override:", window.__rs_expectedPrevRows.length);
           }
         } catch (err) {
           console.warn('recomputeExpectedFromPrevForUI failed (final), using local expectedPrevRows', err);
           window.__rs_expectedPrevRows = expectedPrevRows || [];
         }
         
-        console.log("🔍 AFTER AUTHORITATIVE write:");
-        console.log("  - window.__rs_expectedPrevRows.length:", window.__rs_expectedPrevRows.length);
-        console.log("  - Sample:", window.__rs_expectedPrevRows[0]);
-        
-        // ✅ ADD THIS: Update localStorage so popup gets fresh data
+        // Update localStorage so popup gets fresh data
         try {
           localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
             rows: window.__rs_expectedPrevRows || [],
-            stationCodes: [stationUpper],  // ✅ USE stationUpper (which is "AS1")
+            stationCodes: [stationUpper],
             stationLabel: stationLabel || ''
           }));
-          console.log("  - ✅ localStorage updated with", (window.__rs_expectedPrevRows || []).length, "rows, stationCodes:", [stationUpper]);
-        
         } catch (e) {
-          console.warn("  - ❌ Failed to update localStorage:", e);
+          console.warn("Failed to update localStorage expectedPrevRows:", e);
         }
           
       // Render UI (cards)
@@ -2110,18 +2055,12 @@ function stationNameFromCode(code) {
             );
           }
     
-        // Expected From Previous — robust payload write
+        // Expected From Previous — open popup reading from the already-written localStorage payload
         if (v === "expected_prev") {
-          // ❌ DELETE THIS ENTIRE BLOCK (lines that compute and write to localStorage):
-          // let authoritativeRows = window.__rs_expectedPrevRows || expectedPrevRows || [];
-          // let payloadStationCodes = ...
-          // localStorage.setItem('__rs_expectedPrevRows_payload', ...);
-        
-          // ✅ JUST OPEN THE POPUP - let it read from localStorage that was already written by recompute()
           return openListWindow(
             `Expected From Previous — ${stationLabel}`,
             () => {
-              // popup reads from localStorage (which has the fresh 23 rows from recompute)
+              // popup reads from localStorage (written by computeAndRender)
               let parsed = null;
               try {
                 const json = localStorage.getItem('__rs_expectedPrevRows_payload');
@@ -2132,32 +2071,16 @@ function stationNameFromCode(code) {
               const popupCodes = parsed && Array.isArray(parsed.stationCodes) ? parsed.stationCodes : [];
               const popupLabel = parsed && parsed.stationLabel ? String(parsed.stationLabel).toUpperCase() : '';
               
-              console.log("🔍 POPUP Debug:");
-              console.log("  - rows.length:", rows.length);
-              console.log("  - popupCodes:", popupCodes);
-      
               const filtered = (rows || []).filter(r => {
                 const bib = String(r?.bib ?? "").trim();
-                if (!bib) {
-                 console.log("  - FILTER: Skip row (no bib):", r);
-                 return false;
-              }
+                if (!bib) return false;
             
                 const nextCode = String(r?.next_station_code || "").toUpperCase();
                 const nextName = String(r?.next_station || "").toUpperCase();
               
-               // ✅ ADD DEBUG:
-               console.log(`  - FILTER bib ${bib}: nextCode="${nextCode}", nextName="${nextName}"`);
-               console.log(`    popupCodes includes "${nextCode}"?`, popupCodes.includes(nextCode));
-               console.log(`    popupLabel includes "${nextName}"?`, popupLabel.includes(nextName));
-            
                const codeMatch = popupCodes.includes(nextCode);
                const nameMatch = popupLabel && nextName && popupLabel.includes(nextName);
-              
-               const keep = codeMatch || nameMatch;
-               console.log(`    → KEEP: ${keep}`);
-              
-               return keep;
+               return codeMatch || nameMatch;
              });
               
               // Remove code-only columns so popup only shows human-readable station names

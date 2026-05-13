@@ -23,7 +23,7 @@ $row = $st->get_result()->fetch_assoc();
 $st->close();
 
 if (!$row) {
-  echo json_encode(["event_code"=>$event_code, "station_code"=>$station_code=ALL, "entrant_count"=>0]);
+  echo json_encode(["event_code"=>$event_code, "station_code"=>$station_code, "entrant_count"=>0]);
   $conn->close();
   exit;
 }
@@ -77,24 +77,34 @@ if ($station_code === "START") {
   exit;
 }
 
-// Map station_code -> station_name pattern (distance-safe)
-$pattern = null;
-switch ($station_code) {
-  case "AS1": $pattern = "CORRAL CANYON #1"; break;
-  case "AS2": $pattern = "KANAN ROAD #1"; break;
-  case "T30K": $pattern = "TURNAROUND"; break;
-  case "AS4": $pattern = "ZUMA EDISON RIDGE MTWY #1"; break;
-  case "AS5": $pattern = "BONSALL"; break;
-  case "AS6": $pattern = "ZUMA EDISON RIDGE MTWY #2"; break;
-  case "AS7": $pattern = "KANAN ROAD #2"; break;
-  case "AS8": $pattern = "CORRAL CANYON #2"; break;
-  case "AS9": $pattern = "BULLDOG"; break;
-  case "AS10": $pattern = "CORRAL CANYON #3"; break;
-  case "AS11": $pattern = "PIUMA CREEK"; break;
+// Resolve station_name from DB using station_code or station_order, then count runners
+// whose distance path includes that station.
+
+// First try: look up by station_code column directly in aid_stations
+$sn_q = $conn->prepare(
+  "SELECT station_name FROM aid_stations WHERE event_id=? AND station_code=? LIMIT 1"
+);
+$sn_q->bind_param("is", $event_id, $station_code);
+$sn_q->execute();
+$sn_row = $sn_q->get_result()->fetch_assoc();
+$sn_q->close();
+$db_station_name = $sn_row ? trim($sn_row['station_name']) : null;
+
+// Second try: for AS-style codes, fall back to lookup by station_order
+if (!$db_station_name && preg_match('/^AS(\d+)$/', $station_code, $m)) {
+  $order = (int)$m[1];
+  $so_q = $conn->prepare(
+    "SELECT station_name FROM aid_stations WHERE event_id=? AND station_order=? LIMIT 1"
+  );
+  $so_q->bind_param("ii", $event_id, $order);
+  $so_q->execute();
+  $so_row = $so_q->get_result()->fetch_assoc();
+  $so_q->close();
+  if ($so_row) $db_station_name = trim($so_row['station_name']);
 }
 
-if (!$pattern) {
-  // fallback total entrants
+if (!$db_station_name) {
+  // No matching station found — return total entrants as a safe fallback
   $q = $conn->prepare("SELECT COUNT(*) AS c FROM runners WHERE event_id=?");
   $q->bind_param("i", $event_id);
   $q->execute();
@@ -105,7 +115,7 @@ if (!$pattern) {
   exit;
 }
 
-// Count expected here by station_name match (LIKE is forgiving for "(NO AID)" variants)
+// Count runners whose distance path includes this station (LIKE is forgiving for suffix variants)
 $sql = "
   SELECT COUNT(*) AS c
   FROM runners r
@@ -119,7 +129,7 @@ $sql = "
     )
 ";
 $q = $conn->prepare($sql);
-$q->bind_param("is", $event_id, $pattern);
+$q->bind_param("is", $event_id, $db_station_name);
 $q->execute();
 $c = (int)($q->get_result()->fetch_assoc()['c'] ?? 0);
 $q->close();
