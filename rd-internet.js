@@ -86,17 +86,9 @@ async function logHqMessageToServer(payload) {
   // --- AUTO fan-out mapping ---
   // Support either internal codes (KANAN_AUTO) or label-like values (KANAN ROAD (AUTO))
   const AUTO_FANOUT = {
-    "CORRAL_AUTO": ["AS1"],  // , "AS8", "AS10"
-  //  "CORRAL (AUTO)": ["AS1", "AS8", "AS10"],
-  //  "CORRAL ROAD (AUTO)": ["AS1", "AS8", "AS10"],
-
-    "KANAN_AUTO": ["AS7"],  // , "AS7" "AS2"
-  // "KANAN (AUTO)": ["AS2", "AS7"],
-  //  "KANAN ROAD (AUTO)": ["AS2", "AS7"],
-
-    "ZUMA_AUTO": ["AS4"], // , "AS6"
- // "ZUMA (AUTO)": ["AS4", "AS6"],
- // "ZUMA ROAD (AUTO)": ["AS4", "AS6"],
+    "CORRAL_AUTO": ["AS1", "AS8", "AS10"],
+    "KANAN_AUTO":  ["AS2", "AS7"],
+    "ZUMA_AUTO":   ["AS4", "AS6"],
   };
   
   // Expand target(s)

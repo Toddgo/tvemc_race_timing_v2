@@ -1254,7 +1254,18 @@ async function addEntry(action) {
       if (isAuto) {
         const upper = station_code.toUpperCase();
         if (upper === baseStation || upper.endsWith("_AUTO")) {
-          station_code = (choices[0] || station_code).toUpperCase();
+          if (window.TvemcAutoPass?.resolveStationCode) {
+            station_code = window.TvemcAutoPass.resolveStationCode({
+              base_station_code: baseStation,
+              action: pass_type,
+              distance_code,
+              entries,
+              bib,
+              now_ms: Date.now()
+            }) || (choices[0] || station_code).toUpperCase();
+          } else {
+            station_code = (choices[0] || station_code).toUpperCase();
+          }
         }
       }
     

@@ -281,19 +281,24 @@ window.getCurrentStationContext = function () {
 
 (function () {
   // ---------- Config ----------
-  const AUTO_GROUPS = (function() {
-  const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
-  const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
-  
-  // Only return AUTO groups for Shadow of the Bear events
-  if (!isSOB) return {};
-  
-  return {
-    CORRAL_AUTO: ["AS1", "AS8", "AS10"],
-    KANAN_AUTO:  ["AS2", "AS7"],
-    ZUMA_AUTO:   ["AS4", "AS6"]
-  };
-})();
+  // AUTO_GROUPS is evaluated dynamically (not a static IIFE) so that the correct
+  // event code is available even when the script loads before loadEventListIntoDropdown()
+  // has resolved.  Previously evaluated once at load time, which returned {} for SOB
+  // events and caused expandStationCodes("ZUMA_AUTO") to return ["ZUMA_AUTO"] rather
+  // than ["AS4","AS6"], making Cards B/C/D find zero passes for Edison Loop.
+  function getAutoGroups() {
+    const eventCode = (typeof window.getEventCode === 'function' ? window.getEventCode() : '').toUpperCase();
+    const isSOB = eventCode.includes('SOB') || eventCode.includes('KH_SOB');
+
+    // Only return AUTO groups for Shadow of the Bear events
+    if (!isSOB) return {};
+
+    return {
+      CORRAL_AUTO: ["AS1", "AS8", "AS10"],
+      KANAN_AUTO:  ["AS2", "AS7"],
+      ZUMA_AUTO:   ["AS4", "AS6"]
+    };
+  }
 
   // Distance paths (station_code order). Used for PATH mode Card C.
   const DIST_PATHS = {
@@ -416,7 +421,8 @@ window.getCurrentStationContext = function () {
 
   function expandStationCodes(stationCode) {
     const code = String(stationCode || "").trim().toUpperCase();
-    return AUTO_GROUPS[code] ? AUTO_GROUPS[code].slice() : [code];
+    const groups = getAutoGroups();
+    return groups[code] ? groups[code].slice() : [code];
   }
 
   function stationLabelFromDropdown(stationCode) {
