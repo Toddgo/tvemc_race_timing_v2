@@ -2081,7 +2081,7 @@ function stationNameFromCode(code) {
         try {
           localStorage.setItem('__rs_expectedPrevRows_payload', JSON.stringify({
             rows: window.__rs_expectedPrevRows || [],
-            stationCodes: stationCodes || [stationUpper],
+            stationCodes: (Array.isArray(stationCodes) && stationCodes.length) ? stationCodes : [stationUpper],
             stationLabel: stationLabel || ''
           }));
         } catch (e) {
