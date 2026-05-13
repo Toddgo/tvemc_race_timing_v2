@@ -182,6 +182,10 @@ function recomputeExpectedFromPrevForUI() {
   }
 }
 
+// Expose globally so later IIFEs / cached execution order differences
+// never fail with "recomputeExpectedFromPrevForUI is not defined".
+window.recomputeExpectedFromPrevForUI = recomputeExpectedFromPrevForUI;
+
 // Run it once on load and every 5s to keep UI synced (and to override older logic)
 recomputeExpectedFromPrevForUI();
 if (!window.__rs_expectedPrev_update_interval) {
@@ -1675,7 +1679,10 @@ function stationNameFromCode(code) {
       // AUTHORITATIVE expected rows — attempt canonical recompute early (non-blocking fallback)
       try {
         // recomputeExpectedFromPrevForUI() should return canonical rows and write the global
-        expectedPrevRows = recomputeExpectedFromPrevForUI();
+        const recomputeFn = (typeof window.recomputeExpectedFromPrevForUI === "function")
+          ? window.recomputeExpectedFromPrevForUI
+          : null;
+        expectedPrevRows = recomputeFn ? recomputeFn() : (window.__rs_expectedPrevRows || []);
         window.__rs_expectedPrevRows = expectedPrevRows;
       } catch (err) {
         console.warn('recomputeExpectedFromPrevForUI failed (early), using existing global', err);
@@ -1844,7 +1851,10 @@ function stationNameFromCode(code) {
         try {
           // Skip recompute if we already have expectedPrevRows (e.g. AS1 START override)
           if (!expectedPrevRows || expectedPrevRows.length === 0) {
-            const canonical = recomputeExpectedFromPrevForUI();
+            const recomputeFn = (typeof window.recomputeExpectedFromPrevForUI === "function")
+              ? window.recomputeExpectedFromPrevForUI
+              : null;
+            const canonical = recomputeFn ? recomputeFn() : (window.__rs_expectedPrevRows || []);
             window.__rs_expectedPrevRows = canonical || [];
           } else {
             window.__rs_expectedPrevRows = expectedPrevRows;

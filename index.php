@@ -645,7 +645,7 @@ if (empty($_SESSION['operator_access'])) { header('Location: access.php'); exit;
 <script src="general_comments.js?v=1"></script>
 <script src="hq_inbox_poll.js?v=debug5"></script>
 <script src="hq_log.js?v=6"></script>
-<script src="results_strip.js?v=11"></script>
+<script src="results_strip.js?v=12"></script>
 <script src="results_strip_modes.js?v=3"></script>
 <script src="station_autopass.js?v=1"></script>
 <script src="autopass_undo.js?v=1"></script>
