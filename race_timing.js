@@ -1057,7 +1057,9 @@ async function loadPassesFromServer() {
 
   for (const e of chron) {
     const bib = String(e.bib_number || "");
-    const group = stationGroupFromCode(e.station_code) || String(e.station_code || "").toUpperCase();
+    const group = stationGroupFromCode(e.station_code)
+                    || String(e.station_code || "").toUpperCase()
+                    || String(e.station_name || "").toUpperCase();
               // const baseStation = stripPassSuffix(e.station);
               // const group = stationGroupFromName(baseStation);
     if (!bib || !group) continue;
@@ -1076,7 +1078,9 @@ async function loadPassesFromServer() {
   }
 
   for (const e of entries) {
-    const group = stationGroupFromCode(e.station_code) || String(e.station_code || "").toUpperCase();
+    const group = stationGroupFromCode(e.station_code)
+                    || String(e.station_code || "").toUpperCase()
+                    || String(e.station_name || "").toUpperCase();
     if (!group) continue;
 
     const n = passLabelByPassId[e.pass_id];

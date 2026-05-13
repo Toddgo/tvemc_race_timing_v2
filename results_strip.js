@@ -1305,9 +1305,18 @@ function stationNameFromCode(code) {
     }
 
      // NOTE: AUTO groups collapse physical stations (AS4/AS6) into a single operator-facing label
-     function last10SeenHere(list, stationCodes) {
+     function last10SeenHere(list, stationCodes, expectedStationName) {
       const codes = new Set((stationCodes || []).map(s => String(s).toUpperCase()));
       const src = Array.isArray(list) ? list : [];
+
+      // For single-code non-AUTO stations apply a station_name tiebreaker so that
+      // multi-distance events (e.g. Bishop Ultra) don't mix entries from different
+      // distances that share the same derived station_code (e.g. 20M-Junction=AS3
+      // vs 100K-McGee=AS3).
+      const singleNonAuto = codes.size === 1 && !([...codes][0] || '').endsWith('_AUTO');
+      const nameFilter = (singleNonAuto && expectedStationName)
+        ? String(expectedStationName).toUpperCase().trim()
+        : null;
       
       // FINISH uses FINISH actions; normal stations use IN actions
       const stationIsFinish = codes.has("FINISH");
@@ -1327,11 +1336,17 @@ function stationNameFromCode(code) {
         if (stationIsFinish) return true;
       
         const direct = String(e.station_code || "").toUpperCase().trim();
-        if (direct && codes.has(direct)) return true;
-            
-        // fallback (legacy)
         const inferred = String(safeStationCode(e) || "").toUpperCase();
-        return inferred && codes.has(inferred);
+        const codeMatch = (direct && codes.has(direct)) || (inferred && codes.has(inferred));
+        if (!codeMatch) return false;
+
+        // Station_name tiebreaker: if the name is known, reject entries from a
+        // different physical station that happens to share the same derived code.
+        if (nameFilter) {
+          const entryName = String(e.station_name || "").toUpperCase().trim();
+          if (entryName && entryName !== nameFilter) return false;
+        }
+        return true;
       })
 
       .map(e => {
@@ -1459,18 +1474,30 @@ function stationNameFromCode(code) {
         const lastCode = effectiveLastCodeForPath(e, dist);
         if (!lastCode) continue;
 
-        // Try static DIST_PATHS first; fall back to dynamic path from AID_STATION_MAP.
-        // This lets non-SOB events (e.g. Bishop Ultra) whose stations use derived AS codes
-        // (from station_order) still appear in Card C / "Not Seen" open list.
-        let path = DIST_PATHS[dist];
-        let idx = (path && path.length) ? path.indexOf(lastCode) : -1;
-        if (idx < 0) {
-          try {
-            const built = buildPathFromAidStationMap(dist);
-            const dynPath = (built && built.path ? built.path : []).filter(Boolean);
+        // Try dynamic AID_STATION_MAP path first (event-specific, correct for any event
+        // including non-SOB events like Bishop Ultra that have >10 stations or skip codes
+        // not present in the static DIST_PATHS table).  Fall back to static DIST_PATHS only
+        // when the live map is unavailable or doesn't contain the runner's last station.
+        let path = null;
+        let idx = -1;
+        try {
+          const aidMap = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+          const distStations = (aidMap[dist] || []).slice()
+            .sort((a, b) => (Number(a.station_order) || 0) - (Number(b.station_order) || 0));
+          const dynPath = distStations
+            .map(s => String(s.station_code || s.code || s.value || '').toUpperCase())
+            .filter(Boolean);
+          if (dynPath.length > 0) {
             const dynIdx = dynPath.indexOf(lastCode);
             if (dynIdx >= 0) { path = dynPath; idx = dynIdx; }
-          } catch (_) {}
+          }
+        } catch (_) {}
+        if (idx < 0) {
+          const staticPath = DIST_PATHS[dist];
+          if (staticPath && staticPath.length) {
+            const staticIdx = staticPath.indexOf(lastCode);
+            if (staticIdx >= 0) { path = staticPath; idx = staticIdx; }
+          }
         }
         if (!path || !path.length || idx < 0) continue;
     
@@ -2087,7 +2114,7 @@ function stationNameFromCode(code) {
             `Last 10 Seen Here — ${stationLabel}`,
             () => {
               const list = window.__rs_lastList || lastList || [];
-              return last10SeenHere(list, stationCodes);
+              return last10SeenHere(list, stationCodes, stationLabel);
             },
             { refreshMs: 5000 }
           );
