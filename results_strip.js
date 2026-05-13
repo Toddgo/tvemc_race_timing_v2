@@ -126,6 +126,7 @@ function recomputeExpectedFromPrevForUI() {
     // helper: normalize simple strings for fuzzy compare
     const norm = s => String(s || '').toUpperCase().trim();
     const normLoose = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const stripPassToken = s => normLoose(s).replace(/PASS\d+/g, '');
 
     const out = [];
     for (const [bib, e] of latestByBib.entries()) {
@@ -140,10 +141,18 @@ function recomputeExpectedFromPrevForUI() {
 
       if (!matchedStation && lastRawNorm) {
         const target = normLoose(lastRawNorm);
+        const targetNoPass = stripPassToken(lastRawNorm);
         matchedStation = stations.find(s => {
           const snameLoose = normLoose(s.station_name || s.text || s.name || '');
           const scLoose = normLoose(s.station_code || s.code || s.value || '');
-          return snameLoose === target || scLoose === target;
+          const snameNoPass = stripPassToken(s.station_name || s.text || s.name || '');
+          const scNoPass = stripPassToken(s.station_code || s.code || s.value || '');
+          return (
+            snameLoose === target ||
+            scLoose === target ||
+            snameNoPass === targetNoPass ||
+            scNoPass === targetNoPass
+          );
         });
       }
 
@@ -606,6 +615,8 @@ function stationNameFromCode(code) {
     return String(raw || "")
       .replace(/^[^\w]+/g, "")
       .toUpperCase()
+      .replace(/\(\s*PASS\s*\d+\s*\)/g, " ")
+      .replace(/\bPASS\s*\d+\b/g, " ")
       .replace(/[^A-Z0-9]/g, "");
   }
 
@@ -618,7 +629,11 @@ function stationNameFromCode(code) {
         const sc = String(s?.station_code || s?.code || s?.value || "").trim().toUpperCase();
         const name = String(s?.station_name || s?.text || s?.name || "").trim();
         if (!sc || !name) continue;
-        if (normalizeStationNameKey(name) === target) return sc;
+        const nameKey = normalizeStationNameKey(name);
+        const codeKey = normalizeStationNameKey(sc);
+        if (nameKey === target || codeKey === target) return sc;
+        // Loose fallback for variants like "CDF (Pass 1)" vs "CDF".
+        if (Math.min(nameKey.length, target.length) >= 3 && (nameKey.includes(target) || target.includes(nameKey))) return sc;
       }
     }
     return "";
