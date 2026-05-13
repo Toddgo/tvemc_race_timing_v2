@@ -589,6 +589,28 @@ function stationNameFromCode(code) {
   return String(e?.station || e?.station_name || e?.station_label || "").trim();
  }
 
+  function normalizeStationNameKey(raw) {
+    return String(raw || "")
+      .replace(/^[^\w]+/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+  }
+
+  function inferStationCodeFromAidMapName(rawName) {
+    const target = normalizeStationNameKey(rawName);
+    if (!target) return "";
+    const map = window.__AID_STATION_MAP_DEBUG || window.AID_STATION_MAP || {};
+    for (const dist of Object.keys(map || {})) {
+      for (const s of (map[dist] || [])) {
+        const sc = String(s?.station_code || s?.code || s?.value || "").trim().toUpperCase();
+        const name = String(s?.station_name || s?.text || s?.name || "").trim();
+        if (!sc || !name) continue;
+        if (normalizeStationNameKey(name) === target) return sc;
+      }
+    }
+    return "";
+  }
+
 
   // Single source of truth for timestamps (no duplicate functions)
   function safePassTs(e) {
@@ -739,7 +761,13 @@ function stationNameFromCode(code) {
       // Fallback: infer from station text
       const stRaw = String(e?.station || e?.station_name || e?.station_label || "").trim();
       if (!stRaw) return "";
-    
+
+      // First try exact station-name lookup from live aid-station map.
+      // This handles events whose passes have NULL station_code (e.g. some Bishop Ultra stations)
+      // while dropdowns use AS codes derived from station_order.
+      const codeFromAidMap = inferStationCodeFromAidMapName(stRaw);
+      if (codeFromAidMap) return codeFromAidMap;
+     
       // --- NEW: detect "(Pass N)" BEFORE stripping it ---
       const passNumFromField = e?.pass_num ? parseInt(String(e.pass_num), 10) : null;
       const passMatch = stRaw.match(/\(Pass\s+(\d+)\)/i);
@@ -1620,6 +1648,7 @@ function stationNameFromCode(code) {
       // station selection and labels
       const effectiveStation = String(stationCode || ctx.station_code || "").trim();
       lastStationCode = effectiveStation;
+      window.__rs_lastStationCode = effectiveStation;
       const stationUpper = effectiveStation.toUpperCase();
       const stationLabel = stationLabelFromDropdown(effectiveStation);
       const stationCodes = expandStationCodes(effectiveStation);

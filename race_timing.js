@@ -650,7 +650,7 @@ function incrementMessage() {
 function refreshResultsStripForCurrentStation() {
   try {
     if (!window.ResultsStrip?.update) return;
-    const stationCode = String(document.getElementById("aidStation")?.value || "").trim().toUpperCase();
+    const stationCode = String(document.getElementById("aidStation")?.value || "").trim();
     const list = Array.isArray(entries) ? entries : [];
     window.ResultsStrip.update(list, stationCode);
   } catch (e) {
@@ -1946,17 +1946,26 @@ function restoreHeaderFields() {
  const asEl = document.getElementById("aidStation");
  if (asEl) {
    const savedAS = String(
-   sessionStorage.getItem("tvemc_aidStation") ||
-   localStorage.getItem("tvemc_aidStation") ||
-   ""
-  ).trim().toUpperCase();
+    sessionStorage.getItem("tvemc_aidStation") ||
+    localStorage.getItem("tvemc_aidStation") ||
+    ""
+  ).trim();
     
-  if (savedAS) asEl.value = savedAS;
+  if (savedAS) {
+    asEl.value = savedAS;
+    // If exact value doesn't exist (e.g. older uppercased saved value vs mixed-case option),
+    // fall back to case-insensitive match so station selection restores correctly.
+    if (asEl.value !== savedAS) {
+      const target = savedAS.toUpperCase();
+      const opt = Array.from(asEl.options || []).find(o => String(o.value || "").trim().toUpperCase() === target);
+      if (opt) asEl.value = opt.value;
+    }
+  }
     
   if (!asEl.__tvemcBound) {
     asEl.__tvemcBound = true;
     asEl.addEventListener("change", (e) => {
-      const sc = String(e.target.value || "").trim().toUpperCase();
+      const sc = String(e.target.value || "").trim();
       try { sessionStorage.setItem("tvemc_aidStation", sc); } catch (err) {}
       localStorage.setItem("tvemc_aidStation", sc);
       updateSubject();
@@ -2006,7 +2015,7 @@ function wireHeaderFieldPersistence() {
   });
 
   document.getElementById("aidStation")?.addEventListener("change", (e) => {
-  const sc = String(e.target.value || "").trim().toUpperCase();
+  const sc = String(e.target.value || "").trim();
 
   // Per-tab station (multi-window testing)
   try { sessionStorage.setItem("tvemc_aidStation", sc); } catch (err) {}
