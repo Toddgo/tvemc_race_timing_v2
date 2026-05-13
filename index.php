@@ -1,0 +1,1026 @@
+<?php
+session_start();
+if (empty($_SESSION['operator_access'])) { header('Location: access.php'); exit; }
+?>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+   <!--Was and will be; KH_SOB_2026_0003 For event_id = 1-->
+    <title>KH_SOB_2026_0003 Race Tracker with Bib Info</title>  
+
+<script>
+// ── HQ Mode: read ?hq=1 from URL (or sessionStorage), then strip the param ──
+(function () {
+  var qs = new URLSearchParams(window.location.search);
+  if (qs.get('hq') === '1') {
+    sessionStorage.setItem('tvemc_hq_mode', '1');
+    qs.delete('hq');
+    var newSearch = qs.toString() ? '?' + qs.toString() : '';
+    history.replaceState(null, '', window.location.pathname + newSearch + window.location.hash);
+  }
+  window.TVEMC_isHQ = function () {
+    return sessionStorage.getItem('tvemc_hq_mode') === '1';
+  };
+})();
+</script>
+
+<style>
+  /* Flashing highlight when new HQ messages arrive */
+  .hq-inbox-new {
+    animation: hqFlash 1s ease-in-out infinite alternate;
+    border-color: #ff0 !important;
+  }
+
+  @keyframes hqFlash {
+    from { background-color: #444; }
+    to   { background-color: #886600; }
+  }
+</style>
+
+</head>
+<body>
+<!-- HQ / Race Director Mode — hidden until button clicked -->
+<div id="hqPasswordGate"
+     style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;
+            background:rgba(0,0,0,0.97);z-index:9999;
+            align-items:center;justify-content:center;
+            color:white;font-family:Arial;text-align:center;">
+
+  <div style="background: #dc3545;padding:40px;border-radius:15px;max-width:90%;">
+    <h2>Enter HQ / Race Director Mode</h2>
+
+    <input type="password"
+           id="hqPass"
+           placeholder="Password"
+           style="font-size:22px;padding:12px;width:280px;
+                  text-align:center;border-radius:8px;border:none;"><br><br>
+
+    <!-- ENTER button -->
+    <button onclick="enterHqMode()"
+            style="font-size:20px;padding:12px 30px;
+                   background:#000080;color:white;
+                   border:none;border-radius:8px;margin:8px;">
+      ENTER
+    </button>
+
+    <!-- Cancel button (RESTORED) -->
+    <button onclick="document.getElementById('hqPasswordGate').style.display='none'"
+            style="font-size:18px;padding:10px 24px;
+                   background:#666;color:white;
+                   border:none;border-radius:8px;margin:8px;">
+      Cancel
+    </button>
+
+    <p style="margin-top:25px;font-size:14px;">
+      Aid-station operators never see this.
+    </p>
+  </div>
+</div>
+
+
+    <noscript>JavaScript is disabled. Please enable JavaScript to use the Race Tracker.</noscript>
+    <!-- Rest of your body content here -->
+
+
+<!-- Wednesday Radio Addition: Navy HQ Box (shows if ?hq=1) -->
+<div id="hqRadioBox" style="display: none; background: #000080; color: white; padding: 15px; margin: 0 0 20px 0; border-radius: 8px; text-align: center;">
+    <div class="hq-panel start-times-block">
+    <div id="startTimesPanel" class="start-times-panel">
+   
+  <h1>Race Start Times (by Distance)</h1>
+
+  <div class="start-time-row">
+    <label>30K</label>
+    <input type="datetime-local" id="start_30K">
+  </div>
+
+  <div class="start-time-row">
+    <label>20M</label>
+    <input type="datetime-local" id="start_20M">
+  </div>
+
+  <div class="start-time-row">
+    <label>26.2</label>
+    <input type="datetime-local" id="start_26_2">
+  </div>
+
+  <div class="start-time-row">
+    <label>50K</label>
+    <input type="datetime-local" id="start_50K">
+  </div>
+
+  <div class="start-time-row">
+    <label>50M</label>
+    <input type="datetime-local" id="start_50M">
+  </div>
+
+  <div class="start-time-row">
+    <label>100K</label>
+    <input type="datetime-local" id="start_100K">
+  </div>
+
+  <div class="start-time-row">
+    <label>100M</label>
+    <input type="datetime-local" id="start_100M">
+  </div>
+
+  <div class="start-time-row">
+    <label>200M</label>
+    <input type="datetime-local" id="start_200M">
+  </div>
+
+  <div class="start-time-row">
+    <label>240M</label>
+    <input type="datetime-local" id="start_240M">
+  </div>
+
+  <div class="start-time-row">
+    <label>300M</label>
+    <input type="datetime-local" id="start_300M">
+  </div>
+</div>
+  <button type="button" onclick="saveStartTimes()">Save Start Times</button>
+  
+  <!-- HQ Occupancy Mode Control -->
+<div class="hq-occupancy-mode">
+  <label for="hqOccupancyMode"><b>Occupancy Mode</b></label>
+  <select id="hqOccupancyMode">
+    <option value="auto">Auto (by event)</option>
+    <option value="inout">IN / OUT (strict)</option>
+    <option value="lastseen">Last Seen (simple)</option>
+  </select>
+</div>
+
+  <!-- HQ Auto Pass Advance -->
+<div class="hq-occupancy-mode">
+  <label for="hqAutoPassAdvance"><b>Auto-Pass Advance</b></label>
+  <select id="hqAutoPassAdvance">
+    <option value="IN_ONLY">IN only (recommended)</option>
+    <option value="IN_OUT">IN + OUT</option>
+  </select>
+</div>
+
+<!-- HQ Time Display Mode (HQ-only) -->
+<div class="hq-occupancy-mode" id="hqTimeModeBox" style="display:none;">
+  <label for="hqTimeMode"><b>Time Display</b></label>
+  <select id="hqTimeMode">
+    <option value="LOCAL">Local</option>
+    <option value="UTC">UTC</option>
+  </select>
+  <div id="hqTimeMeta" style="margin-top:6px;font-size:12px;opacity:.85;"></div>
+</div>
+
+  <div class="hq-divider"></div>
+</div>
+  <h2 style="margin: 0; color: #ffff00;">HQ / Race Director – Send Message to Aid Station</h2>
+  <p style="margin: 30px 0; color: #ffff00;">Send directed messages to specific aid stations or broadcast to all.</p>
+
+  <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 15px 0;">
+    <select id="hqTarget" style="padding: 8px; border-radius: 5px;">
+      <option value="ALL">📡 Broadcast to ALL Stations</option>
+      <option value="START">🏁 Start</option>
+      <option value="FINISH">🏁 Finish</option>
+    </select>
+
+    <input
+      type="text"
+      id="hqMessageText"
+      placeholder="Enter HQ message (e.g., Weather update...)"
+      style="flex: 1; min-width: 200px; padding: 8px; border-radius: 5px;"
+    />
+    
+    <input type="hidden" id="eventId" value="1">
+
+
+    <div id="hqStatus" style="font-size: 14px; margin-top: 10px;">Status: Ready</div>
+</div> <!-- end of hqRadioBox -->
+    
+    <!-- HQ Message Log (for ?hq=1 only) -->
+<div id="hqLogBox" style="display: none; margin-top: 20px; text-align: left;">
+  <h3>HQ Message Log</h3>
+  <div style="margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+    <label>
+      Station:
+      <select id="hqLogStationFilter">
+    <option value="">All</option>
+    <option value="START">🏁 START</option>
+    <option value="FINISH">🏁 FINISH</option>
+      </select>
+    </label>
+
+    <label>
+      ACK Status:
+      <select id="hqLogAckFilter">
+        <option value="">All</option>
+        <option value="pending">Pending</option>
+        <option value="ack">ACKed</option>
+      </select>
+    </label>
+
+    <button id="hqLogRefreshBtn" style="font-size:20px;padding:12px 20px;
+                   background:#ffff00;color:black;
+                   border:none;border-radius:8px;margin:8px;">
+      Refresh Log
+    </button>
+     <span id="hqLogStatus" style="font-size: 12px; color: #555;"></span>
+</div>
+
+  <div style="max-height: 250px; overflow-y: auto; border: 1px solid #ccc; border-radius: 6px;">
+    <table id="hqLogTable" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <thead style="background: #f0f0f0; position: sticky; top: 0;">
+        <tr>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Time</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Station</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Channel</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Message</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">Operator</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">ACK?</th>
+          <th style="border-bottom: 1px solid #ccc; padding: 4px;">ACK Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td colspan="7" style="padding: 6px; text-align: center; font-style: italic;">
+            Loading...
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+    <!-- Radio button: same look as before -->
+    <button
+      id="sendRadioSelectedBtn"
+      onclick="sendHqMessage()"
+      style="background: #ffff00; color: black; font-weight: bold; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer;"
+    >
+      SEND RADIO TO SELECTED
+    </button>
+
+    <!-- Internet button: matches style, different text + onclick -->
+    <button
+      id="sendInternetSelectedBtn"
+      onclick="sendInternetToSelected()"
+      style="background: #ffff00; color: black; font-weight: bold; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer;"
+    >
+      SEND INTERNET TO SELECTED
+    </button>
+  </div>
+
+
+<div id="stationHistory"
+     style="display: none;
+            background: #2a2a2a;
+            color: #fff;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border: 1px solid #555;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h4 style="margin: 0; color: #ffffaa; font-size: 16px;">
+      HQ Message History (Last 20)
+    </h4>
+    <button type="button"
+            id="stationHistoryReload"
+            style="font-size: 11px; padding: 2px 6px;">
+      Refresh History
+    </button>
+  </div>
+
+  <div id="stationHistoryBody"
+       style="max-height: 140px; overflow-y: auto; font-size: 14px; margin-top:4px;">
+    <div style="font-style: italic; color: #ccc;">
+      No history loaded yet.
+    </div>
+  </div>
+</div>
+
+
+<!-- Aid Station: Live HQ Inbox (Pending messages with "Received" checkbox) -->
+<div id="stationInbox"
+     style="display: none;
+            background: #111;
+            color: #fff;
+            padding: 8px;
+            margin: 0 0 10px 0;
+            border-radius: 6px;
+            border: 1px solid #555;">
+  <div style="display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 4px;">
+    <h4 id="stationInboxTitle"
+        style="margin: 0;
+               color: #ffffaa;
+               font-size: 18px;">
+      Incoming HQ Messages
+    </h4>
+    <span style="font-size: 11px; color: #ccc;">
+      Check "Received" after you relay the message
+    </span>
+  </div>
+
+  <div id="stationInboxBody"
+       style="max-height: 80px;
+              overflow-y: auto;
+              font-size: 12px;">
+    <div style="font-style: italic; color: #ccc;">
+      No messages from HQ yet.
+    </div>
+  </div>
+</div>
+
+<!-- Aid Station: Reply to HQ -->
+<div id="stationReplyBox"
+     style="display: none;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 8px;
+            margin: 0 0 10px 0;
+            border-radius: 6px;
+            border: 1px solid #4444aa;">
+  <h4 style="margin: 0 0 6px 0; color: #aaaaff; font-size: 15px;">📤 Send Message to HQ</h4>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+    <input type="text"
+           id="stationReplyText"
+           placeholder="Type your reply to HQ..."
+           style="flex: 1; min-width: 200px; padding: 6px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; font-size: 14px;" />
+    <button type="button"
+            id="stationReplyBtn"
+            onclick="sendStationReplyToHQ()"
+            style="background: #4444ff; color: #fff; font-weight: bold;
+                   padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">
+      Send to HQ
+    </button>
+  </div>
+  <div id="stationReplyStatus" style="font-size: 12px; color: #aaa; margin-top: 4px;"></div>
+</div>
+
+
+<!-- Black Receive Area for Incoming HQ Messages -->
+<div id="receiveArea" style="background: black; color: lime; padding: 10px; margin: 10px 0; border-radius: 5px; min-height: 40px; display: none;">
+    Incoming HQ Message: <span id="incomingMsg"></span>
+</div>
+      
+    
+    <h1 id="pageHeading">TVEMC Race Timing</h1>
+    
+    <div class="section">
+        <input type="checkbox" id="highContrast" name="highContrast" tabindex="0">
+        <label for="highContrast">High Contrast Mode (for sunlight)</label>
+          <button onclick="document.getElementById('hqPasswordGate').style.display='flex'" style="background:#000080;color:white;font-size:18px;padding:12px 24px;border-radius:12px;margin-left:20px;vertical-align:middle;">Enter HQ / Race Director Mode</button>
+    <form id="raceForm" novalidate>
+        <div class="section">
+            <label for="eventCode">Event:</label>
+            <select id="eventCode" name="eventCode" tabindex="1" style="min-width:260px;font-size:14px;">
+              <option value="">— loading events… —</option>
+            </select><br><br>
+            <label for="eventName">Event Name:</label>
+            <input type="text" id="eventName" name="eventName" value="" tabindex="-1" readonly style="background:#f0f0f0;color:#555;cursor:default;"><br><br>
+            <label for="messageNum">Message #:</label>
+            <input type="number" id="messageNum" name="messageNum" value="1" tabindex="3">
+            <button type="button" class="increment-button" onclick="incrementMessage()" tabindex="4" role="button" aria-label="Increment Message Number">Increment</button><br><br>
+            <label for="operatorName">Operator Name:</label>
+            <input type="text" id="operatorName" name="operatorName" placeholder="e.g., John" required tabindex="5"><br><br>
+            <label for="sendTo">Send to:</label>
+            <input type="text" id="sendTo" name="sendTo" placeholder="e.g., Your Email Address" tabindex="6"><br><br>
+            <label for="aidStation">Aid Station:</label>
+            <select id="aidStation" name="aidStation" tabindex="7">
+              <option value="START">🏁 START</option>
+              <option value="FINISH">🏁 FINISH</option>
+            </select><br><br>
+            <label for="subject">Subject:</label>
+            <input type="text" id="subject" name="subject" readonly tabindex="8">
+        </div>
+        <div class="section">
+            <h2>Bib Data Entry <button type="button" id="fieldModeBtn" onclick="toggleFieldMode()" style="background:#222;color:#fff;font-size:13px;padding:4px 10px;border-radius:8px;border:1px solid #555;margin-left:10px;vertical-align:middle;cursor:pointer;">📱 Field Mode</button></h2>
+            <input type="checkbox" id="fastMode" name="fastMode" tabindex="8">
+            <label for="fastMode">Fast Tab Mode (Skip Time/Yesterday)</label><br><br>
+	<div>
+	    <label><input type="checkbox" id="showAlerts" checked> Show confirmation pop-ups</label>
+	   </div> 		
+            <label for="bibNumber">Bib Number:</label>
+            <input type="text" id="bibNumber" name="bibNumber" maxlength="100" oninput="updateBibInfo()" autocomplete="off" tabindex="9" inputmode="text" placeholder="Bib # or 23,24,25"><br>
+            <table id="bibInfoTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>Bib #</th>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                        <th>Age</th>
+                        <th>Gender</th>
+                        <th>Distance</th>
+                        <th>Previous Distance</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table><br>
+            <label for="time">Time:</label>
+            <input type="time" id="time" name="time" tabindex="10">
+            <button type="button" id="finishBtn" class="finish-button" onclick="addEntry('FINISH')" style="display:none;"> FINISH</button><br><br>
+            <label for="comment">Comment for this runner (optional):</label>
+            <textarea id="comment" name="comment" tabindex="16" spellcheck="true"></textarea><br><br>
+            <button type="button" class="in-button" onclick="addEntry('IN')" tabindex="11" role="button" aria-label="Add IN Entry">IN</button>
+            <button type="button" class="out-button" onclick="addEntry('OUT')" tabindex="12" role="button" aria-label="Add OUT Entry">OUT</button>
+            <button type="button" class="dnf-button" onclick="addEntry('DNF')" tabindex="13" role="button" aria-label="Add DNF Entry">DNF</button>
+            <button type="button" class="note-button" onclick="addEntry('NOTE')" tabindex="14" role="button" aria-label="Add NOTE Entry">NOTE</button>
+            <button type="button" class="change-distance-button" onclick="showDistancePopup()" tabindex="15" role="button" aria-label="Change Distance">Change Distance</button><br><br>
+        </div>
+        <div id="distancePopup" style="display: none;">
+            <label for="distanceSelect">Select Distance:</label>
+            <select id="distanceSelect" tabindex="17">
+                <option value="30K">30K</option>
+                <option value="26.2">26.2</option>
+                <option value="50K">50K</option>
+                <option value="50M">50M</option>
+                <option value="100K">100K</option>
+                <option value="100M">100 mile</option>
+                <option value="200M">200 mile</option>
+                <option value="240M">240 mile</option>
+                <option value="300M">300 mile</option>
+                
+		<option value="DNS">DNS</option>
+            </select><br>
+            <button type="button" class="update-button" onclick="updateDistance(event)" tabindex="18" role="button" aria-label="Update Distance">Update Distance</button>
+            <button type="button" class="cancel-edit-button" onclick="closeDistancePopup()" tabindex="19" role="button" aria-label="Cancel">Cancel</button>
+        </div>
+        <div class="section">
+            <h2>Bib Log Viewer</h2>
+    
+            <div id="resultsStripMount"></div>
+            
+            <button type="button" class="view-hide-bib-log-button" onclick="toggleBibLog()" tabindex="23" role="button" aria-label="Toggle Bib Log View">📋 View/Hide Bib Log</button>
+            <button type="button" class="export-csv-button" onclick="exportBibCSV_v2()" tabindex="24" role="button" aria-label="Export Log CSV">💾 Export Log CSV</button>
+            <button type="button" class="copy-winlink-button" onclick="exportBibWinlinkTxt_v2()" tabindex="25" role="button" aria-label="Copy for Winlink">📋 Copy for Winlink</button>
+            <button type="button" class="save-data-button" onclick="saveData(true)" tabindex="26" role="button" aria-label="Save Data">💾 Save Data</button>
+            <button type="button" class="load-data-button" onclick="loadDataButton()" tabindex="27" role="button" aria-label="Load Data">📂 Load Data</button>
+            <button type="button" class="import-csv-button" onclick="importCSV()" tabindex="28" role="button" aria-label="Import CSV">📥 Import CSV</button>
+            <button type="button" class="import-radio-button" onclick="importRadioWinlinkTxt()" tabindex="29" role="button" aria-label="importRadioWinlinkTxt">📥 Import Radio Data</button>
+            <button type="button" class="import-bib-list-button" onclick="importBibList()" tabindex="30" role="button" aria-label="Import Bib List">📥 Import Bib List</button>
+            <button type="button" class="reset-newest-button" onclick="resetToNewest()" tabindex="31" role="button" aria-label="Reset to Newest">Reset to Newest</button>
+            <button type="button" class="sync-button" onclick="syncOfflineEntries()" tabindex="32" role="button" aria-label="Sync Offline Entries">🔄 Sync Offline Entries</button><br><br>  
+            <input type="text" id="logSearch" placeholder="🔍 Search bib, action, time, station, comment..." oninput="filterBibLog()" tabindex="22"><br>    
+        
+         <!-- top scroll bar -->
+         <div id="topScroll" class="scrollbar-top"> <!-- Wrapper for top,horizontal and vertical scroll -->
+           <div class="scrollbar-inner"></div>
+         </div>
+         <!-- main table container -->
+         <div id="bibLogContainer" class="bib-log-wrapper">
+           <table id="bibLogTable">
+            <thead>
+              
+        <!--       <th onclick="sortBibTable(0)">Event</th>  -->
+              <tr>
+              <th onclick="sortBibTable(0)">Bib #</th>
+              <th onclick="sortBibTable(1)">Place</th>
+              <th onclick="sortBibTable(2)">Action</th>
+              <th onclick="sortBibTable(3)">Time</th>
+              <th onclick="sortBibTable(4)">Date</th>
+              <th class="pass-col" onclick="sortBibTable(5)">Pass #</th>
+              <th onclick="sortBibTable(6)">Station</th>
+              <th onclick="sortBibTable(7)">Comment</th>
+              <th onclick="sortBibTable(8)">Operator</th>
+              <th onclick="sortBibTable(9)">Finish</th>
+              <th onclick="sortBibTable(10)">Elapsed</th>
+              <th onclick="sortBibTable(11)">Avg Pace</th>
+              <th onclick="sortBibTable(12)">Gender Place</th>
+              <th onclick="sortBibTable(13)">AgeGrp</th>
+              <th onclick="sortBibTable(14)">AG Place</th>
+              <th onclick="sortBibTable(15)">ETA Next</th>
+              <th onclick="sortBibTable(16)">Date</th>
+              <th onclick="sortBibTable(17)">First Name</th>
+              <th onclick="sortBibTable(18)">Last Name</th>
+              <th onclick="sortBibTable(19)">Age</th>
+              <th onclick="sortBibTable(20)">Gender</th>
+              <th onclick="sortBibTable(21)">Distance</th>
+              <th onclick="sortBibTable(22)">Previous Distance</th>
+              <th>Edit</th>
+            </tr>
+
+           </thead>
+   	    <tbody></tbody>
+          </table>
+       </div>
+        <div class="section">
+            <label for="entryCount">Entry Count:</label>
+            <span id="entryCount">0</span><br><br>
+            <label for="generalComment">General Comment:</label>
+            <input type="text" id="generalComment" name="generalComment" placeholder="e.g., Aid station low on water" tabindex="32" spellcheck="true">
+            <button type="button" onclick="addGeneralComment()">Add General Comment</button>
+        </div>
+                <div class="section">
+            <h2>General Message Log</h2>
+            <button type="button" class="view-hide-message-log-button" onclick="toggleGeneralMessageLog()" tabindex="34">View/Hide General Message Log</button>
+            <button type="button" onclick="exportGeneralCSV()">Export CSV</button>
+            <button type="button" onclick="exportGeneralPDF()">Export PDF</button>
+            <button type="button" onclick="exportGeneralWinlink()">Export Winlink</button>
+             <br><br>
+
+	      <div class="bib-log-wrapper">
+                <table id="generalMessageLogTable" style="display: none;">
+                    <thead>
+                        <tr>
+                         <th onclick="sortGeneralMessages(0)">Aid Station</th> 
+                            <th>Msg #</th>
+                            <th>Comment</th>
+                            <th>Operator</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+<div class="section">
+  <button
+    id="clearLogButton"
+    type="button"
+    class="clear-log-button"
+    onclick="clearLog()"
+    tabindex="35"
+    role="button"
+    aria-label="Clear Bib Log">
+    🧹 Clear Bib Log
+  </button>
+</div>
+
+<div class="section">
+  <button
+    id="btnclearGeneralMessages"
+    type="button"
+    class="clear-general-button"
+    onclick="clearGeneralMessages()"
+    tabindex="36"
+    role="button"
+    aria-label="Clear General Messages">
+    🧹 Clear General Messages
+  </button>
+</div>
+
+<details>
+  <summary>Winlink Operator Instructions</summary>
+  <p>The form has four sections: Header (event, operator, etc.), Bib Data Entry (bib, time, actions),
+     Bib Log Viewer (view/export data), and Message Log (track exports).</p>
+</details>
+
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  setInterval(() => {
+    if (typeof loadGeneralComments === "function") {
+      loadGeneralComments();
+      console.log("Auto refresh fired");
+    }
+  }, 120000);
+</script>
+
+
+<!-- Big Yellow Radio Send Button (center, after general comment section) -->
+<div class="section" style="text-align: center; margin: 30px 0;">
+    <button type="button" onclick="sendRunnerUpdatesViaRadio()" style="background: #ffff00; color: black; font-size: 24px; font-weight: bold; padding: 20px 60px; border: none; border-radius: 15px; box-shadow: 0 6px 20px rgba(0,0,0,0.2); cursor: pointer; transition: transform 0.2s;" tabindex="38">📡 SEND RADIO MESSAGE</button>
+    <div id="radioStatus" style="margin-top: 15px; font-size: 16px; font-weight: bold; color: #008000;">Radio: Connected & Ready</div>
+    <div id="messageNumber" style="margin-top: 5px; font-size: 14px; color: #666;">Next Msg#: Loading...</div>
+</div>
+
+
+
+<!-- Load your local JS for dev -->
+<script src="race_timing.js?v=debug19"></script>
+<!--<script src="results_strip.js?v=1"></script> -->
+<script src="message-batches.js?v=dev1"></script>
+<script src="radio-system.js?v=2"></script>
+<script src="rd-internet.js?v=2"></script>
+<script src="general_comments.js?v=1"></script>
+<script src="hq_inbox_poll.js?v=debug5"></script>
+<script src="hq_log.js?v=6"></script>
+<script src="results_strip.js?v=11"></script>
+<script src="results_strip_modes.js?v=3"></script>
+<script src="station_autopass.js?v=1"></script>
+<script src="autopass_undo.js?v=1"></script>
+<script type="module" src="results_math.js?v=1"></script>
+<script type="module" src="results_engine.js?v=1"></script>
+<link rel="stylesheet" href="race_timing.css">
+<link rel="stylesheet" href="results_strip.css">
+
+<!-- Timing module -->
+<script type="module">
+  import { computeResultsForRows } from "./results_engine.js";
+
+  let __resultsConfigEventCode = "";
+
+  async function loadResultsConfigOnce() {
+    // Always use the event_code SELECT dropdown (not eventName which is the human-readable name)
+    const eventCode = (
+      document.getElementById("eventCode")?.value ||
+      new URLSearchParams(window.location.search).get("event") ||
+      ""
+    ).toString().trim();
+
+    // Re-load if the event changed (so switching events refreshes start times)
+    if (eventCode === __resultsConfigEventCode && window.TVEMC_startByDistance?.size > 0) return;
+
+    const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, {
+      cache: "no-store"
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "results_config_load failed");
+
+    window.TVEMC_milesByDistance = new Map(Object.entries(data.distances || {}));
+    window.TVEMC_startByDistance = new Map(Object.entries(data.start_times_iso || {}));
+    window.TVEMC_runnerStartByBib = new Map(Object.entries(data.runner_starts_iso || {}));
+
+    __resultsConfigEventCode = eventCode;
+  }
+
+  // Hook called by race_timing.js after it loads bib log rows
+  window.TVEMC_computeResults = async function(rows) {
+    await loadResultsConfigOnce();
+
+    return computeResultsForRows({
+      rows,
+      runnerStartByBib: window.TVEMC_runnerStartByBib || new Map(),
+      startByDistance: window.TVEMC_startByDistance || new Map(),
+      milesByDistance: window.TVEMC_milesByDistance || new Map(),
+      finishStationCode: "FINISH"
+    });
+  };
+</script>
+
+<script>
+
+  const topScroll = document.getElementById('topScroll');
+  const bottomDiv = document.getElementById('bibLogContainer');
+
+
+  // match widths
+  const syncWidth = () => {
+    document.querySelector('#topScroll .scrollbar-inner').style.width = bottomDiv.scrollWidth + 'px';
+  };
+  syncWidth();
+
+  // keep scroll positions linked
+  topScroll.addEventListener('scroll', () => bottomDiv.scrollLeft = topScroll.scrollLeft);
+  bottomDiv.addEventListener('scroll', () => topScroll.scrollLeft = bottomDiv.scrollLeft);
+
+  // adjust when window resizes
+  window.addEventListener('resize', syncWidth);
+</script>
+<script>
+async function enterHqMode() {
+  const pass = document.getElementById('hqPass').value || '';
+  try {
+    const res = await fetch('hq_auth.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pass })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      alert('Wrong HQ password');
+      return;
+    }
+  } catch (e) {
+    alert('Error verifying password. Please try again.');
+    return;
+  }
+  localStorage.setItem('hq_auth_token', 'valid');
+  sessionStorage.setItem('tvemc_hq_mode', '1');
+  location.href = location.pathname;
+}
+</script>
+
+
+<script>
+(function(){
+  const sel = document.getElementById("hqOccupancyMode");
+  if (!sel) return;
+
+  // Initialize select from storage
+  const stored = localStorage.getItem("tvemc_occupancy_mode") || "auto";
+  sel.value = stored;
+
+  sel.addEventListener("change", () => {
+    localStorage.setItem("tvemc_occupancy_mode", sel.value);
+    if (window.ResultsStrip?.update) {
+      window.ResultsStrip.update([], document.getElementById("aidStation")?.value || "");
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  const sel = document.getElementById("hqAutoPassAdvance");
+  if (!sel) return;
+
+  // init
+  const stored = localStorage.getItem("tvemc_autopass_advance_rule") || "IN_ONLY";
+  sel.value = stored;
+
+  sel.addEventListener("change", () => {
+    localStorage.setItem("tvemc_autopass_advance_rule", sel.value);
+  });
+})();
+</script>
+
+<!-- Bottom Help Links -->
+<script>
+(function(){
+  const openBtn = document.getElementById("openStatusCardsHelp");
+  const modal = document.getElementById("statusCardsModal");
+  const closeBtn = document.getElementById("statusCardsModalCloseBtn");
+  const closeBackdrop = document.getElementById("statusCardsModalCloseBackdrop");
+
+  function openModal(){
+    if (!modal) return;
+    modal.style.display = "block";
+  }
+  function closeModal(){
+    if (!modal) return;
+    modal.style.display = "none";
+  }
+
+  if (openBtn) openBtn.addEventListener("click", openModal);
+  if (closeBtn) closeBtn.addEventListener("click", closeModal);
+  if (closeBackdrop) closeBackdrop.addEventListener("click", closeModal);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeModal();
+  });
+})();
+
+</script>
+<!-- Bottom Help Links -->
+<div class="bottom-help-links" style="margin-top:20px; text-align:center;">
+
+  <div style="margin-bottom:12px;">
+    <a class="help-link"
+       href="TVEMC-ResultsStripOperationalLogic-Jan2026.pdf"
+       target="_blank"
+       rel="noopener">
+      📄 Results Strip – Operational Logic (PDF)
+    </a>
+  </div>
+
+  <div>
+    <a class="help-link"
+       href="TVEMC-BibLogViewer-StatusCardsGuideJan2026.pdf"
+       target="_blank"
+       rel="noopener">
+      📄 Status Cards Guide (PDF)
+    </a>
+  </div>
+
+  <div style="margin-top:12px;">
+    <a class="help-link"
+       href="https://tvemc.org/tvemc_race_timing_v2/finish_lookup.html"
+       target="_blank"
+       rel="noopener">
+      🏁 Runner Lookup / Finisher Board
+    </a>
+  </div>
+
+</div>
+
+<footer>© 2025 TVEMC • tvemc tracker™ • <a href="https://tvemc.org">tvemc.org</a></footer>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    // Register SW scoped to THIS directory (race_timingT)
+    navigator.serviceWorker.register('./service-worker.js', { scope: './' })
+      .then((reg) => {
+        console.log('Service Worker registered', reg);
+
+        // Ask browser to check for an updated SW immediately
+        reg.update().catch(() => {});
+      })
+      .catch(err => console.error('SW fail:', err));
+
+    // Helpful when a new SW activates and takes control
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      console.log('Service Worker controller changed (new SW active)');
+    });
+  }
+</script>
+
+<!-- ===== FIELD MODE OVERLAY (full-screen numpad for mobile) ===== -->
+<div id="fieldModeOverlay" style="
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: #12122a;
+  color: #fff;
+  z-index: 99999;
+  flex-direction: column;
+  align-items: center;
+  font-family: sans-serif;
+  box-sizing: border-box;
+  padding: 12px 8px 8px;
+  overflow: hidden;
+">
+  <!-- Header row -->
+  <div style="display:flex; align-items:center; width:100%; max-width:420px; margin-bottom:6px;">
+    <button type="button" onclick="toggleFieldMode()" style="
+      background:none; border:none; color:#aaa; font-size:26px;
+      cursor:pointer; padding:4px 10px 4px 0; line-height:1;
+    ">&#8592;</button>
+    <div style="flex:1; text-align:center;">
+      <div id="fmEventLabel" style="font-size:11px; color:#aaa; letter-spacing:1px; text-transform:uppercase;"></div>
+      <div style="font-size:18px; font-weight:bold; color:#fff; letter-spacing:1px;">Bib Entry</div>
+    </div>
+    <div style="width:44px;"></div><!-- spacer to balance back arrow -->
+  </div>
+
+  <!-- Station name -->
+  <div id="fmStationLabel" style="
+    font-size:13px; color:#7ec8ff; letter-spacing:1px; margin-bottom:10px;
+    text-align:center; text-transform:uppercase;
+  "></div>
+
+  <!-- Bib display -->
+  <div style="
+    width:100%; max-width:420px;
+    background:#1e1e40;
+    border-radius:12px;
+    padding:14px 20px;
+    margin-bottom:12px;
+    display:flex; align-items:center; gap:8px;
+  ">
+    <span style="color:#7ec8ff; font-size:22px; font-weight:bold;">#</span>
+    <span id="fmBibDisplay" style="font-size:32px; font-weight:bold; color:#fff; flex:1; letter-spacing:3px; min-height:40px;">--</span>
+  </div>
+
+  <!-- Flash confirmation (fades out after submit) -->
+  <div id="fmFlash" style="
+    height:22px; text-align:center; font-size:14px; font-weight:bold;
+    color:#7eff9a; letter-spacing:2px; opacity:0;
+    transition: opacity 0.3s ease;
+    margin-bottom:4px;
+  "></div>
+  <div style="
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:10px;
+    width:100%; max-width:360px;
+    margin-bottom:12px;
+  ">
+    <button type="button" onclick="fieldModeKey('1')" class="fm-key">1</button>
+    <button type="button" onclick="fieldModeKey('2')" class="fm-key">2</button>
+    <button type="button" onclick="fieldModeKey('3')" class="fm-key">3</button>
+    <button type="button" onclick="fieldModeKey('4')" class="fm-key">4</button>
+    <button type="button" onclick="fieldModeKey('5')" class="fm-key">5</button>
+    <button type="button" onclick="fieldModeKey('6')" class="fm-key">6</button>
+    <button type="button" onclick="fieldModeKey('7')" class="fm-key">7</button>
+    <button type="button" onclick="fieldModeKey('8')" class="fm-key">8</button>
+    <button type="button" onclick="fieldModeKey('9')" class="fm-key">9</button>
+    <button type="button" onclick="fieldModeBackspace()" class="fm-key" style="font-size:20px;">&#9003;</button>
+    <button type="button" onclick="fieldModeKey('0')" class="fm-key">0</button>
+    <button type="button" onclick="fieldModeSubmit('IN')" class="fm-key" style="background:#1a6b3a; font-size:20px;">&#9166;</button>
+  </div>
+
+  <!-- Action buttons: IN / OUT / FINISH / DNF / CHANGE DIST -->
+  <div style="
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+    width:100%; max-width:360px;
+  ">
+    <button type="button" onclick="fieldModeSubmit('IN')"      class="fm-action" style="background:#1a6b3a;">IN</button>
+    <button type="button" onclick="fieldModeSubmit('OUT')"     class="fm-action" style="background:#2a5a2a;">OUT</button>
+    <button type="button" onclick="fieldModeSubmit('FINISH')"  class="fm-action" style="background:#1a5a6b;">FINISH</button>
+    <button type="button" onclick="fieldModeSubmit('DNF')"     class="fm-action" style="background:#6b1a1a;">DNF</button>
+    <button type="button" onclick="fieldModeChangeDist()"      class="fm-action" style="grid-column:1/-1; background:#5a3a00;">CHANGE DIST</button>
+  </div>
+
+  <!-- Inline distance picker (shown when CHANGE DIST is tapped) -->
+  <div id="fmDistPanel" style="
+    display:none;
+    position:absolute; inset:0;
+    background:rgba(0,0,0,0.92);
+    z-index:10;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:18px;
+    padding:30px 20px;
+  ">
+    <div style="color:#fff; font-size:20px; font-weight:bold; text-align:center;">
+      Change Distance<br>
+      <span id="fmDistBibLabel" style="font-size:14px; color:#aaa;"></span>
+    </div>
+    <select id="fmDistSel" style="
+      font-size:22px; padding:10px 16px; border-radius:10px;
+      width:100%; max-width:300px; background:#222; color:#fff; border:1px solid #555;
+    ">
+      <option value="30K">30K</option>
+      <option value="26.2">26.2</option>
+      <option value="50K">50K</option>
+      <option value="50M">50M</option>
+      <option value="100K">100K</option>
+      <option value="100M">100 mile</option>
+      <option value="200M">200 mile</option>
+      <option value="240M">240 mile</option>
+      <option value="300M">300 mile</option>
+      <option value="DNS">DNS</option>
+    </select>
+    <div style="display:flex; gap:16px; width:100%; max-width:300px;">
+      <button type="button" onclick="fieldModeConfirmDist()" style="
+        flex:1; padding:16px; font-size:18px; font-weight:bold;
+        background:#1a6b3a; color:#fff; border:none; border-radius:12px;
+        touch-action:manipulation; cursor:pointer;
+      ">✓ Confirm</button>
+      <button type="button" onclick="fieldModeCancelDist()" style="
+        flex:1; padding:16px; font-size:18px; font-weight:bold;
+        background:#444; color:#fff; border:none; border-radius:12px;
+        touch-action:manipulation; cursor:pointer;
+      ">✕ Cancel</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.fm-key {
+  background: #2a2a50;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 26px;
+  font-weight: bold;
+  padding: 18px 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.fm-key:active { background: #4a4a80; }
+.fm-action {
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  padding: 18px 0;
+  cursor: pointer;
+  letter-spacing: 2px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.fm-action:active { opacity: 0.75; }
+</style>
+<!-- ===== END FIELD MODE OVERLAY ===== -->
+
+
+</body>
+</html>

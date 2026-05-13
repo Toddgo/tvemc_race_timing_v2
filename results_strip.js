@@ -236,6 +236,7 @@ if (!window.__rs_expectedPrev_update_interval) {
     }
   } catch (e) {}
 })();
+})(); // close context-helpers IIFE (opened line 12)
 
 // --- TVEMC: robust station context (GLOBAL) ---
 window.getCurrentStationContext = function () {
@@ -1306,8 +1307,9 @@ function stationNameFromCode(code) {
       const out = [];
       for (const [bib, eFrom] of fromLatest.entries()) {
         // ✅ ADD THESE 4 LINES RIGHT HERE (first thing inside the for loop):
-        if (config.use_out_for_expected && eFrom.pass_type !== 'OUT') {
-          console.log(`  - SKIP bib ${bib}: pass_type="${eFrom.pass_type}" (needs OUT)`);
+        const fromAction = safeAction(eFrom);
+        if (config.use_out_for_expected && fromAction !== "OUT") {
+          console.log(`  - SKIP bib ${bib}: action="${fromAction}" (needs OUT)`);
           continue; // Skip IN passes for events that require OUT
         }
         
@@ -1381,43 +1383,17 @@ function stationNameFromCode(code) {
         if (!nextCode) continue;
     
         if (toSet.has(String(nextCode).toUpperCase())) {
-          const lastMs = parseTsToMs(safePassTs(e));
-          
-          // Get AID_STATION_MAP for this distance
-          const aidMap = window.AID_STATION_MAP?.[dist] || window.__AID_STATION_MAP_DEBUG?.[dist] || [];
-          const curStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === lastCode);
-          const nextStation = aidMap.find(s => String(s.station_code || s.code).toUpperCase() === nextCode);
-          
-          let etaMs = lastMs;
-          let etaTime = safePassTs(e);
-          
-          if (curStation?.mile && nextStation?.mile && lastMs) {
-            // Get race start time
-            const startMs = window.RACE_START_TIMES?.[dist] || 0;
-            if (startMs) {
-              const elapsedSec = (lastMs - startMs) / 1000;
-              const mph = curStation.mile / (elapsedSec / 3600);
-              
-              if (mph > 0 && nextStation.mile > curStation.mile) {
-                const segmentMiles = nextStation.mile - curStation.mile;
-                const travelTimeSec = (segmentMiles / mph) * 3600;
-                etaMs = lastMs + (travelTimeSec * 1000);
-                etaTime = new Date(etaMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
-              }
-            }
-          
-  
           out.push({
             bib,
             last_station: stationNameFromCode(lastCode),
             last_time: safePassTs(e),
-            nextArriving_time: etaTime,
-            eta_utc_ms: etaMs,
             next_station: stationNameFromCode(nextCode),
             distance: dist,
-            _ts: lastMs
+            _ts: parseTsToMs(safePassTs(e))
           });
         }
+      }
+    
       out.sort((a, b) => (b._ts || 0) - (a._ts || 0));
       out.forEach(r => delete r._ts);
       return out;
@@ -1941,7 +1917,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || window.entries || [];
                 let rows = buildStickyDnsRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if ((window.TVEMC_isHQ?.() || false)) {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
@@ -1956,7 +1932,7 @@ function stationNameFromCode(code) {
               () => {
                 const list = window.__rs_lastList || lastList || [];
                 let rows = buildStickyDnfRows(list, STATUS_OVERRIDES);
-                if (String(window.location.search || "").includes("hq=1")) {
+                if ((window.TVEMC_isHQ?.() || false)) {
                   rows = rows.map(r => ({ ...r, CLEAR: "CLEAR" }));
                 }
                 return rows;
@@ -2284,6 +2260,4 @@ function stationNameFromCode(code) {
     
     console.log("✅ ResultsStrip attached:", !!window.ResultsStrip);
     
-    }
     })();  // end IIFE
- });

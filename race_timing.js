@@ -3,7 +3,7 @@
 
 console.log("race_timing.js load", new Date().toISOString());
 
-var event_code = String(window.TVEMC_EVENT_CODE || window.event_code || "AZM-300-2026-0004").trim();
+var event_code = String(window.TVEMC_EVENT_CODE || window.event_code || "").trim();
 
 let __CACHED_FINISH_CODE = null;
 
@@ -46,43 +46,12 @@ function persistDistanceForEvent() {
   localStorage.setItem(key, JSON.stringify(blob));
 }
 
-// Run once after page settles (dropdowns are populated async)
-// Run once after page settles (dropdowns are populated async)
+// Persist station and distance after page fully loads
 window.addEventListener("load", () => {
   setTimeout(() => {
     persistAidStationFromDropdown();
-
-    // ✅ AZM: force correct default distance once
-    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
-    const distSel = document.getElementById("distanceSelect");
-
-    if (ec === "AZM-300-2026-0004" && distSel) {
-      distSel.value = "300M";
-    }
-
-    // Persist whichever distance is now selected (event-scoped)
     persistDistanceForEvent();
   }, 400);
-});
-
-
-// --- TEMP RACE-SAFE: lock distance per event (prevents defaulting to 30K) ---
-window.addEventListener("load", () => {
-  setTimeout(() => {
-    const ec = (typeof getEventCode === "function" ? String(getEventCode() || "").trim() : "");
-    const distSel = document.getElementById("distanceSelect");
-
-    // AZM 300
-    if (ec === "AZM-300-2026-0004" && distSel) {
-      // pick the correct option if present
-      const wanted = "300M"; // <-- change if your actual code differs
-      const has = [...distSel.options].some(o => String(o.value).trim() === wanted);
-      if (has) distSel.value = wanted;
-    }
-
-    // After setting, persist to event-scoped storage
-    persistDistanceForEvent();
-  }, 900);
 });
 
 // Update whenever dropdowns change
@@ -221,12 +190,16 @@ const STATION_NAME_TO_CODE = {
 
   "📍ZUMA EDISION RIDGE MTWY #1": "AS4",
   "ZUMA EDISION RIDGE MTWY #1": "AS4",
+  "📍ZUMA EDISON RIDGE MTWY #1": "AS4",
+  "ZUMA EDISON RIDGE MTWY #1": "AS4",
 
   "📍BONSALL": "AS5",
   "BONSALL": "AS5",
 
   "📍ZUMA EDISION RIDGE MTWY #2": "AS6",
   "ZUMA EDISION RIDGE MTWY #2": "AS6",
+  "📍ZUMA EDISON RIDGE MTWY #2": "AS6",
+  "ZUMA EDISON RIDGE MTWY #2": "AS6",
 
   "📍KANAN ROAD #2": "AS7",
   "KANAN ROAD #2": "AS7",
@@ -294,26 +267,83 @@ function cleanEventCode(ec) {
 }
 
 window.getEventCode = function getEventCode() {
+  // Prefer the SELECT dropdown's current value — it holds the actual event_code (e.g. "TAH200-2026-0007").
+  // NOTE: do NOT fall back to #eventName — that field shows the human-readable event name,
+  // not the event_code, and would cause DB queries to fail.
+  const fromDropdown = document.getElementById("eventCode")?.value || "";
+  if (fromDropdown) return cleanEventCode(fromDropdown);
+
+  // Fallback: URL param (used before the dropdown is populated on first load)
   const qs = new URLSearchParams(window.location.search);
-
-  // ✅ Canonical is ?event=...
   const fromQS = qs.get("event");
+  if (fromQS) return cleanEventCode(fromQS);
 
-  // Fallbacks
+  // Last resort: localStorage
   const fromLS = localStorage.getItem("tvemc_event_code") || "";
-  const fromInput =
-    document.getElementById("eventCode")?.value ||
-    document.getElementById("eventName")?.value ||
-    "";
-
-  return cleanEventCode(fromQS || fromInput || fromLS || "");
+  return cleanEventCode(fromLS || "");
 };
+
+async function loadEventListIntoDropdown() {
+  const sel = document.getElementById("eventCode");
+  if (!sel || sel.tagName !== "SELECT") return;
+
+  try {
+    const res = await fetch("events_load.php?list=1", { cache: "no-store" });
+    if (!res.ok) { console.warn("events_load list failed:", res.status); return; }
+    const events = await res.json();
+    if (!Array.isArray(events) || events.length === 0) { console.warn("events_load list returned no events"); return; }
+
+    // Decide which event to pre-select:
+    // priority: URL ?event= param → localStorage → first in list
+    const qs = new URLSearchParams(window.location.search);
+    const fromQS   = cleanEventCode(qs.get("event") || "");
+    const fromLS   = cleanEventCode(localStorage.getItem("tvemc_event_code") || "");
+    const preferred = fromQS || fromLS || "";
+
+    sel.innerHTML = "";
+    for (const ev of events) {
+      const opt = document.createElement("option");
+      opt.value = ev.event_code;
+      opt.textContent = ev.event_name || ev.event_code;
+      sel.appendChild(opt);
+    }
+
+    // Restore selection
+    if (preferred && [...sel.options].some(o => o.value === preferred)) {
+      sel.value = preferred;
+    }
+    // Persist whatever ended up selected
+    localStorage.setItem("tvemc_event_code", sel.value);
+  } catch (e) {
+    console.warn("loadEventListIntoDropdown failed:", e);
+  }
+}
 
 async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00 
   const event_code = cleanEventCode(getEventCode());
   try {
     const res = await fetch(`events_load.php?event_code=${encodeURIComponent(event_code)}`, { cache: "no-store" });
-    const meta = await res.json();
+
+    if (!res.ok) {
+      console.warn("events_load HTTP error:", res.status, res.statusText);
+      return null;
+    }
+
+    // Guard against empty or non-JSON responses before parsing
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      console.warn("events_load returned empty response for event_code:", event_code);
+      return null;
+    }
+
+    let meta;
+    try {
+      meta = JSON.parse(text);
+    } catch (parseErr) {
+      console.warn("events_load returned non-JSON (preview):", text.slice(0, 200));
+      return null;
+    }
+
     if (!meta || !meta.event_id) {
       console.warn("events_load returned empty/invalid:", meta);
       return null;
@@ -321,10 +351,23 @@ async function loadEventMetaFromServer() {    // Added Feb 6 at 11:00
 
     window.TVEMC_EVENT_META = meta;
 
-    // Ensure your timezone hook is DB-driven
+    // Ensure timezone hook is DB-driven
     window.TVEMC_getEventTimeZone = function() {
       return String((window.TVEMC_EVENT_META && window.TVEMC_EVENT_META.timezone) || "UTC");
     };
+
+    // Always update the Event Name field so the UI reflects the loaded event
+    const eventEl = document.getElementById("eventName");
+    if (eventEl) {
+      eventEl.value = meta.event_name || meta.event_code || event_code;
+    }
+
+    // Update the page heading and browser tab title with the event name
+    const heading = document.getElementById("pageHeading");
+    if (heading) {
+      heading.textContent = meta.event_name || meta.event_code || event_code;
+    }
+    document.title = (meta.event_name || meta.event_code || event_code) + " — TVEMC Race Timing";
 
     console.log("Loaded event meta:", meta);
     return meta;
@@ -390,8 +433,7 @@ function loadData() {
 }
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = (window.TVEMC_isHQ?.() || false);
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -471,7 +513,7 @@ function updateFinishButtonVisibility() {
   const btn = document.getElementById("finishBtn");
   if (!btn) return;
 
-  const isHq = window.location.search.includes("hq=1");
+  const isHq = (window.TVEMC_isHQ?.() || false);
   btn.style.display = isHq ? "inline-block" : "none";
 }
 
@@ -479,8 +521,7 @@ window.addEventListener("load", updateFinishButtonVisibility);
 updateFinishButtonVisibility();
 
 (function initHQTimeMode(){
-  const params = new URLSearchParams(window.location.search || "");
-  const isHQ = params.get("hq") === "1";
+  const isHQ = (window.TVEMC_isHQ?.() || false);
   const box = document.getElementById("hqTimeModeBox");
   const sel = document.getElementById("hqTimeMode");
   const meta = document.getElementById("hqTimeMeta");
@@ -581,7 +622,7 @@ async function isOnline() {
 ----------------------------*/
 function updateSubject() {
   try {
-    const eventName = document.getElementById("eventName")?.value || "AZM-300-2026-0004";
+    const eventName = document.getElementById("eventName")?.value || cleanEventCode(getEventCode()) || "";
     const msgNum = document.getElementById("messageNum")?.value || "1";
     const subjectInput = document.getElementById("subject");
     if (!subjectInput) return;
@@ -603,6 +644,17 @@ function incrementMessage() {
     console.log("Message number incremented to:", msgEl.value);
   } catch (e) {
     console.error("Error incrementing message:", e);
+  }
+}
+
+function refreshResultsStripForCurrentStation() {
+  try {
+    if (!window.ResultsStrip?.update) return;
+    const stationCode = String(document.getElementById("aidStation")?.value || "").trim().toUpperCase();
+    const list = Array.isArray(entries) ? entries : [];
+    window.ResultsStrip.update(list, stationCode);
+  } catch (e) {
+    console.warn("Results strip refresh on station change failed:", e?.message || e);
   }
 }
 
@@ -628,17 +680,63 @@ function updateBibInfo() {
       }
     }
   
-    const bib = (document.getElementById("bibNumber")?.value || "").trim();
+    const rawInput = (document.getElementById("bibNumber")?.value || "").trim();
     const tbody = document.querySelector("#bibInfoTable tbody");
     const table = document.getElementById("bibInfoTable");
     if (!tbody || !table) return;
 
     tbody.innerHTML = "";
 
-    if (!bib || bibList.length === 0) {
+    if (!rawInput || bibList.length === 0) {
       table.style.display = "none";
       return;
     }
+
+    // Multi-bib mode: if commas present, show a summary row for each bib found
+    if (rawInput.includes(",")) {
+      const bibs = rawInput.split(",").map(s => s.trim()).filter(Boolean);
+      const found = bibs.map(b => bibList.find(r =>
+        String(r?.bib ?? r?.bib_number ?? "").trim() === b
+      ));
+      const allFound = found.filter(Boolean);
+
+      if (allFound.length === 0) {
+        table.style.display = "none";
+        return;
+      }
+
+      // Show one row per bib found
+      allFound.forEach(runner => {
+        const row = document.createElement("tr");
+        const rDist = runner?.distance_code || runner?.distance || "N/A";
+        const rPrev = runner?.previousDistance || runner?.previous_distance || "N/A";
+        const rDistStyle = (rDist === "N/A") ? ' style="color:#f90;"' : '';
+        row.innerHTML = `
+          <td>${runner?.bib ?? runner?.bib_number ?? "N/A"}</td>
+          <td>${runner?.firstName ?? runner?.first_name ?? "N/A"}</td>
+          <td>${runner?.lastName ?? runner?.last_name ?? "N/A"}</td>
+          <td>${runner?.age ?? "N/A"}</td>
+          <td>${runner?.gender ?? runner?.Gender ?? "N/A"}</td>
+          <td${rDistStyle}>${rDist}</td>
+          <td>${rPrev}</td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      // Show count if some bibs were not in registry
+      if (allFound.length < bibs.length) {
+        const missing = bibs.length - allFound.length;
+        const noteRow = document.createElement("tr");
+        noteRow.innerHTML = `<td colspan="7" style="color:#f90;font-size:12px;">⚠️ ${missing} bib(s) not found in registry</td>`;
+        tbody.appendChild(noteRow);
+      }
+
+      table.style.display = "table";
+      return;
+    }
+
+    // Single bib mode
+    const bib = rawInput;
     console.log("bibList sample:", bibList[0]);
 
     const runner = bibList.find(r =>
@@ -659,8 +757,9 @@ function updateBibInfo() {
     const ln   = runner?.lastName ?? runner?.last_name ?? "N/A";
     const age  = runner?.age ?? "N/A";
     const gen  = runner?.gender ?? runner?.Gender ?? "N/A";
-    const dist = runner?.distance_code ?? runner?.distance ?? "N/A";
-    const prev = runner?.previousDistance ?? runner?.previous_distance ?? "N/A";
+    const dist = runner?.distance_code || runner?.distance || "N/A";
+    const prev = runner?.previousDistance || runner?.previous_distance || "N/A";
+    const distStyle = (dist === "N/A") ? ' style="color:#f90;"' : '';
     
     row.innerHTML = `
       <td>${rbib}</td>
@@ -668,7 +767,7 @@ function updateBibInfo() {
       <td>${ln}</td>
       <td>${age}</td>
       <td>${gen}</td>
-      <td>${dist}</td>
+      <td${distStyle}>${dist}</td>
       <td>${prev}</td>
     `;
     tbody.appendChild(row);
@@ -831,7 +930,7 @@ async function loadPassesFromServer() {
     const event_code = cleanEventCode(
       (typeof getEventCode === "function")
         ? getEventCode()
-        : (document.getElementById("eventName")?.value || "AZM-300-2026-0004").trim()
+        : (document.getElementById("eventCode")?.value || "").trim()
     );
 
     if (!event_code) return; // keep
@@ -1096,6 +1195,8 @@ async function addEntry(action) {
     const subjectInput = document.getElementById("subject");
     if (subjectInput) subjectInput.value = `${event_code} ${station_name} Message #${messageNum}`;
     
+    let bibsSubmitted = 0;  // track how many bibs made it through without being skipped
+
     for (const bib of bibs) {
       const runner = bibList.find(r => String(r.bib).trim() === String(bib).trim()) || null;
     
@@ -1112,12 +1213,6 @@ async function addEntry(action) {
         }
       }
     
-     // FINISH: if any old cached page still sends FINISH, block with a clear message
-    if (pass_type === "FINISH" && String(station_code).toUpperCase() === "FINISH") {
-      if (showAlerts) alert("FINISH blocked: update your page (finish dropdown must be AS12). Hard refresh this device.");
-      continue;
-    }
-
       // Force FINISH record (HQ/RD only)
      // if (pass_type === "FINISH") {
      //   station_code = "FINISH";
@@ -1131,15 +1226,16 @@ async function addEntry(action) {
           : (runner?.previousDistance || "")
       );
     
-      // Registry safety (distance missing)
+      // Registry safety (distance missing) — always alert, regardless of showAlerts
       if (!distance_code || distance_code === "N/A") {
-        if (showAlerts) alert("Bib not found in registry (distance missing). Load registry or check bib.");
+        alert(`Bib ${bib}: Distance is not populated in the runner registry. Ensure the Distance column is filled in for this bib and reload the registry.`);
         continue; // skip this bib
       }
     
       if (!station_code) {
-       if (showAlerts) alert("Station Code missing — cannot submit. Re-select Aid Station.");
-       continue; // skip this bib safely
+        // Always alert on station missing — this is a blocking operator error
+        alert("Station Code missing — cannot submit. Re-select Aid Station.");
+        continue; // skip this bib safely
       }
     
       // Auto-pass routing for multi-pass stations (Corral/Kanan/Zuma)
@@ -1196,13 +1292,14 @@ async function addEntry(action) {
         console.log("AUTO FLAG CHECK:", { selectedStationCode, auto_base, station_code, station_name, entry });
         entries.unshift(entry);
         saveData();
+        bibsSubmitted++;
         continue;
       }
       
       const distCode = canonicalDistanceCode(safeString(distance_code || ""));
       
       const payload = {
-        event_code: entry.eventName || "AZM-300-2026-0004",
+        event_code: entry.eventName || entry.event_code || cleanEventCode(getEventCode()),
         bib: parseInt(bib, 10),
         distance_code: distCode,
         station_code: safeString(station_code).toUpperCase(),
@@ -1257,6 +1354,16 @@ async function addEntry(action) {
         offlineQueue.push(entry);
         entries.unshift(entry);
         saveData();
+        bibsSubmitted++;
+        // Clear bib box on first queued offline entry so operator is ready for next
+        try {
+          const bibEl = document.getElementById("bibNumber");
+          if (bibEl) { bibEl.value = ""; bibEl.focus(); }
+          const table = document.getElementById("bibInfoTable");
+          if (table) table.style.display = "none";
+          timeLockedByBib = false;
+          if (typeof filterBibLog === "function") filterBibLog();
+        } catch (_) {}
         if (showAlerts) alert("Offline: saved locally and queued.");
         continue;
       }
@@ -1283,10 +1390,10 @@ async function addEntry(action) {
       if (typeof filterBibLog === "function") filterBibLog();
       } catch (_) {}    
 
-        // True validation failure (rare now): do not save as a pass
+        // True validation failure (rare now): do not save as a pass — always alert so operator knows
         if (result && result.success === false) {
           const errMsg = String(result.error || "");
-          if (showAlerts) alert("Submit rejected: " + (errMsg || "Unknown server rejection"));
+          alert("Submit rejected: " + (errMsg || "Unknown server rejection"));
            continue;
     
         }
@@ -1326,6 +1433,7 @@ async function addEntry(action) {
         entries.unshift(entry);
         saveData();
         recomputeStickyStatusSets();
+        bibsSubmitted++;
 
         // Undo/Switch (only if enabled + server gave pass_id)
         if (ENABLE_UNDO_SWITCH && isAuto && result?.pass_id && window.TvemcAutoPassUndo?.show) {
@@ -1364,17 +1472,24 @@ async function addEntry(action) {
           continue;
         }
 
-        // Other errors: do not queue
+        // Other errors: always alert so operator knows
         console.warn("Online submit failed:", em);
-        if (showAlerts) alert("Submit failed: " + em);
+        alert("Submit failed: " + em);
         continue;
       }
       
     }    // ✅ END for (const bib of bibs)
 
+    // Belt-and-suspenders: if every bib was skipped (distance/station errors silenced
+    // the individual alerts but nothing succeeded), give the operator one final summary.
+    // The individual error alerts above now always fire, so this is a last-resort safety net.
+    if (bibsSubmitted === 0 && bibs.length > 0 && action !== "GENERAL") {
+      console.warn("addEntry: 0 bibs submitted out of", bibs.length);
+    }
+
   } catch (e) {
     console.error("Error adding entry:", e);
-    if (showAlerts) alert("Failed to add entry: " + (e?.message || e));
+    alert("Failed to add entry: " + (e?.message || e));
   } finally {
     isSubmitting = false;
     focusBibBox();   // ✅ always restore focus after any submit attempt
@@ -1396,45 +1511,77 @@ function displayTimeForEntry(e) {
   return corrected || (e.time ?? "");
 }
 
-function populateStationDropdownsFromMap(map, distanceCode) {
-  const dist = String(distanceCode || "").trim() || Object.keys(map || {})[0] || "";
-  const list = (map && map[dist]) ? map[dist] : [];
-  const ev = String((typeof getEventCode === "function" ? getEventCode() : "") || "").toUpperCase();
-  const isSOB = ev.includes("SOB"); // apply SOB-only filters/options only for SOB events
-  
-  // Build station options from DB/map
-  let stationOpts = list
-    .map(s => ({
-      value: String(s.station_code || "").trim().toUpperCase(),
-      label: `📍 ${String(s.station_name || "").trim()}`
-    }))
+// Infer the canonical station code from a station name when the DB station_code is NULL.
+// This mirrors the text-matching logic in results_strip.js safeStationCode() so that
+// the dropdown value is always consistent with how bib-log entries are tagged.
+function inferStationCodeFromName(name) {
+  const st = String(name || "").toUpperCase().trim();
+  if (st.includes("CORRAL CANYON #1")) return "AS1";
+  if (st.includes("KANAN ROAD #1"))    return "AS2";
+  if (st.includes("ZUMA") && st.includes("#1")) return "AS4";
+  if (st.includes("BONSALL"))           return "AS5";
+  if (st.includes("ZUMA") && st.includes("#2")) return "AS6";
+  if (st.includes("KANAN ROAD #2"))    return "AS7";
+  if (st.includes("CORRAL CANYON #2")) return "AS8";
+  if (st.includes("BULLDOG") || st.includes("100K TURNAROUND")) return "AS9";
+  if (st.includes("CORRAL CANYON #3")) return "AS10";
+  if (st.includes("PIUMA") || st.includes("PUMA")) return "AS11";
+  if (st.includes("FINISH LINE") || st === "FINISH") return "FINISH";
+  if (st.includes("TURNAROUND") && st.includes("30K")) return "T30K";
+  return "";
+}
+
+function populateStationDropdownsFromMap(map) {
+  const eventCode = String(
+    (typeof getEventCode === "function" ? getEventCode() : "") || ""
+  ).trim();
+  const ev = eventCode.toUpperCase();
+  const isSOB = ev.includes("SOB"); // keep for SOB-specific AUTO channel options
+
+  /*
+    Aid Station dropdowns are populated EVENT-WIDE from all unique station_name values.
+    This means adding a new event to the DB is enough — no code changes required.
+
+    map = { "100K": [stations...], "200M": [stations...], ... }
+  */
+  const allStations = Object.values(map || {}).flat();
+
+  const seen = new Set();
+  const uniqueStations = [];
+
+  allStations.forEach(s => {
+    const stationName = String(s.station_name || "").trim();
+    if (!stationName) return;
+    // Deduplicate by station_name — the physical location operators know
+    const key = stationName.toUpperCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueStations.push(s);
+    }
+  });
+
+  // Sort by station_order if available
+  uniqueStations.sort((a, b) => {
+    const ao = Number(a.station_order || 9999);
+    const bo = Number(b.station_order || 9999);
+    return ao - bo;
+  });
+
+  // Build options: value = station_code when available (backend key), else infer from
+  // station name (so the dropdown value matches what safeStationCode() returns for entries),
+  // falling back to the raw station name only if no code can be inferred.
+  const stationOpts = uniqueStations
+    .map(s => {
+      const code = String(s.station_code || "").trim().toUpperCase();
+      const name = String(s.station_name || "").trim();
+      const resolvedCode = code || inferStationCodeFromName(name);
+      return {
+        value: resolvedCode || name,
+        label: `📍 ${name}`
+      };
+    })
     .filter(o => o.value);
 
-// Added Feb 11 at 22:50 with Global helper
-window.addEventListener("load", () => setTimeout(persistDistanceForEvent, 400));
-
-document.addEventListener("change", (e) => {
-  if (e.target && (e.target.id === "distanceSelect" || e.target.id === "distance_code" || e.target.id === "distanceCode")) {
-    persistDistanceForEvent();
-  }
-});
-
-  // ---------------------------
-  // TEMP SAFETY FILTER (v2 migration)
-  // Prevent phantom codes like AS3 that cause 400s.
-  // Once aid_stations.station_code is populated for the event, REMOVE this filter.
-  // ---------------------------
-  if (isSOB) {
-  const TEMP_VALID_CODES = new Set([
-    "START","FINISH",
-    "AS1","AS2","AS4","AS5","AS6","AS7","AS8","AS9","AS10","AS11",
-    "T30K",
-    // allow any explicitly provided AUTO codes too (even though they are synthetic)
-    "CORRAL_AUTO","KANAN_AUTO","ZUMA_AUTO"
-  ]);
-  stationOpts = stationOpts.filter(o => TEMP_VALID_CODES.has(o.value));
-  }
-  
   // AUTO group options (UI views, not DB stations)
   const autoOpts = isSOB ? [
   { value: "CORRAL_AUTO", label: "📍 CORRAL CANYON (AUTO)" },
@@ -1481,7 +1628,24 @@ document.addEventListener("change", (e) => {
     append: hqExtras
   });
 
-  console.log("Dropdowns populated for distance:", dist, "stations:", stationOpts.length);
+  console.log("Dropdowns populated event-wide:", eventCode, "stations:", stationOpts.length, stationOpts.map(o => o.label));
+
+  // Restore the user's station selection NOW that the options actually exist.
+  // restoreHeaderFields() ran earlier (before these options existed) so the value
+  // assignment silently failed there.  We do it here so the dropdown shows the
+  // correct station and so persistAidStationFromDropdown() saves the right code.
+  const _asEl = document.getElementById("aidStation");
+  if (_asEl) {
+    const _savedAS = String(
+      sessionStorage.getItem("tvemc_aidStation") ||
+      localStorage.getItem("tvemc_aidStation") ||
+      ""
+    ).trim().toUpperCase();
+    if (_savedAS) {
+      _asEl.value = _savedAS; // silently a no-op if the option doesn't exist
+    }
+  }
+
   persistAidStationFromDropdown();
   persistDistanceForEvent();
 
@@ -1715,8 +1879,8 @@ async function syncOfflineEntries() {
     const entry = offlineQueue[i];
 
     const payload = {
-      event_code: entry.eventName || "AZM-300-2026-0004",
-      bib: parseInt(entry.bib_number, 10),
+      event_code: entry.eventName || entry.event_code || cleanEventCode(getEventCode()),
+      bib: parseInt(entry.bib_number || entry.bib || 0, 10),
       distance_code: canonicalDistanceCode(safeString(entry.distance_code || entry.distance || "")),
       station_code: safeString(entry.station_code || ""),
       pass_type: safeString(entry.action).toUpperCase(),
@@ -1738,11 +1902,11 @@ async function syncOfflineEntries() {
 }
 
 function restoreHeaderFields() {
-  // Event name: default if empty, but user can change it
+  // Event name: restore from localStorage if saved; otherwise leave blank (loadEventMetaFromServer will populate it)
   const eventEl = document.getElementById("eventName");
   if (eventEl) {
     const savedEvent = localStorage.getItem("tvemc_eventName");
-    eventEl.value = (savedEvent && savedEvent.trim()) ? savedEvent : (eventEl.value || "AZM-300-2026-0004");
+    if (savedEvent && savedEvent.trim()) eventEl.value = savedEvent;
   }
 
   // Message number (optional to persist right now)
@@ -1785,6 +1949,7 @@ function restoreHeaderFields() {
       try { sessionStorage.setItem("tvemc_aidStation", sc); } catch (err) {}
       localStorage.setItem("tvemc_aidStation", sc);
       updateSubject();
+      refreshResultsStripForCurrentStation();
     });
   }
 }
@@ -1795,6 +1960,22 @@ function restoreHeaderFields() {
 }
 
 function wireHeaderFieldPersistence() {
+  // When the operator changes the Event dropdown, persist and reload everything
+  const ecEl = document.getElementById("eventCode");
+  if (ecEl) {
+    const reloadForEvent = async () => {
+      localStorage.setItem("tvemc_event_code", ecEl.value || "");
+      await loadAidStationsFromServer();
+      populateStationDropdownsFromMap(AID_STATION_MAP);
+      await loadEventMetaFromServer();
+      await loadRunnerRegistryFromServer();
+      updateBibInfo();
+      try { await loadStartTimesFromDBIntoUI(); } catch (e) { console.warn("Start times reload skipped:", e.message); }
+      updateSubject();
+    };
+    ecEl.addEventListener("change", reloadForEvent);
+  }
+
   document.getElementById("eventName")?.addEventListener("input", (e) => {
     localStorage.setItem("tvemc_eventName", e.target.value || "");
     updateSubject();
@@ -1823,6 +2004,7 @@ function wireHeaderFieldPersistence() {
   localStorage.setItem("tvemc_aidStation", sc);
 
   updateSubject();
+  refreshResultsStripForCurrentStation();
 });
 }
 
@@ -1917,11 +2099,19 @@ function setupFastTabAndAlerts() {
     });
   }
 
-  // ===== Intercept TAB from Bib Number =====
+  // ===== Intercept TAB and ENTER from Bib Number =====
   const bibEl = document.getElementById("bibNumber");
   if (!bibEl) return;
 
   bibEl.addEventListener("keydown", (e) => {
+    // Enter key: always submit as IN (numpad Enter, keyboard Enter)
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addEntry("IN");
+      return;
+    }
+
+    // Tab key (fast mode): move focus to IN button
     if (!fastTabOn) return;
     if (e.key !== "Tab") return;
     if (e.shiftKey) return;     // keep Shift+Tab normal
@@ -1940,7 +2130,7 @@ function showDistancePopup() {
 
   const bib = (document.getElementById("bibNumber")?.value || "").trim();
   if (!bib) {
-    if (showAlerts) alert("Enter a Bib Number first, then Change Distance.");
+    alert("Enter a Bib Number first, then Change Distance.");
     return;
   }
 
@@ -1974,119 +2164,115 @@ async function updateDistance(e) {
 
   const bibStr = (document.getElementById("bibNumber")?.value || "").trim();
   const newDist = (document.getElementById("distanceSelect")?.value || "").trim();
-  
 
   if (!bibStr || !newDist) {
-    if (showAlerts) alert("Missing Bib Number or Distance selection.");
+    alert("Missing Bib Number or Distance selection.");
     return;
   }
 
-  const runner = bibList.find(r => String(r.bib).trim() === String(bibStr).trim());
-  if (!runner) {
-    if (showAlerts) alert("Bib not found in runner list.");
+  // Support comma-separated multi-bib input (e.g. "5,6,7,8")
+  const bibs = bibStr.split(",").map(s => s.trim()).filter(Boolean);
+
+  // DNS is a STATUS (pass_type), NOT a distance — delegate to addEntry which handles multi-bib.
+  if (newDist.toUpperCase() === "DNS") {
+    // Pre-fill note box once (addEntry will see it)
+    const noteBox = document.getElementById("comment");
+    if (noteBox && !noteBox.value.trim()) {
+      noteBox.value = "DNS (Did Not Start)";
+    }
+
+    await addEntry("DNS");
+
+    // Force UI + cards to refresh after DNS submit (race-safe)
+    try {
+      const bibEl = document.getElementById("bibNumber");
+      if (bibEl) bibEl.value = "";
+      if (typeof clearRunnerInfoPanel === "function") clearRunnerInfoPanel();
+
+      setTimeout(async () => {
+        try { if (typeof renderBibLog === "function") await renderBibLog(); } catch {}
+        try { if (typeof loadPasses === "function") await loadPasses(); } catch {}
+        try { if (typeof refreshStatusOverrides === "function") await refreshStatusOverrides(); } catch {}
+        try { if (typeof refreshCards === "function") await refreshCards(); } catch {}
+      }, 0);
+    } catch {}
+
+    closeDistancePopup();
+    if (showAlerts) alert(`DNS recorded for Bib(s) ${bibStr}`);
     return;
   }
-  
-// DNS is a STATUS (pass_type), NOT a distance.
-// Do NOT set runner.distance = "DNS".
-    if (newDist.toUpperCase() === "DNS") {
-      const oldDist = runner.distance || runner.previousDistance || "N/A";
-    
-      // Put a helpful note if blank
-      const noteBox = document.getElementById("comment");
-      if (noteBox && !noteBox.value.trim()) {
-        noteBox.value = `DNS (Did Not Start) — distance ${oldDist}`;
-      }
-    
-              // Safety: prevent addEntry from crashing if sticky helper is missing   Jan 25 at 19:33
-              // function getStickyStatusForBib(bib) {
-              // return { dns: false, dnf: false, finish: false, note: "" };
-              // }
-    
-      // Submit a DNS pass entry
-      await addEntry("DNS");
-    
-     // Force UI + cards to refresh after DNS submit (race-safe)
-      try {
-        // Clear the runner panel and bib input (prevents operator confusion)
-        const bibEl = document.getElementById("bibNumber");
-        if (bibEl) bibEl.value = "";
-        if (typeof clearRunnerInfoPanel === "function") clearRunnerInfoPanel();
 
-        // Let the browser repaint before heavy reloads
-        setTimeout(async () => {
-          try {
-            if (typeof renderBibLog === "function") await renderBibLog();
-          } catch {}
-          try {
-            if (typeof loadPasses === "function") await loadPasses();
-          } catch {}
-          try {
-            if (typeof refreshStatusOverrides === "function") await refreshStatusOverrides();
-          } catch {}
-          try {
-            if (typeof refreshCards === "function") await refreshCards();
-          } catch {}
-        }, 0);
-      } catch {}
+  // Non-DNS distance change: update each bib's runner record in bibList
+  const notFound = [];
+  const updated  = [];
 
-      closeDistancePopup();
-      if (showAlerts) alert(`DNS recorded for Bib ${bibStr} (${oldDist})`);
-      return;
+  for (const bib of bibs) {
+    const runner = bibList.find(r => String(r.bib).trim() === bib);
+    if (!runner) {
+      notFound.push(bib);
+      continue;
+    }
+    runner.previousDistance = runner.distance || runner.previousDistance || "N/A";
+    runner.distance = newDist;
+    updated.push(bib);
   }
-    
-  runner.previousDistance = runner.distance || runner.previousDistance || "N/A";
-  runner.distance = newDist;
+
+  if (notFound.length) {
+    alert(`Bib(s) not found in runner list: ${notFound.join(", ")}`);
+  }
+
+  if (!updated.length) {
+    return;
+  }
 
   updateBibInfo();
 
-  const oldDist = runner.previousDistance || "N/A";
   const noteBox = document.getElementById("comment");
   if (noteBox && !noteBox.value.trim()) {
-    noteBox.value = `Distance changed ${oldDist} → ${newDist}`;
+    noteBox.value = updated.length === 1
+      ? `Distance changed → ${newDist}`
+      : `Distance changed → ${newDist} for bibs ${updated.join(", ")}`;
   }
 
-  // Optional: set manual runner start override (per bib)
-  try {
-    const bibNum = parseInt(bibStr || "0", 10);
-    if (bibNum > 0) {
-      const doOverride = confirm("Override start time for this runner? (OK = yes, Cancel = no)");
-      if (doOverride) {
-        const suggested =
-          (window.TVEMC_runnerStartByBib?.get(String(bibNum)) ||
-           window.TVEMC_startByDistance?.get(String(newDist)) ||
-           "");
+  // Start-time override only makes sense for a single bib
+  if (updated.length === 1) {
+    try {
+      const bibNum = parseInt(updated[0], 10);
+      if (bibNum > 0) {
+        const doOverride = confirm("Override start time for this runner? (OK = yes, Cancel = no)");
+        if (doOverride) {
+          const suggested =
+            (window.TVEMC_runnerStartByBib?.get(String(bibNum)) ||
+             window.TVEMC_startByDistance?.get(String(newDist)) ||
+             "");
 
-        const input = prompt("Enter start time (YYYY-MM-DD HH:MM:SS)", suggested);
-        if (input && input.trim()) {
-          const event_code = (window.TVEMC_EVENT_CODE || "AZM-300-2026-0004").trim();
-          const set_by = (document.getElementById("operatorName")?.value || "").trim() || "station";
-          const reason = "Distance change";
+          const input = prompt("Enter start time (YYYY-MM-DD HH:MM:SS)", suggested);
+          if (input && input.trim()) {
+            const event_code = cleanEventCode(window.TVEMC_EVENT_CODE || getEventCode());
+            const set_by = (document.getElementById("operatorName")?.value || "").trim() || "station";
 
-          await window.saveRunnerStartOverride({
-            event_code,
-            bib: bibNum,
-            start_ts_actual: input.trim(),
-            reason,
-            set_by
-          });
+            await window.saveRunnerStartOverride({
+              event_code,
+              bib: bibNum,
+              start_ts_actual: input.trim(),
+              reason: "Distance change",
+              set_by
+            });
 
-          // Update local map so results update immediately
-          if (window.TVEMC_runnerStartByBib) {
-            window.TVEMC_runnerStartByBib.set(String(bibNum), input.trim());
-            // optional: refresh config on next results compute
-            // (or call loadResultsConfig() if you want immediate refresh)
-           }
-          alert("Runner start override saved.");
+            if (window.TVEMC_runnerStartByBib) {
+              window.TVEMC_runnerStartByBib.set(String(bibNum), input.trim());
+            }
+            alert("Runner start override saved.");
+          }
         }
       }
+    } catch (err) {
+      alert("Start override failed: " + err.message);
     }
-  } catch (err) {
-    alert("Start override failed: " + err.message);
   }
 
   closeDistancePopup();
-  if (showAlerts) alert(`Distance updated for Bib ${bibStr}: ${oldDist} → ${newDist}`);
+  if (showAlerts) alert(`Distance updated for Bib(s) ${updated.join(", ")} → ${newDist}`);
 }
 
 
@@ -2630,6 +2816,7 @@ async function saveStartTimes() {
 
     const times = {
       "30K":  localInputToDb(document.getElementById("start_30K")?.value),
+      "20M":  localInputToDb(document.getElementById("start_20M")?.value),
       "26.2": localInputToDb(document.getElementById("start_26_2")?.value),
       "50K":  localInputToDb(document.getElementById("start_50K")?.value),
       "50M":  localInputToDb(document.getElementById("start_50M")?.value),
@@ -2716,11 +2903,38 @@ async function loadStartTimesFromDBIntoUI() {
     const map = {};
     for (const r of rows) {
       const dc = String(r.distance_code || "").trim();
-      const ts = String(r.start_ts || "").trim(); // "YYYY-MM-DD HH:MM:SS"
+      const ts = String(r.start_ts || "").trim(); // "YYYY-MM-DD HH:MM:SS" (stored as local time)
       if (dc && ts) map[dc] = ts;
     }
 
-    // Convert "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM" for datetime-local
+    // Also populate window.TVEMC_startByDistance so computeElapsedPaceEta() works immediately.
+    // Convert "YYYY-MM-DD HH:MM:SS" to a Date by appending the event timezone offset.
+    // The event timezone is provided by TVEMC_getEventTimeZone() (defaults to America/Los_Angeles).
+    const isoMap = {};
+    for (const [dc, ts] of Object.entries(map)) {
+      // Treat stored value as local time in the event timezone.
+      // Approximate: parse as America/Los_Angeles using Intl to get the ISO offset.
+      try {
+        const raw = ts.replace(" ", "T");
+        // Get the UTC offset for this specific datetime in the event timezone
+        const tz = (typeof window.TVEMC_getEventTimeZone === "function")
+          ? window.TVEMC_getEventTimeZone()
+          : "America/Los_Angeles";
+        const d = new Date(raw); // treat as local browser time temporarily
+        // Re-parse as the correct timezone using a known-good trick
+        const localeStr = new Date(raw).toLocaleString("en-US", { timeZone: tz });
+        const offset = (new Date(raw).getTime() - new Date(localeStr).getTime());
+        const utcMs = new Date(raw).getTime() + offset;
+        isoMap[dc] = new Date(utcMs).toISOString();
+      } catch {
+        isoMap[dc] = ts; // fallback: store raw string
+      }
+    }
+    window.TVEMC_startByDistance = new Map(Object.entries(isoMap));
+    window.TVEMC_startByDistanceRaw = new Map(Object.entries(map));
+    console.log("Start times loaded into map:", [...window.TVEMC_startByDistance.keys()]);
+
+    // Convert "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM" for datetime-local inputs
     const toLocalInput = (ts) => ts ? ts.replace(" ", "T").slice(0, 16) : "";
 
     const setVal = (id, v) => {
@@ -2729,6 +2943,7 @@ async function loadStartTimesFromDBIntoUI() {
     };
 
     setVal("start_30K",  toLocalInput(map["30K"]));
+    setVal("start_20M",  toLocalInput(map["20M"]));
     setVal("start_26_2", toLocalInput(map["26.2"]));
     setVal("start_50K",  toLocalInput(map["50K"]));
     setVal("start_50M",  toLocalInput(map["50M"]));
@@ -2979,7 +3194,7 @@ function sortBibTable(col) {
 
 // Timing Module Jan 7 11:56
 async function loadResultsConfig() {
-  const eventCode = window.TVEMC_EVENT_CODE || document.getElementById("eventName")?.value;
+  const eventCode = cleanEventCode(getEventCode());
   const res = await fetch(`results_config_load.php?event_code=${encodeURIComponent(eventCode)}`, { cache: "no-store" });
   const data = await res.json();
   if (!data.success) throw new Error("Results config load failed");
@@ -3280,6 +3495,134 @@ async function loadRunnerRegistryFromServer() {
   bibList = rows;
   window.bibList = bibList;
   console.log("Runner registry loaded:", bibList.length);
+
+  // Cache roster to localStorage so bib lookup works if page reloads while offline
+  try {
+    localStorage.setItem(
+      `tvemc_runnerRoster_${ec}`,
+      JSON.stringify({ saved_at: new Date().toISOString(), runners: rows })
+    );
+  } catch (e) {
+    console.warn("Runner roster cache save failed:", e.message);
+  }
+}
+
+/* ---------------------------
+   Field Mode (10-key numpad)
+----------------------------*/
+let _fmBib = "";
+
+function toggleFieldMode() {
+  const overlay = document.getElementById("fieldModeOverlay");
+  if (!overlay) return;
+
+  const isVisible = overlay.style.display === "flex";
+  if (isVisible) {
+    overlay.style.display = "none";
+    document.body.style.overflow = "";
+  } else {
+    _fmBib = "";
+    _fmUpdateDisplay();
+
+    // Populate event/station labels from main UI
+    const evtEl = document.getElementById("eventName");
+    const stEl  = document.getElementById("aidStation");
+    const fmEvt = document.getElementById("fmEventLabel");
+    const fmSt  = document.getElementById("fmStationLabel");
+    if (fmEvt) fmEvt.textContent = evtEl ? (evtEl.value || "") : "";
+    if (fmSt)  fmSt.textContent  = stEl  ? (stEl.selectedOptions?.[0]?.textContent || "") : "";
+
+    overlay.style.display = "flex";
+    document.body.style.overflow = "hidden";  // prevent scroll behind overlay
+  }
+}
+
+function fieldModeKey(digit) {
+  if (_fmBib.length >= 6) return;   // Field Mode is single-bib only (numpad overlay); 6-digit max covers all bib numbers
+  _fmBib += digit;
+  _fmUpdateDisplay();
+}
+
+function fieldModeBackspace() {
+  _fmBib = _fmBib.slice(0, -1);
+  _fmUpdateDisplay();
+}
+
+function _fmUpdateDisplay() {
+  const el = document.getElementById("fmBibDisplay");
+  if (el) el.textContent = _fmBib || "--";
+}
+
+function fieldModeSubmit(action) {
+  if (!_fmBib) return;
+
+  const submittedBib = _fmBib;
+
+  // Push the bib into the main form's bib input and call addEntry
+  const bibEl = document.getElementById("bibNumber");
+  if (bibEl) {
+    bibEl.value = submittedBib;
+    updateBibInfo();
+  }
+
+  // Run addEntry — overlay stays open so the operator can enter the next bib
+  addEntry(action);
+
+  // Show a brief "✓ BIB submitted" flash on the overlay then clear for next entry
+  const disp = document.getElementById("fmBibDisplay");
+  const flash = document.getElementById("fmFlash");
+  if (disp) disp.textContent = "✓ " + submittedBib;
+  if (flash) {
+    flash.textContent = action + " logged";
+    flash.style.opacity = "1";
+  }
+  setTimeout(() => {
+    _fmBib = "";
+    _fmUpdateDisplay();
+    if (flash) flash.style.opacity = "0";
+  }, 1000);
+}
+
+function fieldModeChangeDist() {
+  if (!_fmBib) { alert("Enter a Bib Number first."); return; }
+  const label = document.getElementById("fmDistBibLabel");
+  if (label) label.textContent = "Bib #" + _fmBib;
+  const panel = document.getElementById("fmDistPanel");
+  if (panel) { panel.style.display = "flex"; }
+}
+
+function fieldModeCancelDist() {
+  const panel = document.getElementById("fmDistPanel");
+  if (panel) panel.style.display = "none";
+}
+
+async function fieldModeConfirmDist() {
+  const newDist = (document.getElementById("fmDistSel")?.value || "").trim();
+  if (!newDist) return;
+
+  // Populate main form fields that updateDistance() reads
+  const bibEl = document.getElementById("bibNumber");
+  if (bibEl) { bibEl.value = _fmBib; updateBibInfo(); }
+  const distSel = document.getElementById("distanceSelect");
+  if (distSel) distSel.value = newDist;
+
+  // Hide the picker panel first
+  fieldModeCancelDist();
+
+  // Run the existing updateDistance logic
+  await updateDistance();
+
+  // Flash confirmation
+  const flash = document.getElementById("fmFlash");
+  if (flash) {
+    flash.textContent = "Dist → " + newDist + " saved";
+    flash.style.opacity = "1";
+  }
+  setTimeout(() => {
+    _fmBib = "";
+    _fmUpdateDisplay();
+    if (flash) flash.style.opacity = "0";
+  }, 1200);
 }
 
 /* ---------------------------
@@ -3293,12 +3636,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   wireHeaderFieldPersistence();
   
   // ✅ Data bootstrap (must be early)
+  // Populate Event dropdown first so getEventCode() reads the correct value
+  await loadEventListIntoDropdown();
   await loadEventMetaFromServer();
   await loadAidStationsFromServer();
   await loadRunnerRegistryFromServer();
-  // Pick a default distance for dropdowns (use event primary later) Added Feb 6 14:17 with Line 1263
-  const defaultDist = Object.keys(AID_STATION_MAP || {})[0] || "";
-  populateStationDropdownsFromMap(AID_STATION_MAP, defaultDist);
+  populateStationDropdownsFromMap(AID_STATION_MAP);
 
 
  // Now that meta+stations exist, you can update derived UI
@@ -3321,15 +3664,34 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Attach listeners
   document.getElementById("eventName")?.addEventListener("input", updateSubject);
-  document.getElementById("aidStation")?.addEventListener("change", updateSubject);
+  document.getElementById("aidStation")?.addEventListener("change", () => {
+    updateSubject();
+    refreshResultsStripForCurrentStation();
+  });
   document.getElementById("messageNum")?.addEventListener("input", updateSubject);
   document.getElementById("bibNumber")?.addEventListener("input", updateBibInfo);
 
-  // Pull runners from DB if online
+  // Pull runners from DB if online; fall back to cached roster if offline
   try {
     if (await isOnline()) {
       await loadRunnerRegistryFromServer();
       updateBibInfo();
+    } else {
+      // Offline: restore runner roster from localStorage cache so bib lookup still works
+      const ec = (typeof getEventCode === "function") ? getEventCode() : "";
+      if (ec) {
+        try {
+          const cached = JSON.parse(localStorage.getItem(`tvemc_runnerRoster_${ec}`) || "null");
+          if (cached && Array.isArray(cached.runners) && cached.runners.length) {
+            bibList = cached.runners;
+            window.bibList = bibList;
+            console.log(`Runner roster restored from cache (${bibList.length} runners, saved ${cached.saved_at})`);
+            updateBibInfo();
+          }
+        } catch (e) {
+          console.warn("Runner roster cache restore failed:", e.message);
+        }
+      }
     }
   } catch (e) {
     console.warn("Runners auto-load skipped:", e.message);
@@ -3415,3 +3777,11 @@ window.exportBibWinlinkTxt_v2 = exportBibWinlinkTxt_v2;
 window.importCSV = importCSV;
 window.importBibList = importBibList;
 window.importRadioWinlinkTxt = importRadioWinlinkTxt;
+
+window.toggleFieldMode      = toggleFieldMode;
+window.fieldModeKey         = fieldModeKey;
+window.fieldModeBackspace   = fieldModeBackspace;
+window.fieldModeSubmit      = fieldModeSubmit;
+window.fieldModeChangeDist  = fieldModeChangeDist;
+window.fieldModeConfirmDist = fieldModeConfirmDist;
+window.fieldModeCancelDist  = fieldModeCancelDist;
